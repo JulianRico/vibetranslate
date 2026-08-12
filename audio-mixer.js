@@ -1,213 +1,224 @@
 /**
  * audio-mixer.js - WebRTC Audio Mixer (MAIN World)
  * ====================================================================
- * DOBLE INTERCEPCIÓN:
- *   1. navigator.mediaDevices.getUserMedia → captura el mic original
- *   2. RTCPeerConnection.prototype.addTrack → REEMPLAZA el audio
- *      que WebRTC envía al participante remoto con nuestro mixer.
+ * ESTRATEGIA: replaceTrack() post-conexión
  *
- * Esto GARANTIZA que el audio que viaja por la llamada sea el del mixer,
- * independientemente de cómo Google Meet/Zoom/Teams gestione el audio.
+ * En lugar de intentar modificar el stream ANTES de que Meet lo use
+ * (lo cual Meet puede ignorar o revertir), dejamos que Meet configure
+ * su conexión WebRTC normalmente con el micrófono original.
+ *
+ * DESPUÉS de que la conexión está establecida, usamos
+ * RTCRtpSender.replaceTrack() para sustituir silenciosamente el
+ * audio que se envía al participante remoto con nuestro mixer
+ * (que combina mic original + TTS traducido).
+ *
+ * replaceTrack() es una API estándar de WebRTC que cambia el track
+ * de un sender activo SIN renegociación — Meet NO puede detectarlo.
  * ====================================================================
  */
 (function () {
   'use strict';
 
-  // ── Referencias originales ──
-  const _origGetUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  const _origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
   const _origAddTrack = RTCPeerConnection.prototype.addTrack;
-  const _origAddStream = RTCPeerConnection.prototype.addStream;
 
   let audioCtx = null;
-  let mixerDestination = null;
-  let micSourceNode = null;
-  let micGainNode = null;   // 0 = silenciado, 1 = activo
-  let ttsGainNode = null;   // Control de volumen TTS
-  let isMixerActive = false;
-  let originalMicTrack = null; // Track original del mic para crear el mixer como fallback
+  let mixerDest = null;
+  let micGain = null;
+  let ttsGain = null;
+  let isMixerReady = false;
+  let capturedMicStream = null;
 
-  /**
-   * Inicializa el mixer a partir de un AudioTrack.
-   */
-  function setupMixerFromTrack(audioTrack) {
-    try {
-      if (!audioCtx || audioCtx.state === 'closed') {
-        audioCtx = new AudioContext({ sampleRate: 48000 });
-      }
-
-      mixerDestination = audioCtx.createMediaStreamDestination();
-
-      // Canal del micrófono
-      micGainNode = audioCtx.createGain();
-      micGainNode.gain.value = 1.0;
-
-      const trackStream = new MediaStream([audioTrack]);
-      micSourceNode = audioCtx.createMediaStreamSource(trackStream);
-      micSourceNode.connect(micGainNode);
-      micGainNode.connect(mixerDestination);
-
-      // Canal TTS
-      ttsGainNode = audioCtx.createGain();
-      ttsGainNode.gain.value = 2.0;
-      ttsGainNode.connect(mixerDestination);
-
-      isMixerActive = true;
-      originalMicTrack = audioTrack;
-
-      notifyStatus('MIXER_ACTIVE');
-      console.log('[MeetTranslate Mixer] ✅ Mixer creado desde AudioTrack');
-    } catch (err) {
-      console.warn('[MeetTranslate Mixer] Error creando mixer desde track:', err);
-    }
-  }
-
-  /**
-   * Obtiene el track de audio mixto del mixer.
-   */
-  function getMixedAudioTrack() {
-    if (mixerDestination) {
-      const tracks = mixerDestination.stream.getAudioTracks();
-      if (tracks.length > 0) return tracks[0];
-    }
-    return null;
-  }
+  // Mapa de senders cuyo track fue reemplazado + track original
+  const senderMap = new Map();
+  // Guardar original track getter para camuflaje
+  const origTrackDesc = Object.getOwnPropertyDescriptor(RTCRtpSender.prototype, 'track');
 
   // ══════════════════════════════════════════════════════════════════
-  // INTERCEPCIÓN 1: getUserMedia → captura el stream del mic
+  // 1. Interceptar getUserMedia para CAPTURAR el mic stream
+  //    (devolvemos el stream original SIN MODIFICAR a Meet)
   // ══════════════════════════════════════════════════════════════════
   navigator.mediaDevices.getUserMedia = async function (constraints) {
-    const originalStream = await _origGetUserMedia(constraints);
+    const stream = await _origGUM(constraints);
 
-    if (!constraints || !constraints.audio) {
-      return originalStream;
+    if (constraints && constraints.audio && stream.getAudioTracks().length > 0) {
+      capturedMicStream = stream;
+      initMixer(stream);
+      console.log('[MT Mixer] 🎙️ Mic stream capturado para mixer');
     }
 
-    const audioTracks = originalStream.getAudioTracks();
-    if (audioTracks.length === 0) {
-      return originalStream;
-    }
-
-    try {
-      if (!audioCtx || audioCtx.state === 'closed') {
-        audioCtx = new AudioContext({ sampleRate: 48000 });
-      }
-      if (audioCtx.state === 'suspended') {
-        await audioCtx.resume();
-      }
-
-      mixerDestination = audioCtx.createMediaStreamDestination();
-
-      // Canal micrófono
-      micGainNode = audioCtx.createGain();
-      micGainNode.gain.value = 1.0;
-      micSourceNode = audioCtx.createMediaStreamSource(originalStream);
-      micSourceNode.connect(micGainNode);
-      micGainNode.connect(mixerDestination);
-
-      // Canal TTS
-      ttsGainNode = audioCtx.createGain();
-      ttsGainNode.gain.value = 2.0;
-      ttsGainNode.connect(mixerDestination);
-
-      isMixerActive = true;
-      originalMicTrack = audioTracks[0];
-
-      // Construir stream mixto
-      const mixedStream = new MediaStream();
-      mixerDestination.stream.getAudioTracks().forEach(t => mixedStream.addTrack(t));
-      originalStream.getVideoTracks().forEach(t => mixedStream.addTrack(t));
-
-      notifyStatus('GUM_INTERCEPTED');
-      console.log('[MeetTranslate Mixer] ✅ getUserMedia interceptado — Stream mixto creado');
-      return mixedStream;
-
-    } catch (err) {
-      console.warn('[MeetTranslate Mixer] Error en getUserMedia override:', err);
-      return originalStream;
-    }
+    // Devolver stream ORIGINAL sin modificar — Meet lo usa normalmente
+    return stream;
   };
 
   // ══════════════════════════════════════════════════════════════════
-  // INTERCEPCIÓN 2: RTCPeerConnection.addTrack → REEMPLAZA el audio
-  // que WebRTC envía al participante remoto
+  // 2. Interceptar addTrack para detectar cuándo Meet agrega audio
+  //    a WebRTC, y programar el reemplazo silencioso
   // ══════════════════════════════════════════════════════════════════
   RTCPeerConnection.prototype.addTrack = function (track, ...streams) {
+    const sender = _origAddTrack.call(this, track, ...streams);
+
     if (track.kind === 'audio') {
-      // Si el mixer no está activo, configurarlo ahora usando este track
-      if (!isMixerActive) {
-        console.log('[MeetTranslate Mixer] ⚡ getUserMedia no interceptado, configurando mixer desde addTrack');
-        setupMixerFromTrack(track);
+      console.log('[MT Mixer] 📡 Audio track agregado a RTCPeerConnection');
+
+      // Si no tenemos el mic stream todavía, capturarlo del track
+      if (!capturedMicStream) {
+        capturedMicStream = new MediaStream([track]);
+        initMixer(capturedMicStream);
       }
 
-      // Reemplazar el track de audio con nuestro track mixto
-      const mixedTrack = getMixedAudioTrack();
-      if (mixedTrack) {
-        console.log('[MeetTranslate Mixer] 🔄 Audio track REEMPLAZADO en WebRTC con mixer');
-        notifyStatus('TRACK_REPLACED');
-        return _origAddTrack.call(this, mixedTrack, ...streams);
-      }
+      // Programar reemplazo DESPUÉS de que Meet termine su setup
+      scheduleTrackReplace(sender, track);
     }
 
-    return _origAddTrack.call(this, track, ...streams);
+    return sender;
   };
 
   // ══════════════════════════════════════════════════════════════════
-  // INTERCEPCIÓN 3: RTCPeerConnection.addStream (API legacy)
+  // 3. Camuflaje: ocultar el reemplazo de track a Meet
+  //    Si Meet consulta sender.track, ve el track original
   // ══════════════════════════════════════════════════════════════════
-  if (_origAddStream) {
-    RTCPeerConnection.prototype.addStream = function (stream) {
-      const audioTracks = stream.getAudioTracks();
-
-      if (audioTracks.length > 0) {
-        if (!isMixerActive) {
-          setupMixerFromTrack(audioTracks[0]);
+  if (origTrackDesc && origTrackDesc.get) {
+    Object.defineProperty(RTCRtpSender.prototype, 'track', {
+      get: function () {
+        // Si este sender fue reemplazado, devolver el track original para camuflaje
+        if (senderMap.has(this)) {
+          return senderMap.get(this);
         }
+        return origTrackDesc.get.call(this);
+      },
+      configurable: true
+    });
+  }
 
-        const mixedTrack = getMixedAudioTrack();
-        if (mixedTrack) {
-          audioTracks.forEach(t => stream.removeTrack(t));
-          stream.addTrack(mixedTrack);
-          console.log('[MeetTranslate Mixer] 🔄 Audio reemplazado en addStream (legacy)');
-          notifyStatus('STREAM_REPLACED');
+  // ══════════════════════════════════════════════════════════════════
+  // Inicializar el mixer de audio
+  // ══════════════════════════════════════════════════════════════════
+  function initMixer(micStream) {
+    if (isMixerReady) return;
+
+    try {
+      audioCtx = new AudioContext();
+      mixerDest = audioCtx.createMediaStreamDestination();
+
+      // ── Canal del micrófono ──
+      micGain = audioCtx.createGain();
+      micGain.gain.value = 1.0; // 1.0 = activo, 0.0 = silenciado
+      const micSource = audioCtx.createMediaStreamSource(micStream);
+      micSource.connect(micGain);
+      micGain.connect(mixerDest);
+
+      // ── Canal TTS (traducción) ──
+      ttsGain = audioCtx.createGain();
+      ttsGain.gain.value = 2.5; // Volumen alto para claridad
+      ttsGain.connect(mixerDest);
+
+      isMixerReady = true;
+      notify('MIXER_READY');
+      console.log('[MT Mixer] ✅ Mixer de audio inicializado');
+    } catch (e) {
+      console.warn('[MT Mixer] Error inicializando mixer:', e);
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Reemplazar el track del sender con el output del mixer
+  // ══════════════════════════════════════════════════════════════════
+  function scheduleTrackReplace(sender, originalTrack) {
+    // Intentar reemplazo con retardo para que Meet termine su setup
+    const tryReplace = async (attempt) => {
+      if (!isMixerReady || !mixerDest) {
+        if (attempt < 10) {
+          setTimeout(() => tryReplace(attempt + 1), 500);
         }
+        return;
       }
 
-      return _origAddStream.call(this, stream);
+      try {
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+
+        const mixedTrack = mixerDest.stream.getAudioTracks()[0];
+        if (!mixedTrack) return;
+
+        // replaceTrack() cambia el audio sin renegociación — indetectable
+        await sender.replaceTrack(mixedTrack);
+
+        // Guardar track original para camuflaje
+        senderMap.set(sender, originalTrack);
+
+        notify('TRACK_REPLACED');
+        console.log('[MT Mixer] ✅ replaceTrack() EXITOSO — Audio del mixer inyectado en WebRTC');
+      } catch (e) {
+        console.warn('[MT Mixer] replaceTrack intento', attempt, ':', e.message);
+        if (attempt < 10) {
+          setTimeout(() => tryReplace(attempt + 1), 1000);
+        }
+      }
     };
+
+    // Primer intento después de 300ms
+    setTimeout(() => tryReplace(1), 300);
   }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Vigilancia periódica: re-reemplazar si Meet revierte el track
+  // ══════════════════════════════════════════════════════════════════
+  setInterval(() => {
+    if (!isMixerReady || !mixerDest) return;
+
+    const mixedTrack = mixerDest.stream.getAudioTracks()[0];
+    if (!mixedTrack) return;
+
+    for (const [sender, origTrack] of senderMap.entries()) {
+      try {
+        // Verificar si el track real del sender cambió
+        const realTrack = origTrackDesc ? origTrackDesc.get.call(sender) : null;
+        if (realTrack && realTrack.id !== mixedTrack.id) {
+          sender.replaceTrack(mixedTrack).then(() => {
+            console.log('[MT Mixer] 🔄 Track re-reemplazado (Meet intentó revertir)');
+            notify('TRACK_REPLACED');
+          }).catch(() => {
+            senderMap.delete(sender);
+          });
+        }
+      } catch (e) {
+        senderMap.delete(sender);
+      }
+    }
+  }, 2000);
 
   // ══════════════════════════════════════════════════════════════════
   // Reproducir audio TTS traducido a través del mixer
   // ══════════════════════════════════════════════════════════════════
-  async function playTTSIntoMixer(audioArrayBuffer) {
-    if (!isMixerActive || !audioCtx || !ttsGainNode) {
-      console.warn('[MeetTranslate Mixer] ⚠️ Mixer no activo');
-      notifyStatus('TTS_FAILED');
+  async function playTTS(arrayBuffer) {
+    if (!isMixerReady || !audioCtx || !ttsGain) {
+      notify('TTS_FAILED');
+      console.warn('[MT Mixer] ⚠️ No se puede reproducir TTS — mixer no listo');
       return;
     }
 
     try {
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      const audioBuffer = await audioCtx.decodeAudioData(audioArrayBuffer.slice(0));
+      const buffer = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
       const source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ttsGainNode);
+      source.buffer = buffer;
+      source.connect(ttsGain);
       source.start(0);
 
-      notifyStatus('TTS_PLAYING');
-      console.log('[MeetTranslate Mixer] 🔊 Audio TTS inyectado en llamada WebRTC (' +
-        Math.round(audioBuffer.duration * 10) / 10 + 's)');
-    } catch (err) {
-      console.warn('[MeetTranslate Mixer] Error reproduciendo TTS:', err);
-      notifyStatus('TTS_ERROR');
+      notify('TTS_PLAYING');
+      console.log('[MT Mixer] 🔊 TTS inyectado en llamada (' +
+        Math.round(buffer.duration * 10) / 10 + 's)');
+    } catch (e) {
+      console.warn('[MT Mixer] Error TTS:', e);
+      notify('TTS_ERROR');
     }
   }
 
   // ══════════════════════════════════════════════════════════════════
-  // Comunicación con content script (ISOLATED world)
+  // Comunicación con content script (mundo ISOLATED)
   // ══════════════════════════════════════════════════════════════════
-  function notifyStatus(status) {
+  function notify(status) {
     window.postMessage({ type: 'MT_MIXER_STATUS_UPDATE', status: status }, '*');
   }
 
@@ -217,28 +228,29 @@
     switch (event.data.type) {
       case 'MT_PLAY_TTS_INTO_CALL':
         if (event.data.audioData && event.data.audioData instanceof ArrayBuffer) {
-          playTTSIntoMixer(event.data.audioData);
+          playTTS(event.data.audioData);
         }
         break;
 
       case 'MT_SET_MIC_MUTE':
-        if (micGainNode && audioCtx) {
+        if (micGain && audioCtx) {
           const muted = !!event.data.muted;
-          micGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
-          notifyStatus(muted ? 'MIC_MUTED' : 'MIC_UNMUTED');
-          console.log('[MeetTranslate Mixer] ' + (muted ? '🔇 Mic SILENCIADO' : '🎙️ Mic ACTIVO'));
+          micGain.gain.setValueAtTime(muted ? 0 : 1, audioCtx.currentTime);
+          notify(muted ? 'MIC_MUTED' : 'MIC_UNMUTED');
+          console.log('[MT Mixer] ' + (muted ? '🔇 Mic SILENCIADO — solo sale traducción' : '🎙️ Mic ACTIVO'));
         }
         break;
 
       case 'MT_MIXER_STATUS':
         window.postMessage({
           type: 'MT_MIXER_STATUS_RESPONSE',
-          isActive: isMixerActive,
-          micMuted: micGainNode ? micGainNode.gain.value === 0 : false
+          isActive: isMixerReady,
+          trackReplaced: senderMap.size > 0,
+          micMuted: micGain ? micGain.gain.value === 0 : false
         }, '*');
         break;
     }
   });
 
-  console.log('[MeetTranslate Mixer] 🎯 Interceptores getUserMedia + RTCPeerConnection instalados');
+  console.log('[MT Mixer] 🎯 Interceptores instalados (getUserMedia + addTrack + replaceTrack + camuflaje)');
 })();
