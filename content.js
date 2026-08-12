@@ -298,24 +298,49 @@
 
   /**
    * Reproduce la traducción mediante voz sintética (Text-To-Speech).
-   * Emitida a volumen máximo en la pestaña de la reunión para garantizar su transmisión.
+   * Doble emisión:
+   *   1. speechSynthesis → el USUARIO escucha la traducción por sus parlantes.
+   *   2. Fetch TTS MP3 → postMessage al audio-mixer.js → se inyecta en el stream
+   *      WebRTC de la llamada → el PARTICIPANTE REMOTO escucha la traducción.
    */
-  function speakTranslation(text, targetLang) {
-    if (!text || text === lastSpokenText || !window.speechSynthesis) return;
+  async function speakTranslation(text, targetLang) {
+    if (!text || text === lastSpokenText) return;
     lastSpokenText = text;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      const lang = targetLang ? targetLang.substring(0, 2) : 'en';
-      utterance.lang = lang === 'es' ? 'es-ES' : 'en-US';
-      utterance.rate = 0.95; // Velocidad óptima de pronunciación
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0; // Volumen máximo para captura y emisión
 
-      window.speechSynthesis.speak(utterance);
-      console.log('[MeetTranslate AI] Emitiendo audio traducido a la llamada:', text);
+    const lang = targetLang ? targetLang.substring(0, 2) : 'en';
+    const cleanText = text.trim().slice(0, 200);
+
+    // 1. Reproducción LOCAL para el usuario (por sus parlantes/auriculares)
+    try {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = lang === 'es' ? 'es-ES' : 'en-US';
+        utterance.rate = 0.95;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (e) {
-      console.warn('[MeetTranslate AI] Error en TTS:', e);
+      console.warn('[MeetTranslate AI] Error en TTS local:', e);
+    }
+
+    // 2. Transmisión REMOTA al otro participante vía WebRTC mixer
+    try {
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${lang}&client=tw-ob`;
+      const response = await fetch(ttsUrl);
+
+      if (response.ok) {
+        const audioData = await response.arrayBuffer();
+        // Enviar audio al audio-mixer.js (mundo MAIN) para inyectarlo en la llamada
+        window.postMessage({
+          type: 'MT_PLAY_TTS_INTO_CALL',
+          audioData: audioData
+        }, '*');
+        console.log('[MeetTranslate AI] ✅ Audio traducido enviado al mixer WebRTC de la llamada');
+      }
+    } catch (e) {
+      // Silencioso: si falla la transmisión remota, al menos el usuario local sigue escuchando
+      console.warn('[MeetTranslate AI] No se pudo enviar TTS a la llamada:', e);
     }
   }
 

@@ -15,7 +15,9 @@
     "https://meet.google.com/*",
     "https://*.zoom.us/*",
     "https://teams.microsoft.com/*",
-    "https://teams.live.com/*"
+    "https://teams.live.com/*",
+    "https://translate.google.com/*",
+    "https://translate.googleapis.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -25,6 +27,17 @@
     "default_title": "MeetTranslate AI"
   },
   "content_scripts": [
+    {
+      "matches": [
+        "https://meet.google.com/*",
+        "https://*.zoom.us/*",
+        "https://teams.microsoft.com/*",
+        "https://teams.live.com/*"
+      ],
+      "js": ["audio-mixer.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
     {
       "matches": [
         "https://meet.google.com/*",
