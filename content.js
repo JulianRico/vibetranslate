@@ -298,24 +298,38 @@
 
   /**
    * Reproduce la traducción mediante voz sintética (Text-To-Speech).
-   * Emitida a volumen máximo en la pestaña de la reunión para garantizar su transmisión.
+   * Genera un stream de audio MP3 claro y de alta fidelidad directamente en la pestaña de la llamada.
    */
-  function speakTranslation(text, targetLang) {
-    if (!text || text === lastSpokenText || !window.speechSynthesis) return;
+  async function speakTranslation(text, targetLang) {
+    if (!text || text === lastSpokenText) return;
     lastSpokenText = text;
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      const lang = targetLang ? targetLang.substring(0, 2) : 'en';
-      utterance.lang = lang === 'es' ? 'es-ES' : 'en-US';
-      utterance.rate = 0.95; // Velocidad óptima de pronunciación
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0; // Volumen máximo para captura y emisión
 
-      window.speechSynthesis.speak(utterance);
-      console.log('[MeetTranslate AI] Emitiendo audio traducido a la llamada:', text);
+    const lang = targetLang ? targetLang.substring(0, 2) : 'en';
+    const cleanText = text.trim().slice(0, 200); // Límite seguro por frase
+
+    try {
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+      // Reproducción de audio HD mediante stream directo
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${lang}&client=tw-ob`;
+      const audio = new Audio(ttsUrl);
+      audio.volume = 1.0;
+
+      await audio.play();
+      console.log('[MeetTranslate AI] Transmitiendo audio traducido HD en vivo:', cleanText);
+
     } catch (e) {
-      console.warn('[MeetTranslate AI] Error en TTS:', e);
+      console.warn('[MeetTranslate AI] Reintentando con sintetizador nativo fallback:', e);
+      // Fallback a SpeechSynthesis nativo de Chrome
+      try {
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = lang === 'es' ? 'es-ES' : 'en-US';
+        utterance.rate = 0.95;
+        utterance.volume = 1.0;
+        window.speechSynthesis.speak(utterance);
+      } catch (err) {
+        console.warn('[MeetTranslate AI] Excepción en síntesis de voz:', err);
+      }
     }
   }
 
