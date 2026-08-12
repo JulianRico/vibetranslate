@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeetTranslate AI - Simulador e Inspector de Audio WebRTC</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.95);
+      --accent: #10b981;
+      --accent-hover: #059669;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      background: var(--bg-color);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #10b981, #06b6d4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 6px;
+    }
+
+    .header p {
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 20px;
+      max-width: 1100px;
+      width: 100%;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      font-weight: 700;
+      font-size: 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #059669, #047857);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+    }
+
+    .meter-container {
+      margin-top: 14px;
+    }
+
+    .meter-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .meter-bar-bg {
+      height: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .meter-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: #10b981;
+      border-radius: 6px;
+      transition: width 0.05s ease-out, background 0.2s;
+    }
+
+    .meter-bar-fill.muted {
+      background: #ef4444 !important;
+    }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .badge-off { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+    .badge-on { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .badge-muted { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+
+    .log-box {
+      margin-top: 16px;
+      background: #020617;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 11px;
+      height: 160px;
+      overflow-y: auto;
+      color: #38bdf8;
+    }
+
+    .test-phrase-box {
+      margin-top: 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .test-input {
+      flex: 1;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: white;
+      font-size: 13px;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 14px;
+      padding: 10px;
+      background: rgba(255,255,255,0.04);
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>🌐 Simulador e Inspector de Audio WebRTC</h1>
+    <p>Prueba en tiempo real el comportamiento del micrófono local, la supresión de voz en español y la transmisión del audio traducido en inglés.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- PANEL 1: EMISOR (TU COMPUTADORA) -->
+    <div class="card">
+      <div class="card-title">
+        <span>🎙️ Emisor (Tu Computadora)</span>
+        <span class="status-badge badge-off" id="badge-emisor">OFF</span>
+      </div>
+
+      <button class="btn btn-primary" id="btn-start-sim">
+        <span>▶️ Iniciar Simulación de Llamada</span>
+      </button>
+
+      <div class="toggle-row">
+        <span>🔇 Silenciar Micrófono Español (Modo 🔊)</span>
+        <input type="checkbox" id="chk-mute-mic" style="width: 20px; height: 20px; cursor: pointer;">
+      </div>
+
+      <div class="meter-container">
+        <div class="meter-label">
+          <span>Micrófono Físico Local (Español):</span>
+          <span id="val-mic">0%</span>
+        </div>
+        <div class="meter-bar-bg">
+          <div class="meter-bar-fill" id="bar-mic"></div>
+        </div>
+      </div>
+
+      <div class="test-phrase-box">
+        <input type="text" class="test-input" id="txt-tts-test" value="Hello, this is a test of translated English audio.">
+        <button class="btn btn-primary" id="btn-send-tts" style="width: auto; padding: 8px 14px;">
+          <span>🔊 Enviar TTS</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- PANEL 2: CANAL WEBRTC TRANSMITIDO -->
+    <div class="card">
+      <div class="card-title">
+        <span>📡 Stream Transmitido vía WebRTC</span>
+        <span class="status-badge badge-off" id="badge-webrtc">ESPERANDO</span>
+      </div>
+
+      <p style="font-size: 12px; color: var(--text-muted);">
+        Este es el audio EXACTO que sale de tu navegador hacia la red WebRTC. Si la supresión está activa, tu voz en español marcará 0% (silencio total).
+      </p>
+
+      <div class="meter-container" style="margin-top: 20px;">
+        <div class="meter-label">
+          <span>Nivel de Audio Transmitido al Remoto:</span>
+          <span id="val-transmitted">0%</span>
+        </div>
+        <div class="meter-bar-bg">
+          <div class="meter-bar-fill" id="bar-transmitted"></div>
+        </div>
+      </div>
+
+      <div class="meter-container">
+        <div class="meter-label">
+          <span>Estado del Canal:</span>
+          <span id="status-channel-text" style="color: #34d399; font-weight: 700;">Micrófono Directo</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PANEL 3: RECEPTOR (SIMULADOR DEL OTRO USUARIO / OYENTE REMOTO) -->
+    <div class="card">
+      <div class="card-title">
+        <span>🎧 Oyente Remoto (Simulación de Usuario Final)</span>
+        <span class="status-badge badge-off" id="badge-receptor">DESCONECTADO</span>
+      </div>
+
+      <p style="font-size: 12px; color: var(--text-muted);">
+        Escucha directamente lo que llega a los parlantes del usuario remoto. Puedes activar/desactivar la escucha local.
+      </p>
+
+      <div class="toggle-row">
+        <span>🔊 Escuchar Salida del Oyente Remoto</span>
+        <input type="checkbox" id="chk-listen-remote" style="width: 20px; height: 20px; cursor: pointer;">
+      </div>
+
+      <div class="meter-container">
+        <div class="meter-label">
+          <span>Volumen Recibido por el Oyente Remoto:</span>
+          <span id="val-remote">0%</span>
+        </div>
+        <div class="meter-bar-bg">
+          <div class="meter-bar-fill" id="bar-remote"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- REGISTRO DE EVENTOS WEBRTC -->
+  <div style="max-width: 1100px; width: 100%; margin-top: 20px;">
+    <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
+      📋 Registro de Diagnóstico e Inspección en Tiempo Real:
+    </div>
+    <div class="log-box" id="log-box">
+      [00:00:00] Simulador e Inspector WebRTC iniciado. Presiona "Iniciar Simulación".
+    </div>
+  </div>
+
+  <script src="simulator.js"></script>
+</body>
+</html>

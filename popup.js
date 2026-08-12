@@ -59,6 +59,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  const btnOpenSim = document.getElementById('btn-open-sim');
+  if (btnOpenSim) {
+    btnOpenSim.addEventListener('click', () => {
+      chrome.tabs.create({ url: chrome.runtime.getURL('simulator.html') });
+    });
+  }
+
   /**
    * Cargar el estado actual de la extensión desde el Service Worker
    */
