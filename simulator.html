@@ -6,10 +6,10 @@
   <title>MeetTranslate AI - Simulador e Inspector de Audio WebRTC</title>
   <style>
     :root {
-      --bg-color: #0f172a;
-      --card-bg: rgba(30, 41, 59, 0.95);
+      --bg-color: #0b132b;
+      --card-bg: #1c2541;
+      --card-border: rgba(255, 255, 255, 0.12);
       --accent: #10b981;
-      --accent-hover: #059669;
       --danger: #ef4444;
       --warning: #f59e0b;
       --text: #f8fafc;
@@ -36,10 +36,11 @@
     .header {
       text-align: center;
       margin-bottom: 24px;
+      max-width: 800px;
     }
 
     .header h1 {
-      font-size: 24px;
+      font-size: 26px;
       font-weight: 800;
       background: linear-gradient(135deg, #10b981, #06b6d4);
       -webkit-background-clip: text;
@@ -62,19 +63,21 @@
 
     .card {
       background: var(--card-bg);
-      border: 1px solid rgba(255, 255, 255, 0.1);
+      border: 1px solid var(--card-border);
       border-radius: 16px;
       padding: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.4);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
     }
 
     .card-title {
-      font-size: 16px;
+      font-size: 15px;
       font-weight: 700;
-      margin-bottom: 14px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
     }
 
     .btn {
@@ -92,26 +95,37 @@
       transition: background 0.2s, transform 0.1s;
     }
 
-    .btn-primary {
+    .btn-start {
       background: linear-gradient(135deg, #10b981, #059669);
       color: white;
     }
 
-    .btn-primary:hover {
+    .btn-start:hover {
       background: linear-gradient(135deg, #059669, #047857);
     }
 
-    .btn-primary:active {
-      transform: scale(0.98);
-    }
-
-    .btn-danger {
+    .btn-stop {
       background: linear-gradient(135deg, #ef4444, #dc2626);
       color: white;
     }
 
-    .meter-container {
-      margin-top: 14px;
+    .btn-action {
+      background: #0284c7;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .btn-action:hover {
+      background: #0369a1;
+    }
+
+    .meter-box {
+      background: rgba(0, 0, 0, 0.3);
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
     }
 
     .meter-label {
@@ -120,77 +134,79 @@
       margin-bottom: 6px;
       display: flex;
       justify-content: space-between;
+      font-weight: 600;
     }
 
-    .meter-bar-bg {
-      height: 12px;
+    .bar-bg {
+      height: 14px;
       background: rgba(255, 255, 255, 0.1);
-      border-radius: 6px;
+      border-radius: 7px;
       overflow: hidden;
-      position: relative;
     }
 
-    .meter-bar-fill {
+    .bar-fill {
       height: 100%;
       width: 0%;
       background: #10b981;
-      border-radius: 6px;
+      border-radius: 7px;
       transition: width 0.05s ease-out, background 0.2s;
     }
 
-    .meter-bar-fill.muted {
+    .bar-fill.muted {
       background: #ef4444 !important;
     }
 
-    .status-badge {
-      display: inline-block;
-      padding: 4px 8px;
-      border-radius: 6px;
+    .status-pill {
+      padding: 4px 10px;
+      border-radius: 20px;
       font-size: 11px;
       font-weight: 700;
     }
 
-    .badge-off { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
-    .badge-on { background: rgba(16, 185, 129, 0.2); color: #34d399; }
-    .badge-muted { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+    .pill-off { background: rgba(148, 163, 184, 0.2); color: #94a3b8; }
+    .pill-on { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .pill-muted { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
 
-    .log-box {
-      margin-top: 16px;
-      background: #020617;
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 10px;
-      padding: 12px;
-      font-family: monospace;
-      font-size: 11px;
-      height: 160px;
-      overflow-y: auto;
-      color: #38bdf8;
-    }
-
-    .test-phrase-box {
-      margin-top: 12px;
-      display: flex;
-      gap: 8px;
-    }
-
-    .test-input {
-      flex: 1;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 8px;
-      padding: 8px 12px;
-      color: white;
-      font-size: 13px;
-    }
-
-    .toggle-row {
+    .toggle-group {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-top: 14px;
-      padding: 10px;
-      background: rgba(255,255,255,0.04);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 10px 12px;
       border-radius: 10px;
+      font-size: 13px;
+    }
+
+    .toggle-group input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #10b981;
+    }
+
+    .transcript-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+      min-height: 50px;
+    }
+
+    .text-orig { color: #cbd5e1; font-style: italic; }
+    .text-trans { color: #34d399; font-weight: 700; margin-top: 4px; }
+
+    .log-box {
+      background: #020617;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px;
+      font-family: Consolas, Monaco, monospace;
+      font-size: 12px;
+      height: 180px;
+      overflow-y: auto;
+      color: #38bdf8;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -198,110 +214,109 @@
 
   <div class="header">
     <h1>🌐 Simulador e Inspector de Audio WebRTC</h1>
-    <p>Prueba en tiempo real el comportamiento del micrófono local, la supresión de voz en español y la transmisión del audio traducido en inglés.</p>
+    <p>Prueba en tiempo real la supresión de tu micrófono en español, el reconocimiento de voz y la inyección de la traducción en inglés enviada al oyente remoto.</p>
   </div>
 
   <div class="grid">
 
-    <!-- PANEL 1: EMISOR (TU COMPUTADORA) -->
+    <!-- PANEL 1: MICRÓFONO LOCAL Y RECONOCIMIENTO DE VOZ -->
     <div class="card">
       <div class="card-title">
-        <span>🎙️ Emisor (Tu Computadora)</span>
-        <span class="status-badge badge-off" id="badge-emisor">OFF</span>
+        <span>🎙️ 1. Tu Micrófono Físico (Entrada)</span>
+        <span class="status-pill pill-off" id="pill-mic">OFF</span>
       </div>
 
-      <button class="btn btn-primary" id="btn-start-sim">
-        <span>▶️ Iniciar Simulación de Llamada</span>
+      <button class="btn btn-start" id="btn-toggle-sim">
+        <span>▶️ Iniciar Simulación</span>
       </button>
 
-      <div class="toggle-row">
-        <span>🔇 Silenciar Micrófono Español (Modo 🔊)</span>
-        <input type="checkbox" id="chk-mute-mic" style="width: 20px; height: 20px; cursor: pointer;">
+      <div class="toggle-group">
+        <span>🔇 Silenciar Mic en Español (Modo 🔊)</span>
+        <input type="checkbox" id="chk-mute-sp">
       </div>
 
-      <div class="meter-container">
+      <div class="meter-box">
         <div class="meter-label">
           <span>Micrófono Físico Local (Español):</span>
-          <span id="val-mic">0%</span>
+          <span id="txt-mic-val">0%</span>
         </div>
-        <div class="meter-bar-bg">
-          <div class="meter-bar-fill" id="bar-mic"></div>
+        <div class="bar-bg">
+          <div class="bar-fill" id="bar-mic"></div>
         </div>
       </div>
 
-      <div class="test-phrase-box">
-        <input type="text" class="test-input" id="txt-tts-test" value="Hello, this is a test of translated English audio.">
-        <button class="btn btn-primary" id="btn-send-tts" style="width: auto; padding: 8px 14px;">
-          <span>🔊 Enviar TTS</span>
+      <div class="transcript-box">
+        <div class="text-orig" id="txt-stt-orig">Habla por tu micrófono en español...</div>
+        <div class="text-trans" id="txt-stt-trans">La traducción al inglés aparecerá aquí...</div>
+      </div>
+    </div>
+
+    <!-- PANEL 2: MIXER WEBRTC Y STREAM DE SALIDA -->
+    <div class="card">
+      <div class="card-title">
+        <span>📡 2. Canal WebRTC Transmitido (Salida)</span>
+        <span class="status-pill pill-off" id="pill-webrtc">INACTIVO</span>
+      </div>
+
+      <div class="meter-box">
+        <div class="meter-label">
+          <span>Audio Real Transmitido al Remoto:</span>
+          <span id="txt-out-val">0%</span>
+        </div>
+        <div class="bar-bg">
+          <div class="bar-fill" id="bar-out"></div>
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-direction: column;">
+        <input type="text" id="input-tts-custom" value="Hello, this is a test of translated English voice." style="background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.2); padding: 8px; border-radius: 8px; color: white; font-size: 12px;">
+        <button class="btn btn-action" id="btn-send-tts">
+          <span>🔊 Transmitir Frase de Prueba (TTS Inglés)</span>
         </button>
       </div>
-    </div>
 
-    <!-- PANEL 2: CANAL WEBRTC TRANSMITIDO -->
-    <div class="card">
-      <div class="card-title">
-        <span>📡 Stream Transmitido vía WebRTC</span>
-        <span class="status-badge badge-off" id="badge-webrtc">ESPERANDO</span>
-      </div>
-
-      <p style="font-size: 12px; color: var(--text-muted);">
-        Este es el audio EXACTO que sale de tu navegador hacia la red WebRTC. Si la supresión está activa, tu voz en español marcará 0% (silencio total).
-      </p>
-
-      <div class="meter-container" style="margin-top: 20px;">
-        <div class="meter-label">
-          <span>Nivel de Audio Transmitido al Remoto:</span>
-          <span id="val-transmitted">0%</span>
-        </div>
-        <div class="meter-bar-bg">
-          <div class="meter-bar-fill" id="bar-transmitted"></div>
-        </div>
-      </div>
-
-      <div class="meter-container">
-        <div class="meter-label">
-          <span>Estado del Canal:</span>
-          <span id="status-channel-text" style="color: #34d399; font-weight: 700;">Micrófono Directo</span>
-        </div>
+      <div class="toggle-group">
+        <span>Estado del Canal:</span>
+        <span id="txt-channel-status" style="font-weight: 700; color: #94a3b8;">Esperando inicio</span>
       </div>
     </div>
 
-    <!-- PANEL 3: RECEPTOR (SIMULADOR DEL OTRO USUARIO / OYENTE REMOTO) -->
+    <!-- PANEL 3: OYENTE REMOTO (SIMULACIÓN DE RECEPTOR) -->
     <div class="card">
       <div class="card-title">
-        <span>🎧 Oyente Remoto (Simulación de Usuario Final)</span>
-        <span class="status-badge badge-off" id="badge-receptor">DESCONECTADO</span>
+        <span>🎧 3. Oyente Remoto (Receptor Final)</span>
+        <span class="status-pill pill-off" id="pill-remote">DESCONECTADO</span>
       </div>
 
-      <p style="font-size: 12px; color: var(--text-muted);">
-        Escucha directamente lo que llega a los parlantes del usuario remoto. Puedes activar/desactivar la escucha local.
-      </p>
-
-      <div class="toggle-row">
-        <span>🔊 Escuchar Salida del Oyente Remoto</span>
-        <input type="checkbox" id="chk-listen-remote" style="width: 20px; height: 20px; cursor: pointer;">
+      <div class="toggle-group">
+        <span>🔊 Escuchar Salida Remota por mis Parlantes</span>
+        <input type="checkbox" id="chk-listen-remote">
       </div>
 
-      <div class="meter-container">
+      <div class="meter-box" style="margin-top: 10px;">
         <div class="meter-label">
-          <span>Volumen Recibido por el Oyente Remoto:</span>
-          <span id="val-remote">0%</span>
+          <span>Volumen Recibido por el Participante:</span>
+          <span id="txt-remote-val">0%</span>
         </div>
-        <div class="meter-bar-bg">
-          <div class="meter-bar-fill" id="bar-remote"></div>
+        <div class="bar-bg">
+          <div class="bar-fill" id="bar-remote"></div>
         </div>
       </div>
+
+      <p style="font-size: 11px; color: var(--text-muted); line-height: 1.4; margin-top: 6px;">
+        Si el botón "Silenciar Mic en Español" está marcado, cuando hables en español la barra marcara 0% (Silencio absoluto), y cuando hables/envíes traducción la barra cambiará a verde con el sonido en inglés.
+      </p>
     </div>
 
   </div>
 
-  <!-- REGISTRO DE EVENTOS WEBRTC -->
+  <!-- REGISTRO DE EVENTOS -->
   <div style="max-width: 1100px; width: 100%; margin-top: 20px;">
-    <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 6px;">
-      📋 Registro de Diagnóstico e Inspección en Tiempo Real:
+    <div style="font-size: 13px; font-weight: 700; color: var(--text-muted); margin-bottom: 8px;">
+      📋 Registro de Eventos e Inspección en Tiempo Real:
     </div>
     <div class="log-box" id="log-box">
-      [00:00:00] Simulador e Inspector WebRTC iniciado. Presiona "Iniciar Simulación".
+      [00:00:00] Simulador de Audio WebRTC preparado. Haz clic en "▶️ Iniciar Simulación".
     </div>
   </div>
 

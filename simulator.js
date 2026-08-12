@@ -1,247 +1,326 @@
 /**
  * simulator.js - Controlador del Simulador e Inspector de Audio WebRTC
- * Establece una llamada WebRTC Loopback en la misma página (PC1 -> PC2)
- * para medir los VU meters de entrada, transmisión y salida remota.
+ * Ejecuta el pipeline completo en tiempo real: captura de micrófono, reconocedor de voz en español,
+ * traducción instantánea a inglés, silenciador del mic original e inyección del audio traducido en la llamada.
  */
 
 (function () {
   'use strict';
 
   // Elementos UI
-  const btnStartSim = document.getElementById('btn-start-sim');
-  const chkMuteMic = document.getElementById('chk-mute-mic');
+  const btnToggleSim = document.getElementById('btn-toggle-sim');
+  const chkMuteSp = document.getElementById('chk-mute-sp');
   const btnSendTts = document.getElementById('btn-send-tts');
-  const txtTtsTest = document.getElementById('txt-tts-test');
+  const inputTtsCustom = document.getElementById('input-tts-custom');
   const chkListenRemote = document.getElementById('chk-listen-remote');
 
-  const barMic = document.getElementById('bar-mic');
-  const valMic = document.getElementById('val-mic');
-  const barTransmitted = document.getElementById('bar-transmitted');
-  const valTransmitted = document.getElementById('val-transmitted');
-  const barRemote = document.getElementById('bar-remote');
-  const valRemote = document.getElementById('val-remote');
+  const txtSttOrig = document.getElementById('txt-stt-orig');
+  const txtSttTrans = document.getElementById('txt-stt-trans');
 
-  const badgeEmisor = document.getElementById('badge-emisor');
-  const badgeWebrtc = document.getElementById('badge-webrtc');
-  const badgeReceptor = document.getElementById('badge-receptor');
-  const statusChannelText = document.getElementById('status-channel-text');
+  const barMic = document.getElementById('bar-mic');
+  const txtMicVal = document.getElementById('txt-mic-val');
+  const barOut = document.getElementById('bar-out');
+  const txtOutVal = document.getElementById('txt-out-val');
+  const barRemote = document.getElementById('bar-remote');
+  const txtRemoteVal = document.getElementById('txt-remote-val');
+
+  const pillMic = document.getElementById('pill-mic');
+  const pillWebrtc = document.getElementById('pill-webrtc');
+  const pillRemote = document.getElementById('pill-remote');
+  const txtChannelStatus = document.getElementById('txt-channel-status');
   const logBox = document.getElementById('log-box');
 
-  // WebRTC Loopback
-  let pc1 = null; // Emisor (Local)
-  let pc2 = null; // Receptor (Remoto)
-  let localMicStream = null;
-  let remoteAudioElement = new Audio();
-
-  // Audio Context & Analysers
+  // Estado del Pipeline Audio
+  let isSimActive = false;
+  let rawMicStream = null;
   let audioCtx = null;
+
+  let micGainNode = null;
+  let ttsGainNode = null;
+  let mixerDestNode = null;
+
   let analyserMic = null;
-  let analyserTransmitted = null;
+  let analyserOut = null;
   let analyserRemote = null;
+
+  let speechRecognition = null;
+  let remoteAudioElement = new Audio();
 
   function log(msg) {
     const time = new Date().toLocaleTimeString();
-    const line = `[${time}] ${msg}\n`;
-    logBox.textContent += line;
+    logBox.textContent += `[${time}] ${msg}\n`;
     logBox.scrollTop = logBox.scrollHeight;
     console.log('[Simulator]', msg);
   }
 
-  btnStartSim.addEventListener('click', async () => {
-    if (pc1) {
-      log('Deteniendo simulación...');
+  btnToggleSim.addEventListener('click', async () => {
+    if (isSimActive) {
       stopSimulation();
-      return;
+    } else {
+      await startSimulation();
     }
+  });
 
-    log('Iniciando simulación de llamada WebRTC...');
-    btnStartSim.innerHTML = '<span>⏹️ Detener Simulación</span>';
-    btnStartSim.classList.replace('btn-primary', 'btn-danger');
-
+  async function startSimulation() {
+    log('Iniciando simulación de canal WebRTC...');
     try {
-      audioCtx = new AudioContext();
+      // 1. Obtener stream de micrófono físico
+      rawMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      log('✅ Micrófono físico capturado.');
 
-      // 1. Obtener stream de micrófono (interceptado por audio-mixer.js si está activo)
-      localMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      log('Stream de micrófono obtenido exitosamente.');
-      badgeEmisor.className = 'status-badge badge-on';
-      badgeEmisor.textContent = 'ACTIVO';
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      // Configurar Analyser para el micrófono local
-      const micSource = audioCtx.createMediaStreamSource(localMicStream);
+      // 2. Analyser del micrófono físico (Panel 1)
+      const micSource = audioCtx.createMediaStreamSource(rawMicStream);
       analyserMic = audioCtx.createAnalyser();
       analyserMic.fftSize = 256;
       micSource.connect(analyserMic);
 
-      // 2. Crear pares WebRTC PeerConnection (Loopback PC1 -> PC2)
-      pc1 = new RTCPeerConnection();
-      pc2 = new RTCPeerConnection();
+      // 3. Crear Mixer de Audio (Canal de salida WebRTC)
+      mixerDestNode = audioCtx.createMediaStreamDestination();
 
-      // Pasar candidatos ICE entre pares
-      pc1.onicecandidate = e => e.candidate && pc2.addIceCandidate(e.candidate);
-      pc2.onicecandidate = e => e.candidate && pc1.addIceCandidate(e.candidate);
+      micGainNode = audioCtx.createGain();
+      micGainNode.gain.value = chkMuteSp.checked ? 0.0 : 1.0;
 
-      // Cuando PC2 recibe el track de audio remoto
-      pc2.ontrack = (event) => {
-        log('✅ Stream de audio WebRTC RECIBIDO por el Oyente Remoto (PC2)');
-        badgeReceptor.className = 'status-badge badge-on';
-        badgeReceptor.textContent = 'CONECTADO';
+      micSource.connect(micGainNode);
+      micGainNode.connect(mixerDestNode);
 
-        remoteAudioElement.srcObject = event.streams[0];
-        remoteAudioElement.muted = !chkListenRemote.checked;
-        remoteAudioElement.play().catch(() => {});
+      ttsGainNode = audioCtx.createGain();
+      ttsGainNode.gain.value = 2.5;
+      ttsGainNode.connect(mixerDestNode);
 
-        // Analyser para la salida del oyente remoto
-        const remoteSource = audioCtx.createMediaStreamSource(event.streams[0]);
-        analyserRemote = audioCtx.createAnalyser();
-        analyserRemote.fftSize = 256;
-        remoteSource.connect(analyserRemote);
-      };
+      // 4. Analyser del Canal de Salida Transmitido (Panel 2)
+      analyserOut = audioCtx.createAnalyser();
+      analyserOut.fftSize = 256;
+      const outSource = audioCtx.createMediaStreamSource(mixerDestNode.stream);
+      outSource.connect(analyserOut);
 
-      // Agregar track de audio a PC1
-      localMicStream.getAudioTracks().forEach(track => {
-        pc1.addTrack(track, localMicStream);
-      });
+      // 5. Oyente Remoto (Panel 3)
+      remoteAudioElement.srcObject = mixerDestNode.stream;
+      remoteAudioElement.muted = !chkListenRemote.checked;
+      remoteAudioElement.play().catch(() => {});
 
-      // Analyser para el stream transmitido por PC1
-      const transmittedSource = audioCtx.createMediaStreamSource(localMicStream);
-      analyserTransmitted = audioCtx.createAnalyser();
-      analyserTransmitted.fftSize = 256;
-      transmittedSource.connect(analyserTransmitted);
+      const remoteSource = audioCtx.createMediaStreamSource(mixerDestNode.stream);
+      analyserRemote = audioCtx.createAnalyser();
+      analyserRemote.fftSize = 256;
+      remoteSource.connect(analyserRemote);
 
-      // Negociación SDP
-      const offer = await pc1.createOffer();
-      await pc1.setLocalDescription(offer);
-      await pc2.setRemoteDescription(offer);
+      isSimActive = true;
 
-      const answer = await pc2.createAnswer();
-      await pc2.setLocalDescription(answer);
-      await pc1.setRemoteDescription(answer);
+      btnToggleSim.innerHTML = '<span>⏹️ Detener Simulación</span>';
+      btnToggleSim.className = 'btn btn-stop';
 
-      badgeWebrtc.className = 'status-badge badge-on';
-      badgeWebrtc.textContent = 'TRANSMITIENDO';
-      log('Conexión WebRTC Loopback ESTABLECIDA al 100%.');
+      pillMic.className = 'status-pill pill-on'; pillMic.textContent = 'ACTIVO';
+      pillWebrtc.className = 'status-pill pill-on'; pillWebrtc.textContent = 'TRANSMITIENDO';
+      pillRemote.className = 'status-pill pill-on'; pillRemote.textContent = 'CONECTADO';
 
-      // Iniciar bucle de medición de VU meters
-      updateMeters();
+      updateChannelStatusText();
+      startLiveSTT();
+      updateMetersLoop();
+
+      log('✅ Simulación de llamada WebRTC iniciada exitosamente.');
 
     } catch (err) {
       log(`❌ Error iniciando simulación: ${err.message}`);
       stopSimulation();
     }
-  });
-
-  // Toggle para silenciar el micrófono en español
-  chkMuteMic.addEventListener('change', () => {
-    const isMuted = chkMuteMic.checked;
-    log(`Enviando evento MT_SET_MIC_MUTE (muted: ${isMuted})...`);
-
-    window.postMessage({
-      type: 'MT_SET_MIC_MUTE',
-      muted: isMuted
-    }, '*');
-
-    if (isMuted) {
-      statusChannelText.textContent = '🔇 Micrófono Silenciado (Solo sale Traducción)';
-      statusChannelText.style.color = '#ef4444';
-      barTransmitted.classList.add('muted');
-    } else {
-      statusChannelText.textContent = '🎙️ Micrófono Directo Activo';
-      statusChannelText.style.color = '#34d399';
-      barTransmitted.classList.remove('muted');
-    }
-  });
-
-  // Toggle para escuchar el audio remoto localmente
-  chkListenRemote.addEventListener('change', () => {
-    remoteAudioElement.muted = !chkListenRemote.checked;
-    log(`Escucha local del oyente remoto: ${chkListenRemote.checked ? 'ACTIVADA' : 'SILENCIADA'}`);
-  });
-
-  // Enviar audio TTS traducido de prueba
-  btnSendTts.addEventListener('click', async () => {
-    const text = txtTtsTest.value.trim();
-    if (!text) return;
-
-    log(`Descargando y enviando audio TTS traducido: "${text}"...`);
-
-    try {
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=en&client=tw-ob`;
-      const res = await fetch(ttsUrl);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const audioBuffer = await res.arrayBuffer();
-
-      window.postMessage({
-        type: 'MT_PLAY_TTS_INTO_CALL',
-        audioData: audioBuffer
-      }, '*');
-
-      log('✅ Audio TTS enviado al mixer de la llamada exitosamente.');
-    } catch (err) {
-      log(`⚠️ Error descargando TTS: ${err.message}`);
-    }
-  });
-
-  // Bucle de actualización de los VU Meters
-  function updateMeters() {
-    if (!pc1) return;
-
-    const micVol = getVolumeLevel(analyserMic);
-    const transVol = getVolumeLevel(analyserTransmitted);
-    const remoteVol = getVolumeLevel(analyserRemote);
-
-    barMic.style.width = `${micVol}%`;
-    valMic.textContent = `${micVol}%`;
-
-    barTransmitted.style.width = `${transVol}%`;
-    valTransmitted.textContent = `${transVol}%`;
-
-    barRemote.style.width = `${remoteVol}%`;
-    valRemote.textContent = `${remoteVol}%`;
-
-    requestAnimationFrame(updateMeters);
-  }
-
-  function getVolumeLevel(analyser) {
-    if (!analyser) return 0;
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    analyser.getByteFrequencyData(data);
-    let sum = 0;
-    for (let i = 0; i < data.length; i++) {
-      sum += data[i];
-    }
-    const average = sum / data.length;
-    return Math.min(100, Math.round((average / 128) * 100));
   }
 
   function stopSimulation() {
-    if (pc1) { pc1.close(); pc1 = null; }
-    if (pc2) { pc2.close(); pc2 = null; }
-    if (localMicStream) {
-      localMicStream.getTracks().forEach(t => t.stop());
-      localMicStream = null;
+    isSimActive = false;
+    stopLiveSTT();
+
+    if (rawMicStream) {
+      rawMicStream.getTracks().forEach(t => t.stop());
+      rawMicStream = null;
     }
 
-    btnStartSim.innerHTML = '<span>▶️ Iniciar Simulación de Llamada</span>';
-    btnStartSim.classList.replace('btn-danger', 'btn-primary');
+    if (audioCtx) {
+      audioCtx.close();
+      audioCtx = null;
+    }
 
-    badgeEmisor.className = 'status-badge badge-off'; badgeEmisor.textContent = 'OFF';
-    badgeWebrtc.className = 'status-badge badge-off'; badgeWebrtc.textContent = 'ESPERANDO';
-    badgeReceptor.className = 'status-badge badge-off'; badgeReceptor.textContent = 'DESCONECTADO';
+    btnToggleSim.innerHTML = '<span>▶️ Iniciar Simulación</span>';
+    btnToggleSim.className = 'btn btn-start';
 
-    barMic.style.width = '0%'; valMic.textContent = '0%';
-    barTransmitted.style.width = '0%'; valTransmitted.textContent = '0%';
-    barRemote.style.width = '0%'; valRemote.textContent = '0%';
+    pillMic.className = 'status-pill pill-off'; pillMic.textContent = 'OFF';
+    pillWebrtc.className = 'status-pill pill-off'; pillWebrtc.textContent = 'INACTIVO';
+    pillRemote.className = 'status-pill pill-off'; pillRemote.textContent = 'DESCONECTADO';
+
+    barMic.style.width = '0%'; txtMicVal.textContent = '0%';
+    barOut.style.width = '0%'; txtOutVal.textContent = '0%';
+    barRemote.style.width = '0%'; txtRemoteVal.textContent = '0%';
+    txtChannelStatus.textContent = 'Esperando inicio';
 
     log('Simulación de llamada detenida.');
   }
 
-  // Escuchar mensajes de actualización de estado desde audio-mixer.js
-  window.addEventListener('message', (e) => {
-    if (e.data && e.data.type === 'MT_MIXER_STATUS_UPDATE') {
-      log(`[AUDIO MIXER EVENT] Estado actualizado: ${e.data.status}`);
+  chkMuteSp.addEventListener('change', () => {
+    const isMuted = chkMuteSp.checked;
+    if (micGainNode && audioCtx) {
+      micGainNode.gain.setValueAtTime(isMuted ? 0.0 : 1.0, audioCtx.currentTime);
     }
+    updateChannelStatusText();
+    log(isMuted ? '🔇 Micrófono original silenciado (Ganancia = 0.0)' : '🎙️ Micrófono original activado (Ganancia = 1.0)');
   });
+
+  chkListenRemote.addEventListener('change', () => {
+    remoteAudioElement.muted = !chkListenRemote.checked;
+    log(chkListenRemote.checked ? '🔊 Escucha local activada.' : '🔇 Escucha local silenciada.');
+  });
+
+  function updateChannelStatusText() {
+    if (!isSimActive) {
+      txtChannelStatus.textContent = 'Esperando inicio';
+      txtChannelStatus.style.color = '#94a3b8';
+      return;
+    }
+    if (chkMuteSp.checked) {
+      txtChannelStatus.textContent = '🔇 Micrófono Silenciado (Solo sale Traducción)';
+      txtChannelStatus.style.color = '#ef4444';
+      barOut.classList.add('muted');
+    } else {
+      txtChannelStatus.textContent = '🎙️ Micrófono Directo (Sin silenciar)';
+      txtChannelStatus.style.color = '#34d399';
+      barOut.classList.remove('muted');
+    }
+  }
+
+  // Transmisión de voz traducida (TTS MP3 -> Mixer)
+  btnSendTts.addEventListener('click', async () => {
+    const text = inputTtsCustom.value.trim();
+    if (!text) return;
+    await transmitTTSAudio(text, 'en');
+  });
+
+  async function transmitTTSAudio(text, lang) {
+    if (!isSimActive || !audioCtx || !ttsGainNode) {
+      log('⚠️ Inicia la simulación antes de transmitir TTS.');
+      return;
+    }
+
+    log(`Descargando y transmitiendo audio TTS en inglés: "${text}"...`);
+
+    try {
+      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=tw-ob`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const arrayBuffer = await res.arrayBuffer();
+      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+      const source = audioCtx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ttsGainNode);
+      source.start(0);
+
+      log(`✅ Voz traducida enviada al canal WebRTC (${Math.round(audioBuffer.duration * 10) / 10}s)`);
+    } catch (err) {
+      log(`⚠️ Error reproduciendo TTS: ${err.message}`);
+    }
+  }
+
+  // Reconocimiento de voz en tiempo real + Traducción automática
+  function startLiveSTT() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    speechRecognition = new SpeechRecognition();
+    speechRecognition.continuous = true;
+    speechRecognition.interimResults = true;
+    speechRecognition.lang = 'es-ES';
+
+    speechRecognition.onresult = async (event) => {
+      let interim = '';
+      let finalStr = '';
+
+      for (let i = event.resultIndex; i < event.results.length; ++i) {
+        if (event.results[i].isFinal) {
+          finalStr += event.results[i][0].transcript;
+        } else {
+          interim += event.results[i][0].transcript;
+        }
+      }
+
+      const text = (finalStr || interim).trim();
+      if (text) {
+        txtSttOrig.textContent = text;
+        log(`[Mic STT] "${text}"`);
+
+        // Traducir usando la API rápida de Google
+        try {
+          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl=en&dt=t&q=${encodeURIComponent(text)}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          let translated = text;
+          if (data && Array.isArray(data[0])) {
+            translated = data[0].map(c => c[0]).filter(Boolean).join('');
+          }
+
+          txtSttTrans.textContent = translated;
+
+          // Si la frase es final y el silenciador está activo, transmitir automáticamente la voz traducida
+          if (finalStr && chkMuteSp.checked) {
+            log(`[Traducción Lista] Transmitiendo al oyente remoto: "${translated}"`);
+            await transmitTTSAudio(translated, 'en');
+          }
+        } catch (e) {
+          console.warn('Error traduciendo:', e);
+        }
+      }
+    };
+
+    speechRecognition.onerror = (e) => {
+      if (e.error !== 'no-speech') console.warn('STT Error:', e.error);
+    };
+
+    speechRecognition.onend = () => {
+      if (isSimActive && speechRecognition) {
+        try { speechRecognition.start(); } catch (e) {}
+      }
+    };
+
+    try { speechRecognition.start(); } catch (e) {}
+  }
+
+  function stopLiveSTT() {
+    if (speechRecognition) {
+      try {
+        speechRecognition.onend = null;
+        speechRecognition.stop();
+      } catch (e) {}
+      speechRecognition = null;
+    }
+  }
+
+  // Bucle de actualización de los VU meters de volumen
+  function updateMetersLoop() {
+    if (!isSimActive) return;
+
+    const micVol = getVol(analyserMic);
+    const outVol = getVol(analyserOut);
+    const remoteVol = getVol(analyserRemote);
+
+    barMic.style.width = `${micVol}%`;
+    txtMicVal.textContent = `${micVol}%`;
+
+    barOut.style.width = `${outVol}%`;
+    txtOutVal.textContent = `${outVol}%`;
+
+    barRemote.style.width = `${remoteVol}%`;
+    txtRemoteVal.textContent = `${remoteVol}%`;
+
+    requestAnimationFrame(updateMetersLoop);
+  }
+
+  function getVol(analyser) {
+    if (!analyser) return 0;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) sum += data[i];
+    return Math.min(100, Math.round((sum / data.length / 128) * 100));
+  }
 
 })();
