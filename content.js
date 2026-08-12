@@ -20,6 +20,24 @@
   let currentFontSize = 18;
 
   /**
+   * Inyecta audio-mixer.js directamente en el contexto DOM de la página (MAIN world).
+   * Garantiza la interceptación de WebRTC en cualquier versión de Chrome.
+   */
+  function injectMixerScript() {
+    if (document.getElementById('mt-mixer-script')) return;
+    try {
+      const script = document.createElement('script');
+      script.id = 'mt-mixer-script';
+      script.src = chrome.runtime.getURL('audio-mixer.js');
+      (document.head || document.documentElement).appendChild(script);
+      console.log('[MeetTranslate AI] Inyección directa de audio-mixer.js en la página completada.');
+    } catch (e) {
+      console.warn('[MeetTranslate AI] Error inyectando script audio-mixer.js:', e);
+    }
+  }
+  injectMixerScript();
+
+  /**
    * Escuchador central de mensajes desde background.js
    */
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
