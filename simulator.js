@@ -1,139 +1,144 @@
 /**
- * simulator.js - Controlador del Simulador e Inspector de Audio WebRTC
- * Ejecuta el pipeline completo en tiempo real: captura de micrófono, reconocedor de voz en español,
- * traducción instantánea a inglés, silenciador del mic original e inyección del audio traducido en la llamada.
+ * simulator.js - Controlador de la Sala de Reunión Virtual & Simulador Bilingüe
+ * Implementa la simulación interactiva bidireccional entre Julián (Español 🇪🇸) y Alex (Inglés 🇺🇸).
  */
 
 (function () {
   'use strict';
 
-  // Elementos UI
-  const btnToggleSim = document.getElementById('btn-toggle-sim');
-  const chkMuteSp = document.getElementById('chk-mute-sp');
-  const btnSendTts = document.getElementById('btn-send-tts');
-  const inputTtsCustom = document.getElementById('input-tts-custom');
-  const chkListenRemote = document.getElementById('chk-listen-remote');
+  // UI - Navbar & Controles
+  const btnToggleRoom = document.getElementById('btn-toggle-room');
+  const badgeRoom = document.getElementById('badge-room');
+  const badgeMicA = document.getElementById('badge-mic-a');
+  const badgeMicB = document.getElementById('badge-mic-b');
 
-  const txtSttOrig = document.getElementById('txt-stt-orig');
-  const txtSttTrans = document.getElementById('txt-stt-trans');
+  // UI - Hablante A (Julián - ES)
+  const sttAOrig = document.getElementById('stt-a-orig');
+  const sttATrans = document.getElementById('stt-a-trans');
+  const barVolMicA = document.getElementById('bar-vol-mic-a');
+  const txtVolMicA = document.getElementById('txt-vol-mic-a');
+  const barVolOutA = document.getElementById('bar-vol-out-a');
+  const txtVolOutA = document.getElementById('txt-vol-out-a');
+  const chkMuteSpA = document.getElementById('chk-mute-sp-a');
+  const inputPhraseA = document.getElementById('input-phrase-a');
+  const btnSpeakA = document.getElementById('btn-speak-a');
 
-  const barMic = document.getElementById('bar-mic');
-  const txtMicVal = document.getElementById('txt-mic-val');
-  const barOut = document.getElementById('bar-out');
-  const txtOutVal = document.getElementById('txt-out-val');
-  const barRemote = document.getElementById('bar-remote');
-  const txtRemoteVal = document.getElementById('txt-remote-val');
+  // UI - Participante B (Alex - EN)
+  const sttBOrig = document.getElementById('stt-b-orig');
+  const sttBTrans = document.getElementById('stt-b-trans');
+  const barVolRecvB = document.getElementById('bar-vol-recv-b');
+  const txtVolRecvB = document.getElementById('txt-vol-recv-b');
+  const chkListenB = document.getElementById('chk-listen-b');
+  const inputPhraseB = document.getElementById('input-phrase-b');
+  const btnSpeakB = document.getElementById('btn-speak-b');
 
-  const pillMic = document.getElementById('pill-mic');
-  const pillWebrtc = document.getElementById('pill-webrtc');
-  const pillRemote = document.getElementById('pill-remote');
-  const txtChannelStatus = document.getElementById('txt-channel-status');
   const logBox = document.getElementById('log-box');
 
-  // Estado del Pipeline Audio
-  let isSimActive = false;
-  let rawMicStream = null;
+  // Estado del Pipeline
+  let isRoomActive = false;
+  let rawMicStreamA = null;
   let audioCtx = null;
 
-  let micGainNode = null;
-  let ttsGainNode = null;
-  let mixerDestNode = null;
+  let micGainA = null;
+  let ttsGainA = null;
+  let mixerDestA = null;
 
-  let analyserMic = null;
-  let analyserOut = null;
-  let analyserRemote = null;
+  let analyserMicA = null;
+  let analyserOutA = null;
+  let analyserRecvB = null;
 
-  let speechRecognition = null;
-  let remoteAudioElement = new Audio();
+  let speechRecognitionA = null;
+  let alexSpeakerAudio = new Audio();
 
   function log(msg) {
     const time = new Date().toLocaleTimeString();
     logBox.textContent += `[${time}] ${msg}\n`;
     logBox.scrollTop = logBox.scrollHeight;
-    console.log('[Simulator]', msg);
+    console.log('[VirtualRoom]', msg);
   }
 
-  btnToggleSim.addEventListener('click', async () => {
-    if (isSimActive) {
-      stopSimulation();
+  btnToggleRoom.addEventListener('click', async () => {
+    if (isRoomActive) {
+      stopVirtualRoom();
     } else {
-      await startSimulation();
+      await startVirtualRoom();
     }
   });
 
-  async function startSimulation() {
-    log('Iniciando simulación de canal WebRTC...');
+  async function startVirtualRoom() {
+    log('Iniciando Sala de Reunión Virtual Bilingüe...');
     try {
-      // 1. Obtener stream de micrófono físico
-      rawMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      log('✅ Micrófono físico capturado.');
+      // 1. Capturar micrófono físico del Hablante A (Julián)
+      rawMicStreamA = await navigator.mediaDevices.getUserMedia({ audio: true });
+      log('✅ Micrófono físico de Julián activado.');
 
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === 'suspended') await audioCtx.resume();
 
-      // 2. Analyser del micrófono físico (Panel 1)
-      const micSource = audioCtx.createMediaStreamSource(rawMicStream);
-      analyserMic = audioCtx.createAnalyser();
-      analyserMic.fftSize = 256;
-      micSource.connect(analyserMic);
+      // 2. Analyser del micrófono físico de Julián
+      const micSourceA = audioCtx.createMediaStreamSource(rawMicStreamA);
+      analyserMicA = audioCtx.createAnalyser();
+      analyserMicA.fftSize = 256;
+      micSourceA.connect(analyserMicA);
 
-      // 3. Crear Mixer de Audio (Canal de salida WebRTC)
-      mixerDestNode = audioCtx.createMediaStreamDestination();
+      // 3. Crear Mixer de Audio WebRTC (Canal que se transmite a Alex)
+      mixerDestA = audioCtx.createMediaStreamDestination();
 
-      micGainNode = audioCtx.createGain();
-      micGainNode.gain.value = chkMuteSp.checked ? 0.0 : 1.0;
+      micGainA = audioCtx.createGain();
+      micGainA.gain.value = chkMuteSpA.checked ? 0.0 : 1.0;
 
-      micSource.connect(micGainNode);
-      micGainNode.connect(mixerDestNode);
+      micSourceA.connect(micGainA);
+      micGainA.connect(mixerDestA);
 
-      ttsGainNode = audioCtx.createGain();
-      ttsGainNode.gain.value = 2.5;
-      ttsGainNode.connect(mixerDestNode);
+      ttsGainA = audioCtx.createGain();
+      ttsGainA.gain.value = 2.5;
+      ttsGainA.connect(mixerDestA);
 
-      // 4. Analyser del Canal de Salida Transmitido (Panel 2)
-      analyserOut = audioCtx.createAnalyser();
-      analyserOut.fftSize = 256;
-      const outSource = audioCtx.createMediaStreamSource(mixerDestNode.stream);
-      outSource.connect(analyserOut);
+      // 4. Analyser del canal transmitido a Alex
+      analyserOutA = audioCtx.createAnalyser();
+      analyserOutA.fftSize = 256;
+      const outSourceA = audioCtx.createMediaStreamSource(mixerDestA.stream);
+      outSourceA.connect(analyserOutA);
 
-      // 5. Oyente Remoto (Panel 3)
-      remoteAudioElement.srcObject = mixerDestNode.stream;
-      remoteAudioElement.muted = !chkListenRemote.checked;
-      remoteAudioElement.play().catch(() => {});
+      // 5. Conectar parlantes de Alex
+      alexSpeakerAudio.srcObject = mixerDestA.stream;
+      alexSpeakerAudio.muted = !chkListenB.checked;
+      alexSpeakerAudio.play().catch(() => {});
 
-      const remoteSource = audioCtx.createMediaStreamSource(mixerDestNode.stream);
-      analyserRemote = audioCtx.createAnalyser();
-      analyserRemote.fftSize = 256;
-      remoteSource.connect(analyserRemote);
+      const recvSourceB = audioCtx.createMediaStreamSource(mixerDestA.stream);
+      analyserRecvB = audioCtx.createAnalyser();
+      analyserRecvB.fftSize = 256;
+      recvSourceB.connect(analyserRecvB);
 
-      isSimActive = true;
+      isRoomActive = true;
 
-      btnToggleSim.innerHTML = '<span>⏹️ Detener Simulación</span>';
-      btnToggleSim.className = 'btn btn-stop';
+      btnToggleRoom.innerHTML = '<span>⏹️ Salir de la Reunión</span>';
+      btnToggleRoom.className = 'btn btn-stop';
 
-      pillMic.className = 'status-pill pill-on'; pillMic.textContent = 'ACTIVO';
-      pillWebrtc.className = 'status-pill pill-on'; pillWebrtc.textContent = 'TRANSMITIENDO';
-      pillRemote.className = 'status-pill pill-on'; pillRemote.textContent = 'CONECTADO';
+      badgeRoom.className = 'status-badge badge-live';
+      badgeRoom.innerHTML = '<span class="live-dot"></span> EN VIVO';
 
-      updateChannelStatusText();
-      startLiveSTT();
+      badgeMicA.className = 'status-badge badge-live'; badgeMicA.textContent = 'MIC ACTIVO';
+      badgeMicB.className = 'status-badge badge-live'; badgeMicB.textContent = 'OYENTE EN VIVO';
+
+      startSpeechRecognitionA();
       updateMetersLoop();
 
-      log('✅ Simulación de llamada WebRTC iniciada exitosamente.');
+      log('🎉 ¡Reunión Virtual activada! Habla por tu micrófono en español o usa las frases de prueba.');
 
     } catch (err) {
-      log(`❌ Error iniciando simulación: ${err.message}`);
-      stopSimulation();
+      log(`❌ Error al conectar a la reunión: ${err.message}`);
+      stopVirtualRoom();
     }
   }
 
-  function stopSimulation() {
-    isSimActive = false;
-    stopLiveSTT();
+  function stopVirtualRoom() {
+    isRoomActive = false;
+    stopSpeechRecognitionA();
 
-    if (rawMicStream) {
-      rawMicStream.getTracks().forEach(t => t.stop());
-      rawMicStream = null;
+    if (rawMicStreamA) {
+      rawMicStreamA.getTracks().forEach(t => t.stop());
+      rawMicStreamA = null;
     }
 
     if (audioCtx) {
@@ -141,66 +146,86 @@
       audioCtx = null;
     }
 
-    btnToggleSim.innerHTML = '<span>▶️ Iniciar Simulación</span>';
-    btnToggleSim.className = 'btn btn-start';
+    btnToggleRoom.innerHTML = '<span>▶️ Entrar a la Reunión Virtual</span>';
+    btnToggleRoom.className = 'btn btn-start';
 
-    pillMic.className = 'status-pill pill-off'; pillMic.textContent = 'OFF';
-    pillWebrtc.className = 'status-pill pill-off'; pillWebrtc.textContent = 'INACTIVO';
-    pillRemote.className = 'status-pill pill-off'; pillRemote.textContent = 'DESCONECTADO';
+    badgeRoom.className = 'status-badge badge-off'; badgeRoom.textContent = 'EN ESPERA';
+    badgeMicA.className = 'status-badge badge-off'; badgeMicA.textContent = 'MIC OFF';
+    badgeMicB.className = 'status-badge badge-off'; badgeMicB.textContent = 'OYENTE';
 
-    barMic.style.width = '0%'; txtMicVal.textContent = '0%';
-    barOut.style.width = '0%'; txtOutVal.textContent = '0%';
-    barRemote.style.width = '0%'; txtRemoteVal.textContent = '0%';
-    txtChannelStatus.textContent = 'Esperando inicio';
+    barVolMicA.style.width = '0%'; txtVolMicA.textContent = '0%';
+    barVolOutA.style.width = '0%'; txtVolOutA.textContent = '0%';
+    barVolRecvB.style.width = '0%'; txtVolRecvB.textContent = '0%';
 
-    log('Simulación de llamada detenida.');
+    log('Reunión Virtual finalizada.');
   }
 
-  chkMuteSp.addEventListener('change', () => {
-    const isMuted = chkMuteSp.checked;
-    if (micGainNode && audioCtx) {
-      micGainNode.gain.setValueAtTime(isMuted ? 0.0 : 1.0, audioCtx.currentTime);
+  // Control de silenciado de voz original en español
+  chkMuteSpA.addEventListener('change', () => {
+    const isMuted = chkMuteSpA.checked;
+    if (micGainA && audioCtx) {
+      micGainA.gain.setValueAtTime(isMuted ? 0.0 : 1.0, audioCtx.currentTime);
     }
-    updateChannelStatusText();
-    log(isMuted ? '🔇 Micrófono original silenciado (Ganancia = 0.0)' : '🎙️ Micrófono original activado (Ganancia = 1.0)');
-  });
-
-  chkListenRemote.addEventListener('change', () => {
-    remoteAudioElement.muted = !chkListenRemote.checked;
-    log(chkListenRemote.checked ? '🔊 Escucha local activada.' : '🔇 Escucha local silenciada.');
-  });
-
-  function updateChannelStatusText() {
-    if (!isSimActive) {
-      txtChannelStatus.textContent = 'Esperando inicio';
-      txtChannelStatus.style.color = '#94a3b8';
-      return;
-    }
-    if (chkMuteSp.checked) {
-      txtChannelStatus.textContent = '🔇 Micrófono Silenciado (Solo sale Traducción)';
-      txtChannelStatus.style.color = '#ef4444';
-      barOut.classList.add('muted');
+    if (isMuted) {
+      barVolOutA.classList.add('muted');
+      log('🔇 Micrófono original en español SILENCIADO (Ganancia = 0.0). Tu voz directa no viajará por la llamada.');
     } else {
-      txtChannelStatus.textContent = '🎙️ Micrófono Directo (Sin silenciar)';
-      txtChannelStatus.style.color = '#34d399';
-      barOut.classList.remove('muted');
+      barVolOutA.classList.remove('muted');
+      log('🎙️ Micrófono original ACTIVADO. Tu voz directa en español viajará por la llamada.');
     }
-  }
-
-  // Transmisión de voz traducida (TTS MP3 -> Mixer)
-  btnSendTts.addEventListener('click', async () => {
-    const text = inputTtsCustom.value.trim();
-    if (!text) return;
-    await transmitTTSAudio(text, 'en');
   });
 
-  async function transmitTTSAudio(text, lang) {
-    if (!isSimActive || !audioCtx || !ttsGainNode) {
-      log('⚠️ Inicia la simulación antes de transmitir TTS.');
+  chkListenB.addEventListener('change', () => {
+    alexSpeakerAudio.muted = !chkListenB.checked;
+    log(chkListenB.checked ? '🔊 Escucha del receptor activada en tus audífonos.' : '🔇 Escucha del receptor silenciada.');
+  });
+
+  // HABLAR FRASE DE PRUEBA DESDE JULIÁN (ES ➔ EN)
+  btnSpeakA.addEventListener('click', async () => {
+    const text = inputPhraseA.value.trim();
+    if (!text) return;
+
+    sttAOrig.textContent = text;
+    log(`[Julián habla ES] "${text}"`);
+
+    // Traducir a inglés
+    const translated = await translateText(text, 'es', 'en');
+    sttATrans.textContent = translated;
+    log(`[Traducción -> Alex EN] "${translated}"`);
+
+    // Transmitir voz hablada en inglés a Alex
+    await transmitTTS(translated, 'en');
+  });
+
+  // RESPONDER COMO ALEX (EN ➔ ES)
+  btnSpeakB.addEventListener('click', async () => {
+    const text = inputPhraseB.value.trim();
+    if (!text) return;
+
+    sttBOrig.textContent = text;
+    log(`[Alex responde EN] "${text}"`);
+
+    // Traducir a español
+    const translated = await translateText(text, 'en', 'es');
+    sttBTrans.textContent = translated;
+    log(`[Traducción -> Julián ES] "${translated}"`);
+
+    // Reproducir respuesta en español para Julián
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(translated);
+      utterance.lang = 'es-ES';
+      utterance.rate = 1.0;
+      window.speechSynthesis.speak(utterance);
+    }
+  });
+
+  // Función para transmitir audio TTS en inglés a Alex
+  async function transmitTTS(text, lang) {
+    if (!isRoomActive || !audioCtx || !ttsGainA) {
+      log('⚠️ Entra a la reunión virtual antes de transmitir.');
       return;
     }
-
-    log(`Descargando y transmitiendo audio TTS en inglés: "${text}"...`);
 
     try {
       const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=tw-ob`;
@@ -212,26 +237,39 @@
 
       const source = audioCtx.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(ttsGainNode);
+      source.connect(ttsGainA);
       source.start(0);
 
-      log(`✅ Voz traducida enviada al canal WebRTC (${Math.round(audioBuffer.duration * 10) / 10}s)`);
+      log(`🔊 Audio traducido en inglés transmitido a Alex (${Math.round(audioBuffer.duration * 10) / 10}s)`);
     } catch (err) {
-      log(`⚠️ Error reproduciendo TTS: ${err.message}`);
+      log(`⚠️ Error transmitiendo audio TTS: ${err.message}`);
     }
   }
 
-  // Reconocimiento de voz en tiempo real + Traducción automática
-  function startLiveSTT() {
+  // Traducción vía Google Translate GTX API
+  async function translateText(text, src, tgt) {
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${src}&tl=${tgt}&dt=t&q=${encodeURIComponent(text)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data && Array.isArray(data[0])) {
+        return data[0].map(c => c[0]).filter(Boolean).join('');
+      }
+    } catch (e) {}
+    return text;
+  }
+
+  // Reconocimiento de voz continuo de Julián
+  function startSpeechRecognitionA() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) return;
 
-    speechRecognition = new SpeechRecognition();
-    speechRecognition.continuous = true;
-    speechRecognition.interimResults = true;
-    speechRecognition.lang = 'es-ES';
+    speechRecognitionA = new SpeechRecognition();
+    speechRecognitionA.continuous = true;
+    speechRecognitionA.interimResults = true;
+    speechRecognitionA.lang = 'es-ES';
 
-    speechRecognition.onresult = async (event) => {
+    speechRecognitionA.onresult = async (event) => {
       let interim = '';
       let finalStr = '';
 
@@ -245,71 +283,58 @@
 
       const text = (finalStr || interim).trim();
       if (text) {
-        txtSttOrig.textContent = text;
-        log(`[Mic STT] "${text}"`);
+        sttAOrig.textContent = text;
+        log(`[Tu micrófono ES] "${text}"`);
 
-        // Traducir usando la API rápida de Google
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=es&tl=en&dt=t&q=${encodeURIComponent(text)}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          let translated = text;
-          if (data && Array.isArray(data[0])) {
-            translated = data[0].map(c => c[0]).filter(Boolean).join('');
-          }
+        const translated = await translateText(text, 'es', 'en');
+        sttATrans.textContent = translated;
 
-          txtSttTrans.textContent = translated;
-
-          // Si la frase es final y el silenciador está activo, transmitir automáticamente la voz traducida
-          if (finalStr && chkMuteSp.checked) {
-            log(`[Traducción Lista] Transmitiendo al oyente remoto: "${translated}"`);
-            await transmitTTSAudio(translated, 'en');
-          }
-        } catch (e) {
-          console.warn('Error traduciendo:', e);
+        if (finalStr) {
+          log(`[Traducción transmitida] "${translated}"`);
+          await transmitTTS(translated, 'en');
         }
       }
     };
 
-    speechRecognition.onerror = (e) => {
+    speechRecognitionA.onerror = (e) => {
       if (e.error !== 'no-speech') console.warn('STT Error:', e.error);
     };
 
-    speechRecognition.onend = () => {
-      if (isSimActive && speechRecognition) {
-        try { speechRecognition.start(); } catch (e) {}
+    speechRecognitionA.onend = () => {
+      if (isRoomActive && speechRecognitionA) {
+        try { speechRecognitionA.start(); } catch (e) {}
       }
     };
 
-    try { speechRecognition.start(); } catch (e) {}
+    try { speechRecognitionA.start(); } catch (e) {}
   }
 
-  function stopLiveSTT() {
-    if (speechRecognition) {
+  function stopSpeechRecognitionA() {
+    if (speechRecognitionA) {
       try {
-        speechRecognition.onend = null;
-        speechRecognition.stop();
+        speechRecognitionA.onend = null;
+        speechRecognitionA.stop();
       } catch (e) {}
-      speechRecognition = null;
+      speechRecognitionA = null;
     }
   }
 
-  // Bucle de actualización de los VU meters de volumen
+  // Bucle de actualización de los VU meters
   function updateMetersLoop() {
-    if (!isSimActive) return;
+    if (!isRoomActive) return;
 
-    const micVol = getVol(analyserMic);
-    const outVol = getVol(analyserOut);
-    const remoteVol = getVol(analyserRemote);
+    const micVol = getVol(analyserMicA);
+    const outVol = getVol(analyserOutA);
+    const recvVol = getVol(analyserRecvB);
 
-    barMic.style.width = `${micVol}%`;
-    txtMicVal.textContent = `${micVol}%`;
+    barVolMicA.style.width = `${micVol}%`;
+    txtVolMicA.textContent = `${micVol}%`;
 
-    barOut.style.width = `${outVol}%`;
-    txtOutVal.textContent = `${outVol}%`;
+    barVolOutA.style.width = `${outVol}%`;
+    txtVolOutA.textContent = `${outVol}%`;
 
-    barRemote.style.width = `${remoteVol}%`;
-    txtRemoteVal.textContent = `${remoteVol}%`;
+    barVolRecvB.style.width = `${recvVol}%`;
+    txtVolRecvB.textContent = `${recvVol}%`;
 
     requestAnimationFrame(updateMetersLoop);
   }
