@@ -288,6 +288,35 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
 
+        case 'FETCH_TTS_AUDIO': {
+          // El content script NO puede hacer fetch cross-origin a translate.google.com
+          // por restricciones CORS de la página. El Service Worker SÍ puede.
+          try {
+            const { text, lang } = message;
+            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=tw-ob`;
+            const response = await fetch(ttsUrl);
+
+            if (response.ok) {
+              const arrayBuffer = await response.arrayBuffer();
+              // Convertir ArrayBuffer a base64 para transmitirlo por chrome.runtime messaging
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = '';
+              for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              const audioBase64 = btoa(binary);
+              sendResponse({ success: true, audioBase64 });
+              console.log('[MeetTranslate AI SW] TTS MP3 descargado y enviado al content script (' + Math.round(arrayBuffer.byteLength / 1024) + 'KB)');
+            } else {
+              sendResponse({ success: false, error: `HTTP ${response.status}` });
+            }
+          } catch (err) {
+            console.warn('[MeetTranslate AI SW] Error descargando TTS audio:', err);
+            sendResponse({ success: false, error: err.message });
+          }
+          break;
+        }
+
         default:
           break;
       }

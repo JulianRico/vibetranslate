@@ -300,7 +300,8 @@
    * Reproduce la traducción mediante voz sintética (Text-To-Speech).
    * Doble emisión:
    *   1. speechSynthesis → el USUARIO escucha la traducción por sus parlantes.
-   *   2. Fetch TTS MP3 → postMessage al audio-mixer.js → se inyecta en el stream
+   *   2. Service Worker descarga TTS MP3 (sin CORS) → content script decodifica →
+   *      postMessage al audio-mixer.js (MAIN world) → se inyecta en el stream
    *      WebRTC de la llamada → el PARTICIPANTE REMOTO escucha la traducción.
    */
   async function speakTranslation(text, targetLang) {
@@ -325,21 +326,32 @@
     }
 
     // 2. Transmisión REMOTA al otro participante vía WebRTC mixer
+    //    Ruta: content.js → background.js (fetch sin CORS) → content.js → audio-mixer.js (MAIN)
     try {
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${lang}&client=tw-ob`;
-      const response = await fetch(ttsUrl);
-
-      if (response.ok) {
-        const audioData = await response.arrayBuffer();
-        // Enviar audio al audio-mixer.js (mundo MAIN) para inyectarlo en la llamada
-        window.postMessage({
-          type: 'MT_PLAY_TTS_INTO_CALL',
-          audioData: audioData
-        }, '*');
-        console.log('[MeetTranslate AI] ✅ Audio traducido enviado al mixer WebRTC de la llamada');
-      }
+      chrome.runtime.sendMessage(
+        { type: 'FETCH_TTS_AUDIO', text: cleanText, lang: lang },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.warn('[MeetTranslate AI] Error en FETCH_TTS_AUDIO:', chrome.runtime.lastError.message);
+            return;
+          }
+          if (response && response.success && response.audioBase64) {
+            // Decodificar base64 a ArrayBuffer
+            const binaryStr = atob(response.audioBase64);
+            const bytes = new Uint8Array(binaryStr.length);
+            for (let i = 0; i < binaryStr.length; i++) {
+              bytes[i] = binaryStr.charCodeAt(i);
+            }
+            // Enviar al audio-mixer.js (mundo MAIN) para inyectarlo en el stream WebRTC
+            window.postMessage({
+              type: 'MT_PLAY_TTS_INTO_CALL',
+              audioData: bytes.buffer
+            }, '*');
+            console.log('[MeetTranslate AI] ✅ Audio TTS inyectado en la llamada WebRTC');
+          }
+        }
+      );
     } catch (e) {
-      // Silencioso: si falla la transmisión remota, al menos el usuario local sigue escuchando
       console.warn('[MeetTranslate AI] No se pudo enviar TTS a la llamada:', e);
     }
   }
