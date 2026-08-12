@@ -72,6 +72,7 @@
                 LIVE AI
               </span>
               <span id="mt-lang-pair">ES ➔ EN</span>
+              <span id="mt-mixer-status" style="font-size:10px;margin-left:6px;opacity:0.7" title="Estado del mixer de audio WebRTC">⏳</span>
             </div>
             <div class="mt-controls">
               <button type="button" class="mt-btn-icon" id="mt-btn-tts" title="Voz Hablada Traducida (TTS) Encendida/Apagada">🔊</button>
@@ -94,6 +95,13 @@
       // Eventos de interacción
       setupDragEvents(container);
       setupButtonEvents(container);
+
+      // Escuchar actualizaciones de estado del mixer (audio-mixer.js en MAIN world)
+      window.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'MT_MIXER_STATUS_UPDATE') {
+          updateMixerStatusIndicator(event.data.status);
+        }
+      });
     }
 
     container.classList.remove('mt-hidden');
@@ -102,6 +110,29 @@
     if (settings) {
       applySettings(settings);
     }
+  }
+
+  /**
+   * Actualiza el indicador visual del estado del mixer en la cabecera del overlay.
+   */
+  function updateMixerStatusIndicator(status) {
+    const el = document.getElementById('mt-mixer-status');
+    if (!el) return;
+
+    const statusMap = {
+      'GUM_INTERCEPTED': '🟡',
+      'MIXER_ACTIVE':    '🟡',
+      'TRACK_REPLACED':  '🟢',
+      'STREAM_REPLACED': '🟢',
+      'MIC_MUTED':       '🔇',
+      'MIC_UNMUTED':     '🎙️',
+      'TTS_PLAYING':     '🔊',
+      'TTS_FAILED':      '🔴',
+      'TTS_ERROR':       '🔴'
+    };
+
+    el.textContent = statusMap[status] || '⏳';
+    el.title = `Mixer: ${status}`;
   }
 
   /**
