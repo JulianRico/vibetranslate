@@ -13,6 +13,7 @@ let currentStream = null;
 let audioContext = null;
 let speechRecognizer = null;
 let isListening = false;
+let sttWatchdogInterval = null;
 let currentSettings = {
   sourceLang: 'es-ES',
   targetLang: 'en',
@@ -386,16 +387,16 @@ function initSpeechRecognition() {
 
   speechRecognizer.onend = () => {
     console.log('[MeetTranslate AI Offscreen] Evento onend de SpeechRecognition.');
-    // Si la captura sigue activa, reiniciar automáticamente el reconocimiento de voz
-    if (isListening && currentStream && currentStream.active) {
-      console.log('[MeetTranslate AI Offscreen] Reiniciando reconocedor de voz...');
+    // Si la captura sigue activa, reiniciar incondicionalmente el reconocedor de voz del micrófono
+    if (isListening) {
       try {
         speechRecognizer.start();
       } catch (e) {
-        console.warn('[MeetTranslate AI Offscreen] Reintento de inicio de recognizer diferido:', e);
         setTimeout(() => {
-          if (isListening) speechRecognizer.start();
-        }, 300);
+          if (isListening) {
+            try { speechRecognizer.start(); } catch (err) {}
+          }
+        }, 200);
       }
     }
   };
@@ -404,6 +405,17 @@ function initSpeechRecognition() {
     speechRecognizer.start();
   } catch (err) {
     console.error('[MeetTranslate AI Offscreen] Error al arrancar SpeechRecognition:', err);
+  }
+
+  // Timer de vigilancia (Watchdog) para garantizar la reinicialización permanente en segundo plano
+  if (!sttWatchdogInterval) {
+    sttWatchdogInterval = setInterval(() => {
+      if (isListening && speechRecognizer) {
+        try {
+          speechRecognizer.start();
+        } catch (e) {}
+      }
+    }, 2000);
   }
 }
 
