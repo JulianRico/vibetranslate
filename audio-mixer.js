@@ -4,8 +4,10 @@
  * Intercepta navigator.mediaDevices.getUserMedia para crear un mixer
  * que combina el audio del micrófono con el audio TTS de traducción.
  *
- * Esto permite que la voz traducida en inglés se transmita directamente
- * a través de la llamada al participante remoto vía WebRTC.
+ * Cuando la traducción está activa:
+ *   - El micrófono original se SILENCIA (gain = 0) para que el participante
+ *     remoto NO escuche la voz en español.
+ *   - Solo la voz traducida en inglés (TTS) se transmite por la llamada.
  *
  * Ejecutado en el mundo MAIN (contexto de la página) al inicio del
  * documento (document_start) para interceptar antes de que Meet/Zoom/Teams
@@ -21,7 +23,8 @@
   let audioCtx = null;
   let mixerDestination = null;
   let micSourceNode = null;
-  let ttsGainNode = null;
+  let micGainNode = null;   // Controla volumen del mic (0 = silenciado, 1 = activo)
+  let ttsGainNode = null;   // Controla volumen del TTS traducido
   let isMixerActive = false;
 
   /**
@@ -55,13 +58,19 @@
       // Crear nodo destino del mixer (stream de salida para WebRTC)
       mixerDestination = audioCtx.createMediaStreamDestination();
 
-      // Conectar el stream original del micrófono al mixer
-      micSourceNode = audioCtx.createMediaStreamSource(originalStream);
-      micSourceNode.connect(mixerDestination);
+      // ── CANAL DEL MICRÓFONO ──
+      // Nodo de ganancia del mic: permite silenciar la voz original
+      micGainNode = audioCtx.createGain();
+      micGainNode.gain.value = 1.0; // Activo por defecto, se silencia al activar traducción
 
-      // Crear nodo de ganancia para el audio TTS (control de volumen)
+      micSourceNode = audioCtx.createMediaStreamSource(originalStream);
+      micSourceNode.connect(micGainNode);
+      micGainNode.connect(mixerDestination);
+
+      // ── CANAL TTS (TRADUCCIÓN) ──
+      // Nodo de ganancia para el audio TTS traducido
       ttsGainNode = audioCtx.createGain();
-      ttsGainNode.gain.value = 1.8; // Volumen ligeramente superior para claridad
+      ttsGainNode.gain.value = 2.0; // Volumen alto para claridad en la llamada
       ttsGainNode.connect(mixerDestination);
 
       isMixerActive = true;
@@ -69,17 +78,21 @@
       // Construir stream mixto de salida
       const mixedStream = new MediaStream();
 
-      // Agregar nuestro track de audio mixto (micrófono + TTS)
+      // Agregar nuestro track de audio mixto (mic + TTS)
       mixerDestination.stream.getAudioTracks().forEach(track => {
         mixedStream.addTrack(track);
       });
 
-      // Preservar tracks de video del stream original (si existen)
+      // Preservar tracks de video del stream original
       originalStream.getVideoTracks().forEach(track => {
         mixedStream.addTrack(track);
       });
 
-      console.log('[MeetTranslate Mixer] ✅ Mixer de audio activo — El audio TTS será transmitido a la llamada');
+      console.log('[MeetTranslate Mixer] ✅ Mixer de audio WebRTC activo — Listo para inyectar traducción');
+
+      // Notificar al content script que el mixer está listo
+      window.postMessage({ type: 'MT_MIXER_READY' }, '*');
+
       return mixedStream;
 
     } catch (err) {
@@ -94,6 +107,7 @@
    */
   async function playTTSIntoMixer(audioArrayBuffer) {
     if (!isMixerActive || !audioCtx || !ttsGainNode) {
+      console.warn('[MeetTranslate Mixer] ⚠️ Mixer no activo, no se puede inyectar TTS');
       return;
     }
 
@@ -111,23 +125,46 @@
       source.connect(ttsGainNode);
       source.start(0);
 
-      console.log('[MeetTranslate Mixer] 🔊 Audio TTS inyectado en el stream de la llamada');
+      console.log('[MeetTranslate Mixer] 🔊 Audio TTS traducido inyectado en la llamada WebRTC');
     } catch (err) {
       console.warn('[MeetTranslate Mixer] Error reproduciendo TTS en el mixer:', err);
     }
   }
 
   /**
-   * Escuchar mensajes de audio TTS desde el content script (mundo ISOLATED).
+   * Escuchar mensajes desde el content script (mundo ISOLATED).
    */
   window.addEventListener('message', (event) => {
     if (event.source !== window) return;
-    if (event.data && event.data.type === 'MT_PLAY_TTS_INTO_CALL') {
-      if (event.data.audioData && event.data.audioData instanceof ArrayBuffer) {
-        playTTSIntoMixer(event.data.audioData);
-      }
+    if (!event.data || !event.data.type) return;
+
+    switch (event.data.type) {
+      // Inyectar audio TTS traducido en el stream de la llamada
+      case 'MT_PLAY_TTS_INTO_CALL':
+        if (event.data.audioData && event.data.audioData instanceof ArrayBuffer) {
+          playTTSIntoMixer(event.data.audioData);
+        }
+        break;
+
+      // Silenciar / activar micrófono original en el stream WebRTC
+      case 'MT_SET_MIC_MUTE':
+        if (micGainNode) {
+          const muted = !!event.data.muted;
+          micGainNode.gain.setValueAtTime(muted ? 0 : 1, audioCtx ? audioCtx.currentTime : 0);
+          console.log('[MeetTranslate Mixer] Micrófono ' + (muted ? '🔇 SILENCIADO (solo sale inglés)' : '🎙️ ACTIVO (voz directa)'));
+        }
+        break;
+
+      // Consultar estado del mixer
+      case 'MT_MIXER_STATUS':
+        window.postMessage({
+          type: 'MT_MIXER_STATUS_RESPONSE',
+          isActive: isMixerActive,
+          micMuted: micGainNode ? micGainNode.gain.value === 0 : false
+        }, '*');
+        break;
     }
   });
 
-  console.log('[MeetTranslate Mixer] 🎯 Interceptor de getUserMedia instalado, esperando llamada...');
+  console.log('[MeetTranslate Mixer] 🎯 Interceptor de getUserMedia instalado — Esperando llamada...');
 })();

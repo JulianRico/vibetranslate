@@ -177,6 +177,15 @@
         ttsEnabled = !ttsEnabled;
         btnTts.textContent = ttsEnabled ? '🔊' : '🔇';
         btnTts.style.opacity = ttsEnabled ? '1' : '0.5';
+
+        // Silenciar/activar micrófono original en el stream WebRTC
+        // Cuando TTS está ON: el remoto solo escucha la traducción en inglés
+        // Cuando TTS está OFF: el remoto escucha tu voz directa (sin traducir)
+        window.postMessage({
+          type: 'MT_SET_MIC_MUTE',
+          muted: ttsEnabled
+        }, '*');
+
         if (!ttsEnabled && window.speechSynthesis) {
           window.speechSynthesis.cancel();
         }
@@ -372,6 +381,10 @@
    * Elimina completamente el elemento del DOM al desactivar.
    */
   function removeOverlay() {
+    // Restaurar micrófono original al desactivar
+    window.postMessage({ type: 'MT_SET_MIC_MUTE', muted: false }, '*');
+    ttsEnabled = false;
+
     const container = document.getElementById(OVERLAY_ID);
     if (container) {
       container.remove();
