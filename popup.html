@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeetTranslate AI - Control</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: rgba(30, 41, 59, 0.85);
+      --accent-color: #10b981;
+      --accent-hover: #059669;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --border-color: rgba(255, 255, 255, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    body {
+      width: 330px;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      padding: 16px;
+      user-select: none;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 16px;
+    }
+
+    .title-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .logo-icon {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, #10b981, #06b6d4);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: bold;
+      color: #fff;
+    }
+
+    h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .status-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 12px;
+      background: rgba(148, 163, 184, 0.15);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .status-pill.active {
+      background: rgba(16, 185, 129, 0.15);
+      color: #34d399;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #94a3b8;
+    }
+
+    .status-pill.active .status-dot {
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+
+    /* Interruptor principal Toggle */
+    .toggle-section {
+      background: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .toggle-label {
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 46px;
+      height: 24px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #334155;
+      transition: .25s;
+      border-radius: 24px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .25s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent-color);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    /* Grupos de Formulario */
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    select, input[type="text"] {
+      width: 100%;
+      background: #1e293b;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: var(--accent-color);
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .row > .form-group {
+      flex: 1;
+    }
+
+    .range-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent-color);
+      cursor: pointer;
+    }
+
+    .range-val {
+      font-size: 12px;
+      font-weight: 600;
+      width: 36px;
+      text-align: right;
+      color: var(--text-main);
+    }
+
+    /* Banner de permiso de micrófono */
+    .perm-banner {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #fca5a5;
+    }
+
+    .btn-perm {
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .btn-perm:hover {
+      background: #dc2626;
+    }
+
+    .footer-note {
+      font-size: 11px;
+      color: #64748b;
+      text-align: center;
+      margin-top: 14px;
+    }
+
+    /* Probador interactivo de Voz */
+    .test-box {
+      background: rgba(16, 185, 129, 0.08);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+
+    .test-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: #34d399;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .btn-test {
+      width: 100%;
+      background: linear-gradient(135deg, #10b981, #059669);
+      border: none;
+      color: white;
+      padding: 9px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn-test:hover {
+      background: linear-gradient(135deg, #059669, #047857);
+    }
+
+    .btn-test:active {
+      transform: scale(0.98);
+    }
+
+    .btn-test.listening {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      animation: pulse-btn 1.5s infinite;
+    }
+
+    @keyframes pulse-btn {
+      0% { opacity: 1; }
+      50% { opacity: 0.85; }
+      100% { opacity: 1; }
+    }
+
+    .test-results {
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.1);
+      font-size: 12px;
+    }
+
+    .test-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #94a3b8;
+      font-weight: 700;
+    }
+
+    .test-original {
+      color: #e2e8f0;
+      font-style: italic;
+      margin-top: 2px;
+      word-break: break-word;
+    }
+
+    .test-translated {
+      color: #34d399;
+      font-weight: 600;
+      margin-top: 2px;
+      word-break: break-word;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title-group">
+      <div class="logo-icon">AI</div>
+      <h1>MeetTranslate</h1>
+    </div>
+    <div class="status-pill" id="status-pill">
+      <span class="status-dot"></span>
+      <span id="status-text">OFF</span>
+    </div>
+  </div>
+
+  <div class="perm-banner" id="perm-banner" style="display: none;">
+    <span>⚠️ Permiso de micrófono requerido</span>
+    <button type="button" class="btn-perm" id="btn-request-perm">Conceder</button>
+  </div>
+
+  <div class="test-box">
+    <div class="test-header">
+      <span>🧪 Probador de Micrófono y Parlantes</span>
+    </div>
+    <button type="button" class="btn-test" id="btn-test-mic">
+      <span class="mic-icon">🎙️</span>
+      <span id="test-btn-label">Iniciar Prueba de Voz</span>
+    </button>
+    <div class="test-results" id="test-results" style="display: none;">
+      <div class="test-label">Original (Micrófono):</div>
+      <div class="test-original" id="test-original">Habla por tu micrófono...</div>
+      <div class="test-label" style="margin-top: 6px;">Traducción (Parlantes):</div>
+      <div class="test-translated" id="test-translated">La traducción hablada saldrá aquí...</div>
+    </div>
+  </div>
+
+  <div class="toggle-section">
+    <span class="toggle-label">Traducción en Vivo</span>
+    <label class="switch">
+      <input type="checkbox" id="toggle-active">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="row">
+    <div class="form-group">
+      <label for="source-lang">Origen (Audio)</label>
+      <select id="source-lang">
+        <option value="es-ES">Español (ES)</option>
+        <option value="en-US">Inglés (EN)</option>
+        <option value="auto">⚡ Auto (ES ↔ EN)</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label for="target-lang">Destino (Texto)</label>
+      <select id="target-lang">
+        <option value="en">Inglés (EN)</option>
+        <option value="es">Español (ES)</option>
+        <option value="auto">⚡ Auto (Bidireccional)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="stt-engine-select">Transcripción (Audio Pestaña / Voz)</label>
+    <select id="stt-engine-select">
+      <option value="whisper_groq">⚡ Groq Whisper AI (Audio Pestaña Gratis)</option>
+      <option value="whisper_openai">OpenAI Whisper AI (Audio Pestaña)</option>
+      <option value="whisper_local">Whisper Servidor Local (localhost:8000)</option>
+      <option value="webspeech">Web Speech API (Micrófono Local)</option>
+    </select>
+  </div>
+
+  <div class="form-group" id="groq-key-group">
+    <label for="groq-api-key">Groq API Key (Gratuita)</label>
+    <input type="text" id="groq-api-key" placeholder="gsk_..." value="">
+  </div>
+
+  <div class="form-group" id="whisper-endpoint-group" style="display: none;">
+    <label for="whisper-endpoint">Endpoint Whisper Local</label>
+    <input type="text" id="whisper-endpoint" value="http://localhost:8000" placeholder="http://localhost:8000">
+  </div>
+
+  <div class="form-group">
+    <label for="engine-select">Motor de Traducción</label>
+    <select id="engine-select">
+      <option value="fast">Default Fast API (Ultrarrápido)</option>
+      <option value="gemma">TranslateGemma (Ollama Local AI)</option>
+    </select>
+  </div>
+
+  <div class="form-group" id="ollama-group" style="display: none;">
+    <label for="ollama-endpoint">Endpoint Ollama Local</label>
+    <input type="text" id="ollama-endpoint" value="http://localhost:11434" placeholder="http://localhost:11434">
+  </div>
+
+  <div class="form-group">
+    <label for="font-size-range">Tamaño de Fuente Subtítulos</label>
+    <div class="range-container">
+      <input type="range" id="font-size-range" min="14" max="28" value="18" step="1">
+      <span class="range-val" id="font-size-val">18px</span>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label for="opacity-range">Translucidez de Fondo</label>
+    <div class="range-container">
+      <input type="range" id="opacity-range" min="0.05" max="0.80" value="0.25" step="0.05">
+      <span class="range-val" id="opacity-val">25%</span>
+    </div>
+  </div>
+
+  <div class="footer-note">
+    Google Meet • Zoom Web • MS Teams Web
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
