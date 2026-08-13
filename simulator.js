@@ -310,6 +310,7 @@
       'tenant': 'Tenant',
 
       // Frontend & Frameworks
+      'ria': 'React',
       'real': 'React',
       'riac': 'React',
       'riact': 'React',
