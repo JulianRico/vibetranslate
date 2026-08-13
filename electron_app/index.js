@@ -37,9 +37,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   const platformBtns = document.querySelectorAll('.platform-btn');
 
-  let speechRecognizer = null;
   let isListeningTest = false;
   let geminiLiveClient = null;
+  let micMediaStream = null;
+  let audioContext = null;
+  let scriptProcessor = null;
+  let mediaRecorder = null;
 
   // ── Sistema de Logs en Pantalla ───────────────────────────────────
   function appendLog(category, message, type = 'system') {
@@ -50,7 +53,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     logContainer.appendChild(entry);
     logContainer.scrollTop = logContainer.scrollHeight;
 
-    // Reenviar al archivo en disco a través del proceso principal
     ipcRenderer.send('LOG_CLIENT_EVENT', { category, message, type });
   }
 
@@ -62,7 +64,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (btnOpenDevTools) {
     btnOpenDevTools.addEventListener('click', () => {
-      appendLog('DEVTOOLS', 'Solicitando apertura de Chromium Developer Tools...');
+      appendLog('DEVTOOLS', 'Abriendo Developer Tools de Chromium...');
       ipcRenderer.send('OPEN_DEVTOOLS');
     });
   }
@@ -123,7 +125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     updateStatusBadge(!!s.active);
     sourceLangSelect.value = s.sourceLang || 'es-ES';
     targetLangSelect.value = s.targetLang || 'en';
-    sttEngineSelect.value = s.sttEngine || 'webspeech';
+    sttEngineSelect.value = s.sttEngine || 'gemini_live';
     geminiKeyInput.value = s.geminiApiKey || '';
     geminiVoiceSelect.value = s.geminiVoice || 'Puck';
     groqKeyInput.value = s.groqApiKey || '';
@@ -158,7 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function enumerateAudioDevices() {
     try {
-      appendLog('AUDIO', 'Detectando dispositivos de entrada y salida del sistema...');
+      appendLog('AUDIO', 'Detectando dispositivos de audio del sistema...');
       const devices = await navigator.mediaDevices.enumerateDevices();
       micInputSelect.innerHTML = '';
       virtualCableSelect.innerHTML = '';
@@ -190,7 +192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // ── Lógica de Prueba de Voz ────────────────────────────────────────
+  // ── Lógica de Prueba de Voz y Pipelines ────────────────────────────
   async function startTest() {
     isListeningTest = true;
     btnTestMic.innerHTML = '<span>🛑 Detener Prueba</span>';
@@ -199,30 +201,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     previewTrans.textContent = 'Traduciendo en tiempo real...';
 
     const engine = sttEngineSelect.value;
-    const key = geminiKeyInput.value.trim();
+    const geminiKey = geminiKeyInput.value.trim();
+    const groqKey = groqKeyInput.value.trim();
 
     appendLog('TEST', `Iniciando prueba de voz con motor: ${engine}`);
 
     if (engine === 'gemini_live') {
-      if (key.startsWith('AIzaSy')) {
-        startGeminiLiveTest(key);
+      if (geminiKey && geminiKey.startsWith('AIzaSy')) {
+        await startGeminiLivePipeline(geminiKey);
       } else {
-        appendLog('GEMINI', 'API Key de Gemini no válida (debe empezar con AIzaSy...). Fallback a WebSpeech.', 'warn');
-        startWebSpeechTest();
+        appendLog('GEMINI', '⚠️ Para usar Gemini Live ingresa una API Key válida (empieza por AIzaSy...).', 'warn');
+        previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini (AIzaSy...) en el campo superior.';
+        previewTrans.textContent = 'Obtenla gratis en: aistudio.google.com/app/apikey';
       }
-    } else {
-      startWebSpeechTest();
+    } else if (engine === 'whisper_groq') {
+      if (groqKey && groqKey.startsWith('gsk_')) {
+        await startGroqWhisperPipeline(groqKey);
+      } else {
+        appendLog('GROQ', '⚠️ Para usar Groq Whisper ingresa tu API Key gratuita (empieza por gsk_...).', 'warn');
+        previewOrig.textContent = '⚠️ Ingresa tu clave de Groq (gsk_...) en el campo superior.';
+        previewTrans.textContent = 'Obtenla gratis en: console.groq.com/keys';
+      }
     }
   }
 
   function stopTest() {
     isListeningTest = false;
     btnTestMic.innerHTML = '<span>🎙️ Probar Transcripción y Traducción en Vivo</span>';
-    appendLog('TEST', 'Prueba de voz finalizada por el usuario.');
+    appendLog('TEST', 'Prueba de voz finalizada.');
 
-    if (speechRecognizer) {
-      try { speechRecognizer.stop(); } catch (e) {}
-      speechRecognizer = null;
+    if (micMediaStream) {
+      micMediaStream.getTracks().forEach(t => t.stop());
+      micMediaStream = null;
+    }
+    if (audioContext) {
+      try { audioContext.close(); } catch (e) {}
+      audioContext = null;
+    }
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      try { mediaRecorder.stop(); } catch (e) {}
+      mediaRecorder = null;
     }
     if (geminiLiveClient) {
       geminiLiveClient.disconnect();
@@ -230,81 +248,114 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function startWebSpeechTest() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      previewOrig.textContent = '⚠️ Web Speech API no soportada en este entorno.';
-      appendLog('WEBSPEECH', 'Web Speech API no disponible en Chromium Renderer.', 'error');
-      return;
-    }
+  async function startGeminiLivePipeline(apiKey) {
+    try {
+      appendLog('GEMINI', 'Conectando WebSocket a Google Gemini Live...', 'gemini');
 
-    speechRecognizer = new SpeechRecognition();
-    speechRecognizer.continuous = true;
-    speechRecognizer.interimResults = true;
-    speechRecognizer.lang = sourceLangSelect.value === 'auto' ? 'es-ES' : sourceLangSelect.value;
-
-    appendLog('WEBSPEECH', `Reconocedor de voz iniciado en idioma: ${speechRecognizer.lang}`, 'audio');
-
-    speechRecognizer.onresult = async (event) => {
-      let finalTranscript = '';
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
+      geminiLiveClient = new GeminiLiveClient({
+        apiKey,
+        voiceName: geminiVoiceSelect.value,
+        onOpen: () => {
+          appendLog('GEMINI', '🟢 Conexión con Gemini Live establecida con éxito.', 'gemini');
+        },
+        onTextReceived: (text) => {
+          appendLog('GEMINI', `Traducción recibida: "${text}"`, 'translate');
+          previewTrans.textContent = `✨ ${text}`;
+          ipcRenderer.send('DISPLAY_SUBTITLE', {
+            originalText: '🎙️ Mi voz en vivo',
+            translatedText: text,
+            isFinal: true
+          });
+        },
+        onError: (err) => {
+          appendLog('GEMINI', `Error: ${err.message}`, 'error');
+          previewOrig.textContent = `⚠️ Error en Gemini Live: ${err.message}`;
         }
-      }
+      });
 
-      if (finalTranscript.trim()) {
-        appendLog('VOICE', `Reconocido: "${finalTranscript.trim()}"`, 'audio');
-        previewOrig.textContent = `🎙️ ${finalTranscript}`;
+      geminiLiveClient.connect();
 
-        const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
-          text: finalTranscript,
-          sourceLang: sourceLangSelect.value,
-          targetLang: targetLangSelect.value
-        });
+      micMediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: micInputSelect.value ? { exact: micInputSelect.value } : undefined,
+          channelCount: 1,
+          sampleRate: 16000
+        }
+      });
 
-        appendLog('TRANSLATE', `Traducido: "${translation.translated}"`, 'translate');
-        previewTrans.textContent = `✨ ${translation.translated}`;
+      appendLog('AUDIO', 'Microfono capturado y transmitiendo en PCM 16kHz.', 'audio');
 
-        ipcRenderer.send('DISPLAY_SUBTITLE', {
-          originalText: translation.original,
-          translatedText: translation.translated,
-          isFinal: true
-        });
-      }
-    };
+      audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const source = audioContext.createMediaStreamSource(micMediaStream);
+      scriptProcessor = audioContext.createScriptProcessor(4096, 1, 1);
 
-    speechRecognizer.onerror = (err) => {
-      appendLog('WEBSPEECH', `Error en reconocimiento: ${err.error}`, 'error');
-    };
+      scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+        if (!geminiLiveClient || !geminiLiveClient.isConnected) return;
+        const inputBuffer = audioProcessingEvent.inputBuffer;
+        const inputData = inputBuffer.getChannelData(0);
+        const pcm16Buffer = floatTo16BitPCM(inputData);
+        const base64Data = arrayBufferToBase64(pcm16Buffer);
+        geminiLiveClient.sendRealtimeAudioChunk(base64Data);
+      };
 
-    speechRecognizer.start();
+      source.connect(scriptProcessor);
+      scriptProcessor.connect(audioContext.destination);
+
+    } catch (err) {
+      appendLog('AUDIO', `Error capturando audio del micrófono: ${err.message}`, 'error');
+    }
   }
 
-  function startGeminiLiveTest(apiKey) {
-    appendLog('GEMINI', 'Conectando a Google Gemini Live WebSockets...', 'gemini');
+  async function startGroqWhisperPipeline(apiKey) {
+    try {
+      micMediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          deviceId: micInputSelect.value ? { exact: micInputSelect.value } : undefined
+        }
+      });
 
-    geminiLiveClient = new GeminiLiveClient({
-      apiKey,
-      voiceName: geminiVoiceSelect.value,
-      onOpen: () => {
-        appendLog('GEMINI', '🟢 Conexión con Gemini Live establecida con éxito.', 'gemini');
-      },
-      onTextReceived: (text) => {
-        appendLog('GEMINI', `Texto recibido: "${text}"`, 'gemini');
-        previewTrans.textContent = `✨ Gemini Live: ${text}`;
-        ipcRenderer.send('DISPLAY_SUBTITLE', {
-          originalText: '🎙️ Voz en vivo',
-          translatedText: text,
-          isFinal: true
-        });
-      },
-      onError: (err) => {
-        appendLog('GEMINI', `Error en Gemini Live: ${err.message}`, 'error');
-        previewOrig.textContent = `⚠️ Error en Gemini Live: ${err.message}`;
-      }
-    });
+      appendLog('AUDIO', 'Micrófono capturado para Groq Whisper AI.', 'audio');
 
-    geminiLiveClient.connect();
+      mediaRecorder = new MediaRecorder(micMediaStream, { mimeType: 'audio/webm' });
+      mediaRecorder.ondataavailable = async (e) => {
+        if (e.data && e.data.size > 2000 && isListeningTest) {
+          appendLog('AUDIO', `Enviando fragmento de voz (${e.data.size} bytes)...`, 'audio');
+          const arrayBuffer = await e.data.arrayBuffer();
+          const base64 = arrayBufferToBase64(arrayBuffer);
+
+          const result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
+            audioBase64: base64,
+            apiKey: apiKey || '',
+            language: sourceLangSelect.value.substring(0, 2)
+          });
+
+          if (result && result.text && result.text.trim()) {
+            appendLog('VOICE', `Reconocido (Groq): "${result.text.trim()}"`, 'audio');
+            previewOrig.textContent = `🎙️ ${result.text.trim()}`;
+
+            const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
+              text: result.text.trim(),
+              sourceLang: sourceLangSelect.value,
+              targetLang: targetLangSelect.value
+            });
+
+            appendLog('TRANSLATE', `Traducido: "${translation.translated}"`, 'translate');
+            previewTrans.textContent = `✨ ${translation.translated}`;
+
+            ipcRenderer.send('DISPLAY_SUBTITLE', {
+              originalText: translation.original,
+              translatedText: translation.translated,
+              isFinal: true
+            });
+          }
+        }
+      };
+
+      mediaRecorder.start(2500);
+      appendLog('GROQ', 'Reconocimiento Groq Whisper activo (intervalo de 2.5s)', 'gemini');
+
+    } catch (err) {
+      appendLog('AUDIO', `Error en captura de audio para Groq Whisper: ${err.message}`, 'error');
+    }
   }
 });

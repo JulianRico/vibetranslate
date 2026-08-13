@@ -38,7 +38,7 @@ const DEFAULT_SETTINGS = {
   active: false,
   sourceLang: 'es-ES',
   targetLang: 'en',
-  sttEngine: 'webspeech',
+  sttEngine: 'gemini_live',
   geminiApiKey: '',
   geminiVoice: 'Puck',
   groqApiKey: '',
@@ -75,7 +75,7 @@ function createControlWindow() {
   defaultLogger.info('UI', 'Creando Ventana del Panel de Control Principal...');
   controlWindow = new BrowserWindow({
     width: 520,
-    height: 820,
+    height: 840,
     resizable: true,
     title: 'MeetTranslate Desktop AI',
     webPreferences: {
@@ -229,6 +229,49 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
   });
 });
 
+ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language }) => {
+  if (!apiKey || !apiKey.trim()) {
+    defaultLogger.warn('GROQ', 'Groq API Key no configurada en la aplicación.');
+    return { text: '' };
+  }
+
+  try {
+    const buffer = Buffer.from(audioBase64, 'base64');
+    const blob = new Blob([buffer], { type: 'audio/webm' });
+    const formData = new FormData();
+    formData.append('file', blob, 'audio.webm');
+    formData.append('model', 'whisper-large-v3-turbo');
+    formData.append('response_format', 'json');
+    if (language && language !== 'auto') {
+      formData.append('language', language);
+    }
+
+    const startTime = Date.now();
+    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`
+      },
+      body: formData
+    });
+
+    const elapsed = Date.now() - startTime;
+    if (!response.ok) {
+      const errText = await response.text();
+      defaultLogger.error('GROQ', `Error HTTP ${response.status} en Groq Whisper (${elapsed}ms): ${errText}`);
+      return { text: '' };
+    }
+
+    const data = await response.json();
+    defaultLogger.success('GROQ', `Transcripción Groq Whisper completada en ${elapsed}ms: "${data.text}"`);
+    return { text: data.text || '' };
+
+  } catch (err) {
+    defaultLogger.error('GROQ', `Excepción en llamada a Groq Whisper: ${err.message}`);
+    return { text: '' };
+  }
+});
+
 ipcMain.on('DISPLAY_SUBTITLE', (event, payload) => {
   defaultLogger.info('SUBTITLE', `Actualizando subtítulo: [${payload.originalText || ''}] ➔ [${payload.translatedText || ''}]`);
   if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -251,6 +294,6 @@ ipcMain.on('OPEN_DEVTOOLS', () => {
   }
 });
 
-ipcMain.on('LOG_CLIENT_EVENT', (event, { category, message, data }) => {
-  defaultLogger.log(category, message, data);
+ipcMain.on('LOG_CLIENT_EVENT', (event, { category, message, type }) => {
+  defaultLogger.log(category, message);
 });
