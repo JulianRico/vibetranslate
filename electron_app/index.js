@@ -258,6 +258,28 @@ document.addEventListener('DOMContentLoaded', async () => {
         onOpen: () => {
           appendLog('GEMINI', '🟢 Conexión con Gemini Live establecida con éxito.', 'gemini');
         },
+        onAudioReceived: (rawBytes, base64Audio) => {
+          appendLog('AUDIO', `Audio traducido recibido de Gemini Live (${rawBytes.length} bytes)`, 'audio');
+          previewTrans.textContent = '🔊 Reproduciendo voz traducida al inglés en vivo...';
+          
+          try {
+            const int16Array = new Int16Array(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength / 2);
+            const float32 = new Float32Array(int16Array.length);
+            for (let i = 0; i < int16Array.length; i++) {
+              float32[i] = int16Array[i] / 32768.0;
+            }
+            
+            const playbackCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            const audioBuffer = playbackCtx.createBuffer(1, float32.length, 24000);
+            audioBuffer.copyToChannel(float32, 0);
+            const playSource = playbackCtx.createBufferSource();
+            playSource.buffer = audioBuffer;
+            playSource.connect(playbackCtx.destination);
+            playSource.start();
+          } catch (e) {
+            console.warn('[Audio Playback] Error:', e);
+          }
+        },
         onTextReceived: (text) => {
           appendLog('GEMINI', `Traducción recibida: "${text}"`, 'translate');
           previewTrans.textContent = `✨ ${text}`;

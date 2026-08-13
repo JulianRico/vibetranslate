@@ -7,7 +7,7 @@ const WebSocket = require('ws');
 class GeminiLiveClient {
   constructor(options = {}) {
     this.apiKey = options.apiKey || '';
-    this.model = options.model || 'models/gemini-2.0-flash-exp';
+    this.model = options.model || 'models/gemini-2.5-flash-native-audio-latest';
     this.voiceName = options.voiceName || 'Puck';
     this.targetLanguage = options.targetLanguage || 'en';
     this.ws = null;
@@ -33,16 +33,8 @@ class GeminiLiveClient {
       headers: {}
     };
 
-    if (cleanKey.startsWith('AIzaSy')) {
-      // Clave API de Google AI Studio
-      wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
-      console.log(`[Gemini Live Electron] Conectando con API Key AI Studio (${cleanKey.substring(0, 8)}...)...`);
-    } else {
-      // Token OAuth2 / Bearer Token
-      wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?access_token=${encodeURIComponent(cleanKey)}`;
-      wsOptions.headers['Authorization'] = `Bearer ${cleanKey}`;
-      console.log(`[Gemini Live Electron] Conectando con OAuth2 Access Token (${cleanKey.substring(0, 8)}...)...`);
-    }
+    wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
+    console.log(`[Gemini Live Electron] Conectando a Google Gemini Live (${cleanKey.substring(0, 8)}...)...`);
 
     try {
       this.ws = new WebSocket(wsUrl, wsOptions);
@@ -87,7 +79,7 @@ class GeminiLiveClient {
       setup: {
         model: this.model,
         generationConfig: {
-          responseModalities: ["AUDIO", "TEXT"],
+          responseModalities: ["AUDIO"],
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -99,7 +91,7 @@ class GeminiLiveClient {
         systemInstruction: {
           parts: [
             {
-              text: `You are a real-time simultaneous audio interpreter for video calls (Teams, Zoom, Google Meet). Actively listen to the incoming speech. If spoken in Spanish, translate immediately into English with natural tone and zero commentary. Return both translated spoken audio and plain translated text.`
+              text: `You are a real-time simultaneous audio interpreter for video calls (Teams, Zoom, Google Meet). Actively listen to the incoming speech. If spoken in Spanish, translate immediately into English with natural tone and zero commentary. Return spoken translated audio directly.`
             }
           ]
         }
