@@ -244,8 +244,17 @@ function startTabAudioRecorder() {
  *   'incoming' (audio de pestaña)  ➔ otro ➔ yo        (en ➔ es)
  */
 function langPairFor(direction) {
-  const mine = currentSettings.sourceLang || 'es-ES';
-  const theirs = currentSettings.targetLang || 'en';
+  let mine = currentSettings.sourceLang || 'es-ES';
+  let theirs = currentSettings.targetLang || 'en';
+
+  const mineShort = mine.substring(0, 2);
+  let theirsShort = theirs.substring(0, 2);
+
+  // Si Origen y Destino coinciden (ej. ambos seleccionados en 'es'), el receptor habla el idioma opuesto ('en')
+  if (theirsShort === mineShort && theirs !== 'auto') {
+    theirsShort = mineShort === 'es' ? 'en' : 'es';
+    theirs = theirsShort;
+  }
 
   if (direction === 'incoming') {
     return { src: theirs, tgt: mine };
