@@ -9,15 +9,35 @@ class GeminiLiveClient {
     this.apiKey = options.apiKey || '';
     this.model = options.model || 'models/gemini-2.5-flash-native-audio-latest';
     this.voiceName = options.voiceName || 'Puck';
-    this.targetLanguage = options.targetLanguage || 'en';
+    this.sourceLang = options.sourceLang || 'es-ES';
+    this.targetLang = options.targetLang || 'en';
     this.ws = null;
     this.isConnected = false;
 
     this.onAudioReceived = options.onAudioReceived || null;
     this.onTextReceived = options.onTextReceived || null;
+    this.onInterrupted = options.onInterrupted || null;
     this.onError = options.onError || null;
     this.onClose = options.onClose || null;
     this.onOpen = options.onOpen || null;
+  }
+
+  getLanguageNames() {
+    const map = {
+      'es': 'Spanish',
+      'es-ES': 'Spanish',
+      'en': 'English',
+      'en-US': 'English',
+      'pt': 'Portuguese',
+      'pt-BR': 'Portuguese',
+      'fr': 'French',
+      'de': 'German',
+      'it': 'Italian',
+      'auto': 'the detected speaker language'
+    };
+    const src = map[this.sourceLang] || 'Spanish';
+    const tgt = map[this.targetLang] || 'English';
+    return { src, tgt };
   }
 
   connect() {
@@ -28,18 +48,15 @@ class GeminiLiveClient {
     }
 
     const cleanKey = this.apiKey.trim();
-    let wsUrl = '';
-    const wsOptions = {
-      headers: {}
-    };
-
-    wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
+    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
     console.log(`[Gemini Live Electron] Conectando a Google Gemini Live (${cleanKey.substring(0, 8)}...)...`);
 
     try {
-      this.ws = new WebSocket(wsUrl, wsOptions);
-    } catch (e) {
       this.ws = new WebSocket(wsUrl);
+    } catch (err) {
+      console.error('[Gemini Live Electron] Error instanciando WebSocket:', err);
+      if (this.onError) this.onError(err);
+      return;
     }
 
     this.ws.on('open', () => {
@@ -75,6 +92,16 @@ class GeminiLiveClient {
   sendSetupHandshake() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
+    const { src, tgt } = this.getLanguageNames();
+
+    const systemPrompt = `You are a professional simultaneous interpreter for executive corporate video calls.
+Translate spoken ${src} into fluent, natural, idiomatic North American English with a native American business tone.
+CRITICAL RULES:
+1. Translate smoothly and idiomatically. Avoid awkward, literal, or robotic translations.
+2. Output ONLY the direct translated spoken audio in clear native English.
+3. Zero commentary, zero internal monologue, zero markdown, zero explanations.
+4. If unintelligible or background noise, output absolute silence.`;
+
     const setupMsg = {
       setup: {
         model: this.model,
@@ -86,12 +113,15 @@ class GeminiLiveClient {
                 voiceName: this.voiceName
               }
             }
+          },
+          thinkingConfig: {
+            thinkingBudget: 0
           }
         },
         systemInstruction: {
           parts: [
             {
-              text: `You are a real-time simultaneous audio interpreter for video calls (Teams, Zoom, Google Meet). Actively listen to the incoming speech. If spoken in Spanish, translate immediately into English with natural tone and zero commentary. Return spoken translated audio directly.`
+              text: systemPrompt
             }
           ]
         }
@@ -121,10 +151,22 @@ class GeminiLiveClient {
   handleServerMessage(response) {
     if (!response || !response.serverContent) return;
 
+    // Notificar interrupción si el usuario empezó a hablar de nuevo
+    if (response.serverContent.interrupted && this.onInterrupted) {
+      this.onInterrupted();
+    }
+
     const parts = response.serverContent.modelTurn?.parts || [];
     for (const part of parts) {
       if (part.text && this.onTextReceived) {
-        this.onTextReceived(part.text);
+        // Filtrar encabezados residuales si existieran
+        const cleanText = part.text
+          .replace(/^\*\*.*?\*\*\s*/gs, '')
+          .replace(/^I've (?:directly )?translated.*?:/gi, '')
+          .trim();
+        if (cleanText.length > 0) {
+          this.onTextReceived(cleanText);
+        }
       }
 
       if (part.inlineData && part.inlineData.mimeType?.startsWith('audio/pcm') && this.onAudioReceived) {
@@ -137,7 +179,9 @@ class GeminiLiveClient {
 
   disconnect() {
     if (this.ws) {
-      this.ws.close();
+      try {
+        this.ws.close();
+      } catch (e) {}
       this.ws = null;
     }
     this.isConnected = false;
@@ -147,3 +191,4 @@ class GeminiLiveClient {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = GeminiLiveClient;
 }
+

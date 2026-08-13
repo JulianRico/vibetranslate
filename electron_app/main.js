@@ -42,6 +42,7 @@ const DEFAULT_SETTINGS = {
   geminiApiKey: '',
   geminiVoice: 'Puck',
   groqApiKey: '',
+  noiseGateThreshold: 0.016,
   engine: 'fast',
   fontSize: 18,
   position: { top: 100, left: 100 },
@@ -248,7 +249,7 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
   });
 });
 
-ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language }) => {
+ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language, format = 'wav' }) => {
   if (!apiKey || !apiKey.trim()) {
     defaultLogger.warn('GROQ', 'Groq API Key no configurada en la aplicación.');
     return { text: '' };
@@ -256,11 +257,14 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language 
 
   try {
     const buffer = Buffer.from(audioBase64, 'base64');
-    const blob = new Blob([buffer], { type: 'audio/webm' });
+    const mimeType = format === 'wav' ? 'audio/wav' : 'audio/webm';
+    const fileName = format === 'wav' ? 'audio.wav' : 'audio.webm';
+    const blob = new Blob([buffer], { type: mimeType });
     const formData = new FormData();
-    formData.append('file', blob, 'audio.webm');
+    formData.append('file', blob, fileName);
     formData.append('model', 'whisper-large-v3-turbo');
     formData.append('response_format', 'json');
+    formData.append('temperature', '0.0');
     if (language && language !== 'auto') {
       formData.append('language', language);
     }
