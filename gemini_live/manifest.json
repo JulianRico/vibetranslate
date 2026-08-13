@@ -5,7 +5,6 @@
   "description": "Traducción de audio en tiempo real en Google Meet, Zoom Web y Microsoft Teams Web (Español ↔ Inglés) impulsada por IA.",
   "permissions": [
     "tabCapture",
-    "audioCapture",
     "offscreen",
     "activeTab",
     "storage",
