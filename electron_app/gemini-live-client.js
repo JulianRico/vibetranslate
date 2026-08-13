@@ -31,10 +31,20 @@ class GeminiLiveClient {
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
     console.log(`[Gemini Live Electron] Conectando WebSocket a Google Gemini Live con clave (${cleanKey.substring(0, 8)}...)...`);
     
-    this.ws = new WebSocket(wsUrl);
+    const wsOptions = {
+      headers: {
+        'Authorization': `Bearer ${cleanKey}`
+      }
+    };
+
+    try {
+      this.ws = new WebSocket(wsUrl, wsOptions);
+    } catch (e) {
+      this.ws = new WebSocket(wsUrl);
+    }
 
     this.ws.on('open', () => {
-      console.log('[Gemini Live Electron] 🟢 Conexión WebSocket establecida. Enviando Handshake...');
+      console.log('[Gemini Live Electron] 🟢 Conexión WebSocket establecida con éxito. Enviando Handshake...');
       this.isConnected = true;
       this.sendSetupHandshake();
       if (this.onOpen) this.onOpen();
@@ -56,9 +66,10 @@ class GeminiLiveClient {
     });
 
     this.ws.on('close', (code, reason) => {
-      console.log(`[Gemini Live Electron] ⚪ WebSocket cerrado (${code}: ${reason})`);
+      const reasonStr = reason ? reason.toString('utf-8') : '';
+      console.log(`[Gemini Live Electron] ⚪ WebSocket cerrado (${code}: ${reasonStr})`);
       this.isConnected = false;
-      if (this.onClose) this.onClose({ code, reason });
+      if (this.onClose) this.onClose({ code, reason: reasonStr });
     });
   }
 

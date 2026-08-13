@@ -270,6 +270,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         onError: (err) => {
           appendLog('GEMINI', `Error: ${err.message}`, 'error');
           previewOrig.textContent = `⚠️ Error en Gemini Live: ${err.message}`;
+        },
+        onClose: ({ code, reason }) => {
+          appendLog('GEMINI', `Conexión cerrada por el servidor (Código: ${code} - Razón: ${reason || 'Sin detalles'}).`, 'warn');
         }
       });
 
