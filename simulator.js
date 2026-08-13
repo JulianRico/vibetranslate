@@ -103,7 +103,7 @@
       // 5. Conectar parlantes de Alex
       alexSpeakerAudio.srcObject = mixerDestA.stream;
       alexSpeakerAudio.muted = !chkListenB.checked;
-      alexSpeakerAudio.play().catch(() => {});
+      alexSpeakerAudio.play().catch(() => { });
 
       const recvSourceB = audioCtx.createMediaStreamSource(mixerDestA.stream);
       analyserRecvB = audioCtx.createAnalyser();
@@ -276,75 +276,72 @@
       if (data && Array.isArray(data[0])) {
         return data[0].map(c => c[0]).filter(Boolean).join('');
       }
-    } catch (e) {}
+    } catch (e) { }
     return text;
   }
 
   function applyTechnicalGlossary(text) {
     if (!text) return '';
     const glossary = {
-      // SharePoint & Microsoft 365
-      'cherpoy': 'SharePoint',
-      'sharepo': 'SharePoint',
-      'sharepoin': 'SharePoint',
-      'charpon': 'SharePoint',
-      'es pe fx': 'SPFx',
-      'ese pe ef equis': 'SPFx',
-      'spfx': 'SPFx',
-      'power autonat': 'Power Automate',
-      'power automate': 'Power Automate',
-      'power aps': 'Power Apps',
-      'power ap': 'Power Apps',
-      'power bi': 'Power BI',
-      'power vi': 'Power BI',
-      'tean': 'Teams',
-      'tins': 'Teams',
-      'site column': 'Site Column',
-      'content type': 'Content Type',
-      'webpart': 'Web Part',
-      'web part': 'Web Part',
-      'pe en pe': 'PnP',
-      'pnpjs': 'PnPjs',
-      'graf api': 'Microsoft Graph API',
-      'entra id': 'Entra ID',
-      'tenant': 'Tenant',
+      // SharePoint Framework (SPFx) & Extensiones
+      'tenant scoped': 'Tenant Scoped',
+      'site scoped': 'Site Scoped',
+      'app customizer': 'Application Customizer',
+      'field customizer': 'Field Customizer',
+      'command set': 'Command Set',
+      'property pane': 'Property Pane',
+      'adaptive card extension': 'Adaptive Card Extension',
+      'ace': 'ACE',
+      'workbench': 'Workbench',
+      'local workbench': 'Local Workbench',
+      'tenant workbench': 'Tenant Workbench',
 
-      // Frontend & Frameworks
-      'ria': 'React',
-      'real': 'React',
-      'riac': 'React',
-      'riact': 'React',
-      'yabascrip': 'JavaScript',
-      'llabascript': 'JavaScript',
-      'taitscrip': 'TypeScript',
-      'taipscrip': 'TypeScript',
-      'fluter': 'Flutter',
-      'nod': 'Node.js',
-      'nodo': 'Node.js',
-      'node': 'Node.js',
-      'nes j s': 'Next.js',
-      'nextjs': 'Next.js',
-      'vats': 'Vite',
-      'vait': 'Vite',
-      'angular': 'Angular',
-      'yeison': 'JSON',
-      'jason': 'JSON',
-      'res api': 'REST API',
+      // Arquitectura y Componentes de SharePoint
+      'hub site': 'Hub Site',
+      'communication site': 'Communication Site',
+      'team site': 'Team Site',
+      'subsite': 'Subsite',
+      'site collection': 'Site Collection',
+      'document library': 'Document Library',
+      'managed metadata': 'Managed Metadata',
+      'term store': 'Term Store',
+      'term group': 'Term Group',
+      'term set': 'Term Set',
+      'app catalog': 'App Catalog',
 
-      // Cloud & DevOps
-      'doker': 'Docker',
-      'doquer': 'Docker',
-      'piton': 'Python',
-      'paiton': 'Python',
-      'a doble u ese': 'AWS',
-      'a doble v ese': 'AWS',
-      'asur': 'Azure',
-      'gihub': 'GitHub',
-      'llithub': 'GitHub',
-      'kubernets': 'Kubernetes',
-      'guberne': 'Kubernetes',
-      'paip lain': 'Pipeline',
-      'paiplain': 'Pipeline'
+      // PnP y Herramientas M365
+      'pnp powershell': 'PnP PowerShell',
+      'pnp core sdk': 'PnP Core SDK',
+      'pnp modern search': 'PnP Modern Search',
+      'cli for microsoft 365': 'CLI for Microsoft 365',
+      'spmt': 'SPMT',
+      'sharepoint migration tool': 'SharePoint Migration Tool',
+
+      // Microsoft Graph & Autenticación
+      'graph explorer': 'Graph Explorer',
+      'app registration': 'App Registration',
+      'service principal': 'Service Principal',
+      'delegated permissions': 'Delegated Permissions',
+      'application permissions': 'Application Permissions',
+      'access token': 'Access Token',
+      'refresh token': 'Refresh Token',
+
+      // Power Platform Integrado
+      'canvas app': 'Canvas App',
+      'model driven app': 'Model-Driven App',
+      'dataverse': 'Dataverse',
+      'power fx': 'Power Fx',
+      'cloud flow': 'Cloud Flow',
+      'desktop flow': 'Desktop Flow',
+      'power pages': 'Power Pages',
+
+      // Frontend & Estilos en SharePoint
+      'fluent ui': 'Fluent UI',
+      'yeoman': 'Yeoman',
+      'webpack': 'Webpack',
+      'gulp': 'Gulp',
+      'sass': 'Sass',
+      'scss': 'SCSS'
     };
 
     let processed = text;
@@ -414,11 +411,11 @@
 
     speechRecognitionA.onend = () => {
       if (isRoomActive && speechRecognitionA) {
-        try { speechRecognitionA.start(); } catch (e) {}
+        try { speechRecognitionA.start(); } catch (e) { }
       }
     };
 
-    try { speechRecognitionA.start(); } catch (e) {}
+    try { speechRecognitionA.start(); } catch (e) { }
   }
 
   function stopSpeechRecognitionA() {
@@ -426,7 +423,7 @@
       try {
         speechRecognitionA.onend = null;
         speechRecognitionA.stop();
-      } catch (e) {}
+      } catch (e) { }
       speechRecognitionA = null;
     }
   }
