@@ -53,7 +53,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["styles.css", "audio-mixer.js"],
+      "resources": ["styles.css"],
       "matches": [
         "https://meet.google.com/*",
         "https://*.zoom.us/*",

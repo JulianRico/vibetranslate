@@ -429,7 +429,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               type: 'DISPLAY_SUBTITLE',
               originalText: message.originalText,
               translatedText: message.translatedText,
-              isFinal: message.isFinal
+              isFinal: message.isFinal,
+              direction: message.direction || 'outgoing'
             }).catch(() => {});
           }
           break;
@@ -463,29 +464,46 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (cur) chunks.push(cur);
 
             const audioBase64List = [];
+            const failures = [];
 
             for (const chunk of chunks) {
               const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${lang}&client=tw-ob`;
               const response = await fetch(ttsUrl);
 
-              if (response.ok) {
-                const arrayBuffer = await response.arrayBuffer();
-                const bytes = new Uint8Array(arrayBuffer);
-                let binary = '';
-                for (let i = 0; i < bytes.byteLength; i++) {
-                  binary += String.fromCharCode(bytes[i]);
-                }
-                audioBase64List.push(btoa(binary));
-              } else {
+              if (!response.ok) {
+                failures.push(`HTTP ${response.status}`);
                 console.warn('[MeetTranslate AI SW] HTTP ' + response.status + ' descargando chunk TTS:', chunk);
+                continue;
               }
+
+              const contentType = response.headers.get('content-type') || '';
+              const arrayBuffer = await response.arrayBuffer();
+
+              // Google devuelve HTML (no audio) cuando bloquea la petición.
+              // Sin esta verificación el mixer recibe basura y decodeAudioData falla en silencio.
+              if (!contentType.includes('audio') || arrayBuffer.byteLength < 512) {
+                failures.push(`respuesta no-audio (${contentType || 'sin content-type'}, ${arrayBuffer.byteLength} bytes)`);
+                console.warn('[MeetTranslate AI SW] Respuesta TTS no es audio:', contentType, arrayBuffer.byteLength, 'bytes');
+                continue;
+              }
+
+              const bytes = new Uint8Array(arrayBuffer);
+              let binary = '';
+              for (let i = 0; i < bytes.byteLength; i++) {
+                binary += String.fromCharCode(bytes[i]);
+              }
+              audioBase64List.push(btoa(binary));
             }
 
             if (audioBase64List.length > 0) {
               sendResponse({ success: true, audioBase64List });
-              console.log('[MeetTranslate AI SW] ' + audioBase64List.length + ' fragmentos de TTS MP3 descargados con éxito.');
+              console.log('[MeetTranslate AI SW] ' + audioBase64List.length + '/' + chunks.length +
+                ' fragmentos de TTS MP3 descargados (idioma: ' + lang + ').');
             } else {
-              sendResponse({ success: false, error: 'No se pudo descargar ningún fragmento de audio' });
+              const error = 'Google TTS no devolvió audio para ' + chunks.length +
+                ' fragmento(s): ' + (failures.join('; ') || 'motivo desconocido');
+              console.error('[MeetTranslate AI SW] ' + error);
+              sendResponse({ success: false, error });
             }
           } catch (err) {
             console.warn('[MeetTranslate AI SW] Error descargando TTS audio:', err);

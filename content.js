@@ -5,7 +5,14 @@
  * 2. Soporte completo de arrastre (drag & drop) y restricciones de viewport.
  * 3. Persistencia de coordenadas de pantalla y preferencias visuales (tamaño de fuente).
  * 4. Actualización en tiempo real de subtítulos transcritos y traducidos.
- * 5. Destrucción limpia del DOM al desactivar la traducción.
+ * 5. Enrutamiento del audio TTS según la dirección de la conversación:
+ *      - 'outgoing' (yo hablo en español) ➔ inglés inyectado en WebRTC al receptor.
+ *      - 'incoming' (el receptor habla en inglés) ➔ español SOLO en mis parlantes.
+ * 6. Herramientas de diagnóstico del camino de audio WebRTC (tono de prueba + reporte).
+ *
+ * NOTA: audio-mixer.js se carga UNA sola vez, desde el manifest, en el MAIN world
+ * a document_start. No debe inyectarse también desde aquí: dos instancias anidan
+ * dos mixers y el micGain=0.0 del mixer exterior silencia el TTS del interior.
  */
 
 (function () {
@@ -19,23 +26,9 @@
   let isMinimized = false;
   let currentFontSize = 18;
 
-  /**
-   * Inyecta audio-mixer.js directamente en el contexto DOM de la página (MAIN world).
-   * Garantiza la interceptación de WebRTC en cualquier versión de Chrome.
-   */
-  function injectMixerScript() {
-    if (document.getElementById('mt-mixer-script')) return;
-    try {
-      const script = document.createElement('script');
-      script.id = 'mt-mixer-script';
-      script.src = chrome.runtime.getURL('audio-mixer.js');
-      (document.head || document.documentElement).appendChild(script);
-      console.log('[MeetTranslate AI] Inyección directa de audio-mixer.js en la página completada.');
-    } catch (e) {
-      console.warn('[MeetTranslate AI] Error inyectando script audio-mixer.js:', e);
-    }
-  }
-  injectMixerScript();
+  let ttsEnabled = false;
+  let activeTargetLang = 'en';
+  let lastSpokenText = '';
 
   /**
    * Escuchador central de mensajes desde background.js
@@ -53,7 +46,12 @@
         break;
 
       case 'DISPLAY_SUBTITLE':
-        updateSubtitleText(message.originalText, message.translatedText, message.isFinal);
+        updateSubtitleText(
+          message.originalText,
+          message.translatedText,
+          message.isFinal,
+          message.direction || 'outgoing'
+        );
         break;
 
       case 'SETTINGS_CHANGED':
@@ -70,6 +68,19 @@
         break;
     }
     return true;
+  });
+
+  // Escuchar al mixer (MAIN world) una sola vez, exista o no el overlay
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data) return;
+
+    if (event.data.type === 'MT_MIXER_STATUS_UPDATE') {
+      updateMixerStatusIndicator(event.data.status);
+    }
+
+    if (event.data.type === 'MT_MIXER_DIAG_RESULT') {
+      renderDiagnosticReport(event.data.report);
+    }
   });
 
   /**
@@ -94,6 +105,8 @@
             </div>
             <div class="mt-controls">
               <button type="button" class="mt-btn-icon" id="mt-btn-tts" title="Voz Hablada Traducida (TTS) Encendida/Apagada">🔊</button>
+              <button type="button" class="mt-btn-icon" id="mt-btn-tone" title="Tono de prueba: el receptor debe oír un beep de 1 segundo">🧪</button>
+              <button type="button" class="mt-btn-icon" id="mt-btn-diag" title="Diagnóstico del camino de audio WebRTC">🩺</button>
               <button type="button" class="mt-btn-icon" id="mt-btn-font-dec" title="Disminuir letra">A-</button>
               <button type="button" class="mt-btn-icon" id="mt-btn-font-inc" title="Aumentar letra">A+</button>
               <button type="button" class="mt-btn-icon" id="mt-btn-minimize" title="Minimizar / Expandir">_</button>
@@ -113,13 +126,6 @@
       // Eventos de interacción
       setupDragEvents(container);
       setupButtonEvents(container);
-
-      // Escuchar actualizaciones de estado del mixer (audio-mixer.js en MAIN world)
-      window.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'MT_MIXER_STATUS_UPDATE') {
-          updateMixerStatusIndicator(event.data.status);
-        }
-      });
     }
 
     container.classList.remove('mt-hidden');
@@ -129,14 +135,15 @@
       applySettings(settings);
     }
 
-    // Garantizar que el micrófono en español esté SILENCIADO de inmediato en la llamada WebRTC
+    // Sincronizar el estado de silenciamiento con el mixer
     window.postMessage({
       type: 'MT_SET_MIC_MUTE',
       muted: ttsEnabled
     }, '*');
   }
 
-  // Intervalo de vigilancia para mantener el silenciamiento activo permanentemente mientras TTS está encendido
+  // Vigilancia: mantener el silenciamiento del español mientras TTS está encendido.
+  // (El mixer ignora los mensajes que no cambian el estado, así que no genera ruido.)
   setInterval(() => {
     if (overlayElement && !overlayElement.classList.contains('mt-hidden') && ttsEnabled) {
       window.postMessage({
@@ -154,19 +161,62 @@
     if (!el) return;
 
     const statusMap = {
-      'GUM_INTERCEPTED': '🟡',
-      'MIXER_ACTIVE':    '🟡',
-      'TRACK_REPLACED':  '🟢',
-      'STREAM_REPLACED': '🟢',
-      'MIC_MUTED':       '🔇',
-      'MIC_UNMUTED':     '🎙️',
-      'TTS_PLAYING':     '🔊',
-      'TTS_FAILED':      '🔴',
-      'TTS_ERROR':       '🔴'
+      'MIXER_READY':              '🟡',
+      'VIRTUAL_STREAM_DELIVERED': '🟢',
+      'VIRTUAL_STREAM_FAILED':    '🔴',
+      'TRACK_REPLACED':           '🟢',
+      'MIC_MUTED':                '🔇',
+      'MIC_UNMUTED':              '🎙️',
+      'TTS_PLAYING':              '🔊',
+      'TTS_FAILED':               '🔴',
+      'TTS_ERROR':                '🔴',
+      'SELFTEST_TONE':            '🧪'
     };
 
     el.textContent = statusMap[status] || '⏳';
     el.title = `Mixer: ${status}`;
+  }
+
+  /**
+   * Vuelca en consola y en el overlay el estado real del camino de audio WebRTC.
+   */
+  function renderDiagnosticReport(report) {
+    console.log('%c[MeetTranslate AI] DIAGNÓSTICO DEL CAMINO DE AUDIO', 'font-weight:bold;color:#10B981');
+    console.table({
+      'AudioContext': report.audioContext,
+      'Track del mixer': report.mixerTrack ? report.mixerTrack.readyState : 'INEXISTENTE',
+      'Micrófono físico': report.microfonoFisico || 'no conectado',
+      'micGain (voz española)': report.micGain,
+      'ttsGain (voz inglesa)': report.ttsGain,
+      'Nivel de audio actual': report.nivelActual + '%',
+      'PeerConnections': report.peerConnections,
+      'Senders de audio': report.sendersDeAudio,
+      'Senders con nuestro mixer': report.sendersConNuestroMixer,
+      'Senders habilitados': report.sendersHabilitados,
+      'Meet muteado': report.meetMuteado
+    });
+    console.log('Contadores del mixer:', report.contadores);
+
+    let veredicto;
+    if (!report.mixerTrack) {
+      veredicto = '🔴 El mixer no tiene track. audio-mixer.js no llegó a construirse.';
+    } else if (report.sendersDeAudio === 0) {
+      veredicto = '🔴 La llamada no tiene ningún sender de audio todavía. ¿Ya entraste a la reunión?';
+    } else if (report.sendersConNuestroMixer === 0) {
+      veredicto = '🔴 Hay senders de audio pero NINGUNO lleva nuestro mixer. Meet nos sacó del camino WebRTC.';
+    } else if (report.meetMuteado) {
+      veredicto = '🟠 El mixer está en el sender, pero Meet tiene tu micrófono MUTEADO. Actívalo en Meet: el receptor no oirá nada mientras esté en mute.';
+    } else {
+      veredicto = '🟢 El mixer está conectado y habilitado en ' + report.sendersConNuestroMixer +
+        ' sender(s). Si el receptor no oye nada, prueba el tono 🧪.';
+    }
+
+    console.log('%c' + veredicto, 'font-weight:bold');
+
+    const elTranslated = overlayElement && overlayElement.querySelector('#mt-translated');
+    if (elTranslated) {
+      elTranslated.textContent = veredicto;
+    }
   }
 
   /**
@@ -222,15 +272,13 @@
     });
   }
 
-  let ttsEnabled = false;
-  let activeTargetLang = 'en';
-  let lastSpokenText = '';
-
   /**
-   * Configura los botones de control de la cabecera (A+, A-, TTS, Minimizar, Cerrar).
+   * Configura los botones de control de la cabecera.
    */
   function setupButtonEvents(container) {
     const btnTts = container.querySelector('#mt-btn-tts');
+    const btnTone = container.querySelector('#mt-btn-tone');
+    const btnDiag = container.querySelector('#mt-btn-diag');
     const btnFontInc = container.querySelector('#mt-btn-font-inc');
     const btnFontDec = container.querySelector('#mt-btn-font-dec');
     const btnMinimize = container.querySelector('#mt-btn-minimize');
@@ -254,6 +302,22 @@
         if (!ttsEnabled && window.speechSynthesis) {
           window.speechSynthesis.cancel();
         }
+      });
+    }
+
+    if (btnTone) {
+      btnTone.addEventListener('click', () => {
+        window.postMessage({ type: 'MT_MIXER_SELFTEST' }, '*');
+        const elTranslated = container.querySelector('#mt-translated');
+        if (elTranslated) {
+          elTranslated.textContent = '🧪 Beep enviado. Pregúntale al receptor si lo escuchó.';
+        }
+      });
+    }
+
+    if (btnDiag) {
+      btnDiag.addEventListener('click', () => {
+        window.postMessage({ type: 'MT_MIXER_DIAG' }, '*');
       });
     }
 
@@ -348,85 +412,119 @@
   }
 
   /**
-   * Actualiza el contenido de los subtítulos en pantalla y reproduce la traducción hablada si está activa.
+   * Actualiza los subtítulos y enruta el audio según la dirección.
    */
-  function updateSubtitleText(originalText, translatedText, isFinal) {
+  function updateSubtitleText(originalText, translatedText, isFinal, direction) {
     if (!overlayElement) return;
 
     const elOriginal = overlayElement.querySelector('#mt-original');
     const elTranslated = overlayElement.querySelector('#mt-translated');
 
     if (elOriginal && originalText) {
-      elOriginal.textContent = originalText;
+      elOriginal.textContent = (direction === 'incoming' ? '👤 ' : '🎙️ ') + originalText;
     }
 
-    if (elTranslated && translatedText) {
-      elTranslated.textContent = translatedText;
+    if (!elTranslated || !translatedText || !translatedText.trim()) return;
+    elTranslated.textContent = translatedText;
 
-      // Si la voz hablada (TTS) está activada, hablar la traducción por el parlante
-      if (ttsEnabled && isFinal && translatedText.trim().length > 0) {
-        speakTranslation(translatedText, activeTargetLang);
-      }
+    if (!isFinal) return;
+
+    if (direction === 'incoming') {
+      // El receptor habló en inglés ➔ su traducción al español suena SOLO en
+      // mis parlantes. Nunca se inyecta de vuelta en la llamada.
+      speakLocally(translatedText, 'es');
+      return;
+    }
+
+    // Yo hablé en español ➔ la traducción en inglés viaja al receptor
+    if (ttsEnabled) {
+      speakTranslation(translatedText, activeTargetLang);
     }
   }
 
   /**
-   * Reproduce la traducción mediante voz sintética (Text-To-Speech).
-   * Doble emisión:
-   *   1. speechSynthesis → el USUARIO escucha la traducción por sus parlantes.
-   *   2. Service Worker descarga TTS MP3 (sin CORS) → content script decodifica →
-   *      postMessage al audio-mixer.js (MAIN world) → se inyecta en el stream
-   *      WebRTC de la llamada → el PARTICIPANTE REMOTO escucha la traducción.
+   * Reproduce texto por los parlantes locales (no toca la llamada).
+   */
+  function speakLocally(text, lang) {
+    try {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = lang === 'es' ? 'es-ES' : 'en-US';
+      utterance.rate = 0.95;
+      utterance.volume = 1.0;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('[MeetTranslate AI] Error en TTS local:', e);
+    }
+  }
+
+  /**
+   * Traducción hablada hacia el PARTICIPANTE REMOTO.
+   * Ruta: content.js → background.js (fetch sin CORS, fragmentado) → content.js
+   *       → postMessage → audio-mixer.js (MAIN) → ttsGain → WebRTC.
+   *
+   * Los fragmentos se envían en UNA sola lista para que el mixer los agende
+   * secuencialmente por duración. Enviarlos con offsets fijos los solapaba y
+   * el receptor escuchaba varias voces encimadas.
    */
   async function speakTranslation(text, targetLang) {
     if (!text || text === lastSpokenText) return;
     lastSpokenText = text;
 
     const lang = targetLang ? targetLang.substring(0, 2) : 'en';
-    const cleanText = text.trim().slice(0, 200);
 
-    // 1. Reproducción LOCAL para el usuario (por sus parlantes/auriculares)
-    try {
-      if (window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = lang === 'es' ? 'es-ES' : 'en-US';
-        utterance.rate = 0.95;
-        utterance.volume = 1.0;
-        window.speechSynthesis.speak(utterance);
-      }
-    } catch (e) {
-      console.warn('[MeetTranslate AI] Error en TTS local:', e);
-    }
+    // 1. Reproducción LOCAL para el usuario (confirmación por sus parlantes)
+    speakLocally(text, lang);
 
     // 2. Transmisión REMOTA al otro participante vía WebRTC mixer
-    //    Ruta: content.js → background.js (fetch sin CORS con chunking) → content.js → audio-mixer.js (MAIN)
     try {
       chrome.runtime.sendMessage(
         { type: 'FETCH_TTS_AUDIO', text: text.trim(), lang: lang },
         (response) => {
           if (chrome.runtime.lastError) {
-            console.warn('[MeetTranslate AI] Error en FETCH_TTS_AUDIO:', chrome.runtime.lastError.message);
+            console.warn('[MeetTranslate AI] ❌ FETCH_TTS_AUDIO falló:', chrome.runtime.lastError.message);
+            updateMixerStatusIndicator('TTS_FAILED');
             return;
           }
-          if (response && response.success) {
-            const list = response.audioBase64List || (response.audioBase64 ? [response.audioBase64] : []);
 
-            list.forEach((base64Str, index) => {
-              setTimeout(() => {
-                const binaryStr = atob(base64Str);
-                const bytes = new Uint8Array(binaryStr.length);
-                for (let i = 0; i < binaryStr.length; i++) {
-                  bytes[i] = binaryStr.charCodeAt(i);
-                }
-                window.postMessage({
-                  type: 'MT_PLAY_TTS_INTO_CALL',
-                  audioData: bytes.buffer
-                }, '*');
-              }, index * 300);
-            });
-            console.log('[MeetTranslate AI] ✅ ' + list.length + ' fragmento(s) de audio TTS inyectado(s) en WebRTC');
+          if (!response || !response.success) {
+            const reason = response ? response.error : 'sin respuesta del service worker';
+            console.warn('[MeetTranslate AI] ❌ No se descargó audio TTS:', reason);
+            updateMixerStatusIndicator('TTS_FAILED');
+            return;
           }
+
+          const list = response.audioBase64List || (response.audioBase64 ? [response.audioBase64] : []);
+          const buffers = [];
+
+          for (const base64Str of list) {
+            try {
+              const binaryStr = atob(base64Str);
+              const bytes = new Uint8Array(binaryStr.length);
+              for (let i = 0; i < binaryStr.length; i++) {
+                bytes[i] = binaryStr.charCodeAt(i);
+              }
+              buffers.push(bytes.buffer);
+            } catch (e) {
+              console.warn('[MeetTranslate AI] Fragmento TTS corrupto, se descarta:', e);
+            }
+          }
+
+          if (buffers.length === 0) {
+            console.warn('[MeetTranslate AI] ❌ Ningún fragmento TTS pudo decodificarse a ArrayBuffer');
+            updateMixerStatusIndicator('TTS_FAILED');
+            return;
+          }
+
+          window.postMessage({
+            type: 'MT_PLAY_TTS_INTO_CALL',
+            audioDataList: buffers
+          }, '*');
+
+          console.log('[MeetTranslate AI] ✅ ' + buffers.length +
+            ' fragmento(s) TTS enviados al mixer WebRTC (' +
+            buffers.reduce((n, b) => n + b.byteLength, 0) + ' bytes)');
         }
       );
     } catch (e) {

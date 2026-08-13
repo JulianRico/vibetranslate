@@ -14,6 +14,12 @@ let audioContext = null;
 let speechRecognizer = null;
 let isListening = false;
 let sttWatchdogInterval = null;
+let micStream = null;
+let micMediaRecorder = null;
+let mediaRecorderSTT = null;
+let isProcessingMicChunk = false;
+let isProcessingTabChunk = false;
+let warnedNoTabStt = false;
 let currentSettings = {
   sourceLang: 'es-ES',
   targetLang: 'en',
@@ -121,18 +127,33 @@ async function startAudioCaptureAndSTT(streamId) {
 
     console.log('[MeetTranslate AI Offscreen] Audio local redirigido exitosamente a altavoces.');
 
-    // 2. Capturar también el micrófono local del usuario (para lo que ingresa por su micrófono)
-    try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      startMicAudioRecorder(micStream);
-      console.log('[MeetTranslate AI Offscreen] Micrófono local del usuario capturado.');
-    } catch (micErr) {
-      console.warn('[MeetTranslate AI Offscreen] Micrófono local no accesible (usando solo audio de pestaña):', micErr);
-    }
+    // 3. Elegir el motor STT según la configuración.
+    //
+    //    IMPORTANTE: la Web Speech API de Chrome SOLO escucha el micrófono
+    //    predeterminado del sistema. NO puede transcribir el audio de la pestaña,
+    //    es decir, no puede oír al participante remoto. Por eso:
+    //
+    //      - 'webspeech'  ➔ solo dirección SALIENTE (mi voz ➔ inglés al receptor).
+    //      - 'whisper_*'  ➔ ambas direcciones, con MediaRecorder sobre micrófono
+    //                       (saliente) y sobre el audio de la pestaña (entrante).
+    const sttEngine = currentSettings.sttEngine || 'webspeech';
+    const usesWhisper = sttEngine.startsWith('whisper_');
 
-    // 3. Iniciar el motor de Speech-to-Text para Audio de Pestaña y Micrófono
-    startTabAudioRecorder();
-    initSpeechRecognition();
+    if (usesWhisper) {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        startMicAudioRecorder(micStream);
+        console.log('[MeetTranslate AI Offscreen] Micrófono local capturado para STT saliente (Whisper).');
+      } catch (micErr) {
+        console.warn('[MeetTranslate AI Offscreen] Micrófono local no accesible:', micErr);
+      }
+      startTabAudioRecorder();
+    } else {
+      initSpeechRecognition();
+      console.warn('[MeetTranslate AI Offscreen] Motor "webspeech": la voz del participante ' +
+        'remoto NO se transcribirá. Para traducir al receptor hacia el español, ' +
+        'configura Groq Whisper o Whisper local en el popup.');
+    }
 
   } catch (error) {
     console.error('[MeetTranslate AI Offscreen] Error obteniendo streams de audio:', error);
@@ -141,12 +162,8 @@ async function startAudioCaptureAndSTT(streamId) {
 }
 
 /**
- * Graba fragmentos del micrófono local del usuario.
+ * Graba fragmentos del micrófono local del usuario (dirección SALIENTE).
  */
-let micStream = null;
-let micMediaRecorder = null;
-let isProcessingMicChunk = false;
-
 function startMicAudioRecorder(stream) {
   if (!stream) return;
   try {
@@ -160,7 +177,7 @@ function startMicAudioRecorder(stream) {
       if (event.data && event.data.size > 2000 && !isProcessingMicChunk) {
         isProcessingMicChunk = true;
         try {
-          await processAudioChunk(event.data);
+          await processAudioChunk(event.data, 'outgoing');
         } catch (e) {
         } finally {
           isProcessingMicChunk = false;
@@ -176,12 +193,10 @@ function startMicAudioRecorder(stream) {
 }
 
 /**
- * Graba fragmentos de audio continuo del stream de la pestaña capturada.
- * Resuelve la limitación de Web Speech API de Chrome que solo escucha el micrófono local.
+ * Graba fragmentos de audio continuo del stream de la pestaña (dirección ENTRANTE:
+ * la voz del participante remoto). Resuelve la limitación de la Web Speech API de
+ * Chrome, que solo escucha el micrófono local.
  */
-let mediaRecorderSTT = null;
-let isProcessingTabChunk = false;
-
 function startTabAudioRecorder() {
   if (!currentStream) return;
 
@@ -196,7 +211,7 @@ function startTabAudioRecorder() {
       if (event.data && event.data.size > 2000 && !isProcessingTabChunk) {
         isProcessingTabChunk = true;
         try {
-          await processAudioChunk(event.data);
+          await processAudioChunk(event.data, 'incoming');
         } catch (e) {
           console.warn('[MeetTranslate AI Offscreen] Excepción procesando fragmento de audio de pestaña:', e);
         } finally {
@@ -214,30 +229,54 @@ function startTabAudioRecorder() {
 }
 
 /**
- * Transcribe los fragmentos de audio de la pestaña usando Whisper (Groq / OpenAI / Local).
+ * Determina el par de idiomas según quién está hablando.
+ *
+ *   sourceLang = el idioma que hablo YO       (por defecto es-ES)
+ *   targetLang = el idioma que habla el OTRO  (por defecto en)
+ *
+ *   'outgoing' (mi micrófono)      ➔ yo   ➔ el otro   (es ➔ en)
+ *   'incoming' (audio de pestaña)  ➔ otro ➔ yo        (en ➔ es)
  */
-async function processAudioChunk(blob) {
-  const sttEngine = currentSettings.sttEngine || 'whisper_groq';
+function langPairFor(direction) {
+  const mine = currentSettings.sourceLang || 'es-ES';
+  const theirs = currentSettings.targetLang || 'en';
+
+  if (direction === 'incoming') {
+    return { src: theirs, tgt: mine };
+  }
+  return { src: mine, tgt: theirs };
+}
+
+/**
+ * Transcribe un fragmento de audio con Whisper (Groq / OpenAI / Local).
+ * El idioma de transcripción depende de la dirección: el audio de la pestaña
+ * viene en el idioma del participante remoto, no en el mío.
+ */
+async function processAudioChunk(blob, direction) {
+  const sttEngine = currentSettings.sttEngine || 'webspeech';
+  const { src } = langPairFor(direction);
   let transcribedText = '';
 
   if (sttEngine === 'whisper_groq') {
-    transcribedText = await transcribeWithGroq(blob, currentSettings.groqApiKey, currentSettings.sourceLang);
+    transcribedText = await transcribeWithGroq(blob, currentSettings.groqApiKey, src);
   } else if (sttEngine === 'whisper_openai') {
-    transcribedText = await transcribeWithOpenAI(blob, currentSettings.openaiApiKey, currentSettings.sourceLang);
+    transcribedText = await transcribeWithOpenAI(blob, currentSettings.openaiApiKey, src);
   } else if (sttEngine === 'whisper_local') {
-    transcribedText = await transcribeWithLocalWhisper(blob, currentSettings.whisperEndpoint, currentSettings.sourceLang);
+    transcribedText = await transcribeWithLocalWhisper(blob, currentSettings.whisperEndpoint, src);
   } else {
-    // Si hay una API Key de Groq o servidor local configurado por defecto
-    if (currentSettings.groqApiKey) {
-      transcribedText = await transcribeWithGroq(blob, currentSettings.groqApiKey, currentSettings.sourceLang);
-    } else if (currentSettings.whisperEndpoint) {
-      transcribedText = await transcribeWithLocalWhisper(blob, currentSettings.whisperEndpoint, currentSettings.sourceLang);
+    // 'webspeech' no puede transcribir blobs; avisar una sola vez y salir.
+    if (!warnedNoTabStt) {
+      warnedNoTabStt = true;
+      console.warn('[MeetTranslate AI Offscreen] El motor "webspeech" no transcribe fragmentos ' +
+        'grabados. Configura Groq Whisper o Whisper local para la dirección "' + direction + '".');
     }
+    return;
   }
 
   if (transcribedText && transcribedText.trim().length > 0) {
-    console.log('[MeetTranslate AI Offscreen] Voz remota de pestaña transcrita:', transcribedText);
-    await handleTranscription(transcribedText.trim(), true);
+    const etiqueta = direction === 'incoming' ? 'Voz del participante remoto' : 'Mi voz (micrófono)';
+    console.log('[MeetTranslate AI Offscreen] ' + etiqueta + ' transcrita:', transcribedText);
+    await handleTranscription(transcribedText.trim(), true, direction);
   }
 }
 
@@ -383,11 +422,12 @@ function initSpeechRecognition() {
       const clauseToTranslate = newWords.join(' ');
       if (clauseToTranslate.trim().length > 0) {
         processedWordIndex = words.length;
-        await handleTranscription(clauseToTranslate.trim(), true);
+        // La Web Speech API solo oye mi micrófono ➔ siempre dirección saliente
+        await handleTranscription(clauseToTranslate.trim(), true, 'outgoing');
       }
     } else {
       // Notificar vista previa visual intermedia
-      await handleTranscription(currentFullText, false);
+      await handleTranscription(currentFullText, false, 'outgoing');
     }
 
     if (isFinal) {
@@ -537,14 +577,17 @@ function applyTechnicalGlossary(text, customGlossary = {}) {
 
 /**
  * Procesa el texto transcrito y lo envía al motor de traducción seleccionado.
+ * La 'direction' viaja hasta content.js, que decide si el audio traducido se
+ * inyecta en la llamada (saliente) o solo suena en mis parlantes (entrante).
  */
-async function handleTranscription(originalText, isFinal) {
+async function handleTranscription(originalText, isFinal, direction = 'outgoing') {
   try {
+    const { src, tgt } = langPairFor(direction);
     const correctedText = applyTechnicalGlossary(originalText, currentSettings.glossary);
     const translatedText = await translateText(
       correctedText,
-      currentSettings.sourceLang,
-      currentSettings.targetLang,
+      src,
+      tgt,
       currentSettings.engine,
       currentSettings.ollamaEndpoint
     );
@@ -554,7 +597,8 @@ async function handleTranscription(originalText, isFinal) {
       type: 'TRANSLATION_RESULT',
       originalText: correctedText,
       translatedText,
-      isFinal
+      isFinal,
+      direction
     }).catch(() => {});
 
   } catch (err) {
