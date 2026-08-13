@@ -781,7 +781,9 @@ async function translateText(text, sourceLang, targetLang, engine, ollamaEndpoin
  */
 async function translateWithFastAPI(text, srcLang, tgtLang) {
   try {
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${srcLang}&tl=${tgtLang}&dt=t&q=${encodeURIComponent(text)}`;
+    const sanitizedText = (text || '').replace(/[\r\n]+/g, ' ').trim();
+    if (!sanitizedText) return '';
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${srcLang}&tl=${tgtLang}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`HTTP Error status: ${response.status}`);
@@ -793,7 +795,7 @@ async function translateWithFastAPI(text, srcLang, tgtLang) {
         return translated.trim();
       }
     }
-    return text;
+    return sanitizedText;
   } catch (err) {
     console.warn('[MeetTranslate AI Offscreen] Error en Google Translate API, probando fallback:', err);
     return await translateWithFallback(text, srcLang, tgtLang);
@@ -805,7 +807,9 @@ async function translateWithFastAPI(text, srcLang, tgtLang) {
  */
 async function translateWithFallback(text, srcLang, tgtLang) {
   try {
-    const url = `https://ftapi.pythonanywhere.com/translate?sl=${srcLang}&dl=${tgtLang}&text=${encodeURIComponent(text)}`;
+    const sanitizedText = (text || '').replace(/[\r\n]+/g, ' ').trim();
+    if (!sanitizedText) return '';
+    const url = `https://ftapi.pythonanywhere.com/translate?sl=${srcLang}&dl=${tgtLang}&text=${encodeURIComponent(sanitizedText)}`;
     const response = await fetch(url);
     if (response.ok) {
       const data = await response.json();
