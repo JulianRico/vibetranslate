@@ -459,10 +459,13 @@ function initSpeechRecognition() {
     }
   };
 
+  // Iniciar activamente el reconocedor de voz del micrófono
   try {
+    isListening = true;
     speechRecognizer.start();
-  } catch (err) {
-    console.error('[MeetTranslate AI Offscreen] Error al arrancar SpeechRecognition:', err);
+    console.log('[MeetTranslate AI Offscreen] speechRecognizer.start() ejecutado.');
+  } catch (e) {
+    console.warn('[MeetTranslate AI Offscreen] Error al arrancar speechRecognizer:', e);
   }
 
   // Timer de vigilancia (Watchdog) para garantizar la reinicialización permanente en segundo plano
