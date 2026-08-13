@@ -11,6 +11,16 @@ const https = require('https');
 const http = require('http');
 const { applyTechnicalGlossary, DEFAULT_GLOSSARY } = require('./glossary');
 
+// Configuración de Chromium para optimizar rendimiento y evitar bloqueos de caché en Windows
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+app.commandLine.appendSwitch('disable-http-cache');
+
+// Garantizar una única instancia activa para evitar colisiones de archivos
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) {
+  app.quit();
+}
+
 let controlWindow = null;
 let overlayWindow = null;
 
@@ -104,6 +114,13 @@ function createOverlayWindow() {
 app.whenReady().then(() => {
   createControlWindow();
   createOverlayWindow();
+
+  app.on('second-instance', () => {
+    if (controlWindow) {
+      if (controlWindow.isMinimized()) controlWindow.restore();
+      controlWindow.focus();
+    }
+  });
 
   // Registrar Atajos de Teclado Globales
   globalShortcut.register('CommandOrControl+Shift+T', () => {
