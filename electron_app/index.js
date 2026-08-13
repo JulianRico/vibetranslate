@@ -207,20 +207,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     appendLog('TEST', `Iniciando prueba de voz con motor: ${engine}`);
 
     if (engine === 'gemini_live') {
-      if (geminiKey && geminiKey.startsWith('AIzaSy')) {
+      if (geminiKey && geminiKey.length > 5) {
         await startGeminiLivePipeline(geminiKey);
       } else {
-        appendLog('GEMINI', '⚠️ Para usar Gemini Live ingresa una API Key válida (empieza por AIzaSy...).', 'warn');
-        previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini (AIzaSy...) en el campo superior.';
-        previewTrans.textContent = 'Obtenla gratis en: aistudio.google.com/app/apikey';
+        appendLog('GEMINI', '⚠️ Ingresa una API Key en el campo de Gemini.', 'warn');
+        previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
+        previewTrans.textContent = 'Obtén tu clave en: aistudio.google.com/app/apikey';
       }
     } else if (engine === 'whisper_groq') {
-      if (groqKey && groqKey.startsWith('gsk_')) {
+      if (groqKey && groqKey.length > 5) {
         await startGroqWhisperPipeline(groqKey);
       } else {
-        appendLog('GROQ', '⚠️ Para usar Groq Whisper ingresa tu API Key gratuita (empieza por gsk_...).', 'warn');
-        previewOrig.textContent = '⚠️ Ingresa tu clave de Groq (gsk_...) en el campo superior.';
-        previewTrans.textContent = 'Obtenla gratis en: console.groq.com/keys';
+        appendLog('GROQ', '⚠️ Ingresa tu Groq API Key en el campo de configuración.', 'warn');
+        previewOrig.textContent = '⚠️ Ingresa tu clave de Groq en el campo superior.';
+        previewTrans.textContent = 'Obtén tu clave gratis en: console.groq.com/keys';
       }
     }
   }

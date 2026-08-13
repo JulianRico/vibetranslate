@@ -21,14 +21,15 @@ class GeminiLiveClient {
   }
 
   connect() {
-    if (!this.apiKey || !this.apiKey.trim().startsWith('AIzaSy')) {
-      console.error('[Gemini Live Electron] Error: Se requiere una API Key de Gemini válida (comienza por AIzaSy...).');
-      if (this.onError) this.onError(new Error('API Key de Gemini no válida o ausente.'));
+    if (!this.apiKey || this.apiKey.trim().length < 5) {
+      console.error('[Gemini Live Electron] Error: Se requiere ingresar una API Key en el campo de configuración.');
+      if (this.onError) this.onError(new Error('Ingresa una API Key en el campo de configuración.'));
       return;
     }
 
-    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${this.apiKey}`;
-    console.log('[Gemini Live Electron] Conectando WebSocket a Google Gemini Live...');
+    const cleanKey = this.apiKey.trim();
+    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
+    console.log(`[Gemini Live Electron] Conectando WebSocket a Google Gemini Live con clave (${cleanKey.substring(0, 8)}...)...`);
     
     this.ws = new WebSocket(wsUrl);
 
