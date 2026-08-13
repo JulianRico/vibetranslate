@@ -280,6 +280,80 @@
     return text;
   }
 
+  function applyTechnicalGlossary(text) {
+    if (!text) return '';
+    const glossary = {
+      // SharePoint & Microsoft 365
+      'cherpoy': 'SharePoint',
+      'sharepo': 'SharePoint',
+      'sharepoin': 'SharePoint',
+      'charpon': 'SharePoint',
+      'es pe fx': 'SPFx',
+      'ese pe ef equis': 'SPFx',
+      'spfx': 'SPFx',
+      'power autonat': 'Power Automate',
+      'power automate': 'Power Automate',
+      'power aps': 'Power Apps',
+      'power ap': 'Power Apps',
+      'power bi': 'Power BI',
+      'power vi': 'Power BI',
+      'tean': 'Teams',
+      'tins': 'Teams',
+      'site column': 'Site Column',
+      'content type': 'Content Type',
+      'webpart': 'Web Part',
+      'web part': 'Web Part',
+      'pe en pe': 'PnP',
+      'pnpjs': 'PnPjs',
+      'graf api': 'Microsoft Graph API',
+      'entra id': 'Entra ID',
+      'tenant': 'Tenant',
+
+      // Frontend & Frameworks
+      'real': 'React',
+      'riac': 'React',
+      'riact': 'React',
+      'yabascrip': 'JavaScript',
+      'llabascript': 'JavaScript',
+      'taitscrip': 'TypeScript',
+      'taipscrip': 'TypeScript',
+      'fluter': 'Flutter',
+      'nod': 'Node.js',
+      'nodo': 'Node.js',
+      'node': 'Node.js',
+      'nes j s': 'Next.js',
+      'nextjs': 'Next.js',
+      'vats': 'Vite',
+      'vait': 'Vite',
+      'angular': 'Angular',
+      'yeison': 'JSON',
+      'jason': 'JSON',
+      'res api': 'REST API',
+
+      // Cloud & DevOps
+      'doker': 'Docker',
+      'doquer': 'Docker',
+      'piton': 'Python',
+      'paiton': 'Python',
+      'a doble u ese': 'AWS',
+      'a doble v ese': 'AWS',
+      'asur': 'Azure',
+      'gihub': 'GitHub',
+      'llithub': 'GitHub',
+      'kubernets': 'Kubernetes',
+      'guberne': 'Kubernetes',
+      'paip lain': 'Pipeline',
+      'paiplain': 'Pipeline'
+    };
+
+    let processed = text;
+    for (const [misspelled, correct] of Object.entries(glossary)) {
+      const regex = new RegExp(`\\b${misspelled.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+      processed = processed.replace(regex, correct);
+    }
+    return processed;
+  }
+
   // Reconocimiento de voz continuo de Julián
   function startSpeechRecognitionA() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -304,9 +378,10 @@
         }
       }
 
-      const text = (finalStr || interim).trim();
-      if (!text) return;
+      const rawText = (finalStr || interim).trim();
+      if (!rawText) return;
 
+      const text = applyTechnicalGlossary(rawText);
       sttAOrig.textContent = text;
       const words = text.split(/\s+/);
       const isFinal = finalStr.length > 0;

@@ -418,9 +418,21 @@
   <div class="form-group">
     <label for="engine-select">Motor de Traducción</label>
     <select id="engine-select">
-      <option value="fast">Default Fast API (Ultrarrápido)</option>
-      <option value="gemma">TranslateGemma (Ollama Local AI)</option>
+      <option value="fast">⚡ Google Translate (Ultrarrápido ~50ms)</option>
+      <option value="gemma">ollama / TranslateGemma (Local AI)</option>
     </select>
+  </div>
+
+  <div class="form-group">
+    <label>📚 Glosario Técnico y Fonético</label>
+    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 6px;">
+      Corrige automáticamente pronunciaciones en español (ej: "real" ➔ "React", "cherpoy" ➔ "SharePoint").
+    </div>
+    <div style="display: flex; gap: 6px;">
+      <input type="text" id="input-gloss-from" placeholder="Se entiende (ej: real)" style="flex: 1; padding: 6px 10px; font-size: 11px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: white;">
+      <input type="text" id="input-gloss-to" placeholder="Término (ej: React)" style="flex: 1; padding: 6px 10px; font-size: 11px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.2); background: rgba(255,255,255,0.05); color: white;">
+      <button type="button" id="btn-add-gloss" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-weight: 700; font-size: 11px; cursor: pointer;">+</button>
+    </div>
   </div>
 
   <div class="form-group" id="ollama-group" style="display: none;">

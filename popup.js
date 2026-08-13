@@ -235,17 +235,33 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveSettings();
   });
 
-  // Slider de Tamaño de Fuente
-  fontSizeRange.addEventListener('input', () => {
-    fontSizeVal.textContent = `${fontSizeRange.value}px`;
-    saveSettings();
-  });
+  // Agregar término al Glosario Técnico
+  const btnAddGloss = document.getElementById('btn-add-gloss');
+  const inputGlossFrom = document.getElementById('input-gloss-from');
+  const inputGlossTo = document.getElementById('input-gloss-to');
 
-  // Slider de Opacidad del Fondo
-  opacityRange.addEventListener('input', () => {
-    opacityVal.textContent = `${Math.round(parseFloat(opacityRange.value) * 100)}%`;
-    saveSettings();
-  });
+  if (btnAddGloss) {
+    btnAddGloss.addEventListener('click', async () => {
+      const fromVal = inputGlossFrom.value.trim().toLowerCase();
+      const toVal = inputGlossTo.value.trim();
+
+      if (!fromVal || !toVal) return;
+
+      const { settings = {} } = await chrome.storage.local.get('settings');
+      const glossary = settings.glossary || {};
+      glossary[fromVal] = toVal;
+
+      chrome.runtime.sendMessage({
+        type: 'UPDATE_SETTINGS',
+        settings: { glossary }
+      }, () => {
+        inputGlossFrom.value = '';
+        inputGlossTo.value = '';
+        btnAddGloss.textContent = '✅';
+        setTimeout(() => { btnAddGloss.textContent = '+'; }, 1000);
+      });
+    });
+  }
 
   /* ==========================================================================
      PROBADOR INTERACTIVO DE MICRÓFONO Y PARLANTES (SANDBOX)

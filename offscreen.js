@@ -454,12 +454,95 @@ function detectTextLanguage(text) {
 }
 
 /**
+ * Aplica corrección de diccionario/glosario técnico antes de la traducción.
+ * Corrige errores fonéticos frecuentes de STT (ej: 'real' -> 'React', 'cherpoy' -> 'SharePoint').
+ */
+function applyTechnicalGlossary(text, customGlossary = {}) {
+  if (!text) return '';
+
+  const defaultGlossary = {
+    // SharePoint & Microsoft 365
+    'cherpoy': 'SharePoint',
+    'sharepo': 'SharePoint',
+    'sharepoin': 'SharePoint',
+    'charpon': 'SharePoint',
+    'es pe fx': 'SPFx',
+    'ese pe ef equis': 'SPFx',
+    'spfx': 'SPFx',
+    'power autonat': 'Power Automate',
+    'power automate': 'Power Automate',
+    'power aps': 'Power Apps',
+    'power ap': 'Power Apps',
+    'power bi': 'Power BI',
+    'power vi': 'Power BI',
+    'tean': 'Teams',
+    'tins': 'Teams',
+    'site column': 'Site Column',
+    'content type': 'Content Type',
+    'webpart': 'Web Part',
+    'web part': 'Web Part',
+    'pe en pe': 'PnP',
+    'pnpjs': 'PnPjs',
+    'graf api': 'Microsoft Graph API',
+    'entra id': 'Entra ID',
+    'tenant': 'Tenant',
+
+    // Frontend & Frameworks
+    'real': 'React',
+    'riac': 'React',
+    'riact': 'React',
+    'yabascrip': 'JavaScript',
+    'llabascript': 'JavaScript',
+    'taitscrip': 'TypeScript',
+    'taipscrip': 'TypeScript',
+    'fluter': 'Flutter',
+    'nod': 'Node.js',
+    'nodo': 'Node.js',
+    'node': 'Node.js',
+    'nes j s': 'Next.js',
+    'nextjs': 'Next.js',
+    'vats': 'Vite',
+    'vait': 'Vite',
+    'angular': 'Angular',
+    'yeison': 'JSON',
+    'jason': 'JSON',
+    'res api': 'REST API',
+
+    // Cloud & DevOps
+    'doker': 'Docker',
+    'doquer': 'Docker',
+    'piton': 'Python',
+    'paiton': 'Python',
+    'a doble u ese': 'AWS',
+    'a doble v ese': 'AWS',
+    'asur': 'Azure',
+    'gihub': 'GitHub',
+    'llithub': 'GitHub',
+    'kubernets': 'Kubernetes',
+    'guberne': 'Kubernetes',
+    'paip lain': 'Pipeline',
+    'paiplain': 'Pipeline'
+  };
+
+  const combined = { ...defaultGlossary, ...(customGlossary || {}) };
+  let processed = text;
+
+  for (const [misspelled, correct] of Object.entries(combined)) {
+    const regex = new RegExp(`\\b${misspelled.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+    processed = processed.replace(regex, correct);
+  }
+
+  return processed;
+}
+
+/**
  * Procesa el texto transcrito y lo envía al motor de traducción seleccionado.
  */
 async function handleTranscription(originalText, isFinal) {
   try {
+    const correctedText = applyTechnicalGlossary(originalText, currentSettings.glossary);
     const translatedText = await translateText(
-      originalText,
+      correctedText,
       currentSettings.sourceLang,
       currentSettings.targetLang,
       currentSettings.engine,
@@ -469,7 +552,7 @@ async function handleTranscription(originalText, isFinal) {
     // Enviar el resultado al Service Worker para su despliegue en la interfaz
     chrome.runtime.sendMessage({
       type: 'TRANSLATION_RESULT',
-      originalText,
+      originalText: correctedText,
       translatedText,
       isFinal
     }).catch(() => {});
