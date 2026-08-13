@@ -28,14 +28,21 @@ class GeminiLiveClient {
     }
 
     const cleanKey = this.apiKey.trim();
-    const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
-    console.log(`[Gemini Live Electron] Conectando WebSocket a Google Gemini Live con clave (${cleanKey.substring(0, 8)}...)...`);
-    
+    let wsUrl = '';
     const wsOptions = {
-      headers: {
-        'Authorization': `Bearer ${cleanKey}`
-      }
+      headers: {}
     };
+
+    if (cleanKey.startsWith('AIzaSy')) {
+      // Clave API de Google AI Studio
+      wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
+      console.log(`[Gemini Live Electron] Conectando con API Key AI Studio (${cleanKey.substring(0, 8)}...)...`);
+    } else {
+      // Token OAuth2 / Bearer Token
+      wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?access_token=${encodeURIComponent(cleanKey)}`;
+      wsOptions.headers['Authorization'] = `Bearer ${cleanKey}`;
+      console.log(`[Gemini Live Electron] Conectando con OAuth2 Access Token (${cleanKey.substring(0, 8)}...)...`);
+    }
 
     try {
       this.ws = new WebSocket(wsUrl, wsOptions);
