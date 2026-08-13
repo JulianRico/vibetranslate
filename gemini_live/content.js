@@ -26,7 +26,7 @@
   let isMinimized = false;
   let currentFontSize = 18;
 
-  let ttsEnabled = false;
+  let ttsEnabled = true;
   let activeTargetLang = 'en';
   let lastSpokenText = '';
 
@@ -296,6 +296,9 @@
     const card = container.querySelector('#mt-card');
 
     if (btnTts) {
+      btnTts.textContent = ttsEnabled ? '🔊' : '🔇';
+      btnTts.style.opacity = ttsEnabled ? '1' : '0.5';
+
       btnTts.addEventListener('click', () => {
         ttsEnabled = !ttsEnabled;
         btnTts.textContent = ttsEnabled ? '🔊' : '🔇';

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "MeetTranslate AI - Real-Time Audio Translator",
+  "name": "Gemini MeetTranslate AI - Real-Time Audio Translator",
   "version": "1.0.0",
   "description": "Traducción de audio en tiempo real en Google Meet, Zoom Web y Microsoft Teams Web (Español ↔ Inglés) impulsada por IA.",
   "permissions": [
