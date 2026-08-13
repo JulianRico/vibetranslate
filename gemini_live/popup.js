@@ -229,6 +229,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveSettings();
   });
 
+  // Cambio de Gemini API Key y Voz
+  if (geminiApiKeyInput) {
+    geminiApiKeyInput.addEventListener('input', () => {
+      saveSettings();
+    });
+    geminiApiKeyInput.addEventListener('change', () => {
+      saveSettings();
+    });
+  }
+
+  if (geminiVoiceSelect) {
+    geminiVoiceSelect.addEventListener('change', () => {
+      saveSettings();
+    });
+  }
+
   // Cambio de Whisper Endpoint
   whisperEndpointInput.addEventListener('change', () => {
     saveSettings();
