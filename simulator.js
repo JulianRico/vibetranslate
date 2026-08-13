@@ -220,7 +220,7 @@
     }
   });
 
-  // Función para transmitir audio TTS en inglés a Alex
+  // Función para transmitir audio TTS en inglés a Alex con chunking automático de párrafos largos
   async function transmitTTS(text, lang) {
     if (!isRoomActive || !audioCtx || !ttsGainA) {
       log('⚠️ Entra a la reunión virtual antes de transmitir.');
@@ -228,19 +228,40 @@
     }
 
     try {
-      const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=tw-ob`;
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      // Dividir texto largo en fragmentos de máximo 140 caracteres para evitar HTTP 400 de Google TTS
+      const words = (text || '').split(' ');
+      const chunks = [];
+      let cur = '';
+      for (const w of words) {
+        if ((cur + ' ' + w).trim().length <= 140) {
+          cur = (cur + ' ' + w).trim();
+        } else {
+          if (cur) chunks.push(cur);
+          cur = w;
+        }
+      }
+      if (cur) chunks.push(cur);
 
-      const arrayBuffer = await res.arrayBuffer();
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      let scheduleTime = audioCtx.currentTime;
 
-      const source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ttsGainA);
-      source.start(0);
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${lang}&client=tw-ob`;
+        const res = await fetch(url);
+        if (!res.ok) continue;
 
-      log(`🔊 Audio traducido en inglés transmitido a Alex (${Math.round(audioBuffer.duration * 10) / 10}s)`);
+        const arrayBuffer = await res.arrayBuffer();
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+        const source = audioCtx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ttsGainA);
+        source.start(scheduleTime);
+
+        scheduleTime += audioBuffer.duration;
+      }
+
+      log(`🔊 Audio traducido en inglés transmitido a Alex (${chunks.length} fragmento(s))`);
     } catch (err) {
       log(`⚠️ Error transmitiendo audio TTS: ${err.message}`);
     }
@@ -269,6 +290,8 @@
     speechRecognitionA.interimResults = true;
     speechRecognitionA.lang = 'es-ES';
 
+    let processedWordIndexA = 0;
+
     speechRecognitionA.onresult = async (event) => {
       let interim = '';
       let finalStr = '';
@@ -282,17 +305,30 @@
       }
 
       const text = (finalStr || interim).trim();
-      if (text) {
-        sttAOrig.textContent = text;
-        log(`[Tu micrófono ES] "${text}"`);
+      if (!text) return;
 
-        const translated = await translateText(text, 'es', 'en');
-        sttATrans.textContent = translated;
+      sttAOrig.textContent = text;
+      const words = text.split(/\s+/);
+      const isFinal = finalStr.length > 0;
+      const newWords = words.slice(processedWordIndexA);
 
-        if (finalStr) {
-          log(`[Traducción transmitida] "${translated}"`);
-          await transmitTTS(translated, 'en');
+      // Interpretación simultánea continua en streaming: enviar cada 4 palabras o pausa
+      if (newWords.length >= 4 || isFinal) {
+        const clause = newWords.join(' ');
+        if (clause.trim().length > 0) {
+          processedWordIndexA = words.length;
+          const translatedClause = await translateText(clause.trim(), 'es', 'en');
+          sttATrans.textContent = translatedClause;
+          log(`[⚡ Interpretación Simultánea -> Alex EN] "${translatedClause}"`);
+          await transmitTTS(translatedClause, 'en');
         }
+      } else {
+        const previewTranslated = await translateText(text, 'es', 'en');
+        sttATrans.textContent = previewTranslated;
+      }
+
+      if (isFinal) {
+        processedWordIndexA = 0;
       }
     };
 

@@ -293,22 +293,45 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           // por restricciones CORS de la página. El Service Worker SÍ puede.
           try {
             const { text, lang } = message;
-            const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=${lang}&client=tw-ob`;
-            const response = await fetch(ttsUrl);
 
-            if (response.ok) {
-              const arrayBuffer = await response.arrayBuffer();
-              // Convertir ArrayBuffer a base64 para transmitirlo por chrome.runtime messaging
-              const bytes = new Uint8Array(arrayBuffer);
-              let binary = '';
-              for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
+            // Fragmentar texto largo en trozos de máximo 140 caracteres para evitar HTTP 400 en Google TTS
+            const words = (text || '').split(' ');
+            const chunks = [];
+            let cur = '';
+            for (const w of words) {
+              if ((cur + ' ' + w).trim().length <= 140) {
+                cur = (cur + ' ' + w).trim();
+              } else {
+                if (cur) chunks.push(cur);
+                cur = w;
               }
-              const audioBase64 = btoa(binary);
-              sendResponse({ success: true, audioBase64 });
-              console.log('[MeetTranslate AI SW] TTS MP3 descargado y enviado al content script (' + Math.round(arrayBuffer.byteLength / 1024) + 'KB)');
+            }
+            if (cur) chunks.push(cur);
+
+            const audioBase64List = [];
+
+            for (const chunk of chunks) {
+              const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=${lang}&client=tw-ob`;
+              const response = await fetch(ttsUrl);
+
+              if (response.ok) {
+                const arrayBuffer = await response.arrayBuffer();
+                const bytes = new Uint8Array(arrayBuffer);
+                let binary = '';
+                for (let i = 0; i < bytes.byteLength; i++) {
+                  binary += String.fromCharCode(bytes[i]);
+                }
+                audioBase64List.push(btoa(binary));
+              } else {
+                console.warn('[MeetTranslate AI SW] HTTP ' + response.status + ' descargando chunk TTS:', chunk);
+              }
+            }
+
+            if (audioBase64List.length > 0) {
+              sendResponse({ success: true, audioBase64List });
+              console.log('[MeetTranslate AI SW] ' + audioBase64List.length + ' fragmentos de TTS MP3 descargados con éxito.');
             } else {
-              sendResponse({ success: false, error: `HTTP ${response.status}` });
+              sendResponse({ success: false, error: 'No se pudo descargar ningún fragmento de audio' });
             }
           } catch (err) {
             console.warn('[MeetTranslate AI SW] Error descargando TTS audio:', err);

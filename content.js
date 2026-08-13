@@ -384,28 +384,32 @@
     }
 
     // 2. Transmisión REMOTA al otro participante vía WebRTC mixer
-    //    Ruta: content.js → background.js (fetch sin CORS) → content.js → audio-mixer.js (MAIN)
+    //    Ruta: content.js → background.js (fetch sin CORS con chunking) → content.js → audio-mixer.js (MAIN)
     try {
       chrome.runtime.sendMessage(
-        { type: 'FETCH_TTS_AUDIO', text: cleanText, lang: lang },
+        { type: 'FETCH_TTS_AUDIO', text: text.trim(), lang: lang },
         (response) => {
           if (chrome.runtime.lastError) {
             console.warn('[MeetTranslate AI] Error en FETCH_TTS_AUDIO:', chrome.runtime.lastError.message);
             return;
           }
-          if (response && response.success && response.audioBase64) {
-            // Decodificar base64 a ArrayBuffer
-            const binaryStr = atob(response.audioBase64);
-            const bytes = new Uint8Array(binaryStr.length);
-            for (let i = 0; i < binaryStr.length; i++) {
-              bytes[i] = binaryStr.charCodeAt(i);
-            }
-            // Enviar al audio-mixer.js (mundo MAIN) para inyectarlo en el stream WebRTC
-            window.postMessage({
-              type: 'MT_PLAY_TTS_INTO_CALL',
-              audioData: bytes.buffer
-            }, '*');
-            console.log('[MeetTranslate AI] ✅ Audio TTS inyectado en la llamada WebRTC');
+          if (response && response.success) {
+            const list = response.audioBase64List || (response.audioBase64 ? [response.audioBase64] : []);
+
+            list.forEach((base64Str, index) => {
+              setTimeout(() => {
+                const binaryStr = atob(base64Str);
+                const bytes = new Uint8Array(binaryStr.length);
+                for (let i = 0; i < binaryStr.length; i++) {
+                  bytes[i] = binaryStr.charCodeAt(i);
+                }
+                window.postMessage({
+                  type: 'MT_PLAY_TTS_INTO_CALL',
+                  audioData: bytes.buffer
+                }, '*');
+              }, index * 300);
+            });
+            console.log('[MeetTranslate AI] ✅ ' + list.length + ' fragmento(s) de audio TTS inyectado(s) en WebRTC');
           }
         }
       );

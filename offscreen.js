@@ -354,6 +354,8 @@ function initSpeechRecognition() {
     console.log('[MeetTranslate AI Offscreen] Reconocedor de voz iniciado. Idioma:', speechRecognizer.lang);
   };
 
+  let processedWordIndex = 0;
+
   speechRecognizer.onresult = async (event) => {
     let interimTranscript = '';
     let finalTranscript = '';
@@ -369,11 +371,27 @@ function initSpeechRecognition() {
       }
     }
 
-    // Procesar transcripción final o intermedia significativa
-    const textToProcess = (finalTranscript || interimTranscript).trim();
-    if (textToProcess.length > 0) {
-      const isFinal = finalTranscript.length > 0;
-      await handleTranscription(textToProcess, isFinal);
+    const currentFullText = (finalTranscript || interimTranscript).trim();
+    if (!currentFullText) return;
+
+    const words = currentFullText.split(/\s+/);
+    const isFinal = finalTranscript.length > 0;
+    const newWords = words.slice(processedWordIndex);
+
+    // Interpretación simultánea por streaming: enviar cada 4 palabras nuevas o al finalizar frase
+    if (newWords.length >= 4 || isFinal) {
+      const clauseToTranslate = newWords.join(' ');
+      if (clauseToTranslate.trim().length > 0) {
+        processedWordIndex = words.length;
+        await handleTranscription(clauseToTranslate.trim(), true);
+      }
+    } else {
+      // Notificar vista previa visual intermedia
+      await handleTranscription(currentFullText, false);
+    }
+
+    if (isFinal) {
+      processedWordIndex = 0;
     }
   };
 
