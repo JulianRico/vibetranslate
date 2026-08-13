@@ -379,6 +379,29 @@
     return ttsQueue;
   }
 
+  async function decodeAudioPayload(raw) {
+    try {
+      return await audioCtx.decodeAudioData(raw.slice(0));
+    } catch (e) {
+      try {
+        const numSamples = Math.floor(raw.byteLength / 2);
+        if (numSamples > 0) {
+          const pcmBuffer = audioCtx.createBuffer(1, numSamples, 24000);
+          const channelData = pcmBuffer.getChannelData(0);
+          const dataView = new DataView(raw);
+          for (let i = 0; i < numSamples; i++) {
+            const int16 = dataView.getInt16(i * 2, true);
+            channelData[i] = int16 < 0 ? int16 / 32768.0 : int16 / 32767.0;
+          }
+          return pcmBuffer;
+        }
+      } catch (pcmErr) {
+        console.warn('[MT Mixer] Error decodificando PCM crudo:', pcmErr);
+      }
+      throw e;
+    }
+  }
+
   async function playTTSBuffers(buffers) {
     if (!ensureMixer() || !ttsGain) {
       diag.ttsChunksFailed += buffers.length;
@@ -396,7 +419,7 @@
 
     for (const raw of buffers) {
       try {
-        const audioBuffer = await audioCtx.decodeAudioData(raw.slice(0));
+        const audioBuffer = await decodeAudioPayload(raw);
         const source = audioCtx.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(ttsGain);
