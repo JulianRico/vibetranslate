@@ -31,13 +31,44 @@ document.addEventListener('DOMContentLoaded', async () => {
   const previewOrig = document.getElementById('preview-orig');
   const previewTrans = document.getElementById('preview-trans');
 
+  const logContainer = document.getElementById('log-container');
+  const btnClearLogs = document.getElementById('btn-clear-logs');
+  const btnOpenDevTools = document.getElementById('btn-open-devtools');
+
   const platformBtns = document.querySelectorAll('.platform-btn');
 
   let speechRecognizer = null;
   let isListeningTest = false;
   let geminiLiveClient = null;
 
+  // ── Sistema de Logs en Pantalla ───────────────────────────────────
+  function appendLog(category, message, type = 'system') {
+    const timestamp = new Date().toTimeString().split(' ')[0];
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+    entry.textContent = `[${timestamp}] [${category.toUpperCase()}] ${message}`;
+    logContainer.appendChild(entry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+
+    // Reenviar al archivo en disco a través del proceso principal
+    ipcRenderer.send('LOG_CLIENT_EVENT', { category, message, type });
+  }
+
+  if (btnClearLogs) {
+    btnClearLogs.addEventListener('click', () => {
+      logContainer.innerHTML = '<div class="log-entry system">[SISTEMA] Consola limpiada por el usuario.</div>';
+    });
+  }
+
+  if (btnOpenDevTools) {
+    btnOpenDevTools.addEventListener('click', () => {
+      appendLog('DEVTOOLS', 'Solicitando apertura de Chromium Developer Tools...');
+      ipcRenderer.send('OPEN_DEVTOOLS');
+    });
+  }
+
   // ── Cargar Configuración Inicial ──────────────────────────────────
+  appendLog('CONFIG', 'Cargando preferencias del usuario...');
   const settings = await ipcRenderer.invoke('GET_SETTINGS');
   applySettingsToUI(settings);
   await enumerateAudioDevices();
@@ -46,12 +77,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   toggleActive.addEventListener('change', async () => {
     const isActive = toggleActive.checked;
     updateStatusBadge(isActive);
+    appendLog('CONTROL', `Traducción en vivo ${isActive ? 'ACTIVADA 🟢' : 'DESACTIVADA ⚪'}`);
     await saveCurrentSettings();
     ipcRenderer.send('TOGGLE_OVERLAY', isActive);
   });
 
   sttEngineSelect.addEventListener('change', () => {
     updateEngineGroupsVisibility();
+    appendLog('ENGINE', `Motor STT cambiado a: ${sttEngineSelect.value}`);
     saveCurrentSettings();
   });
 
@@ -64,6 +97,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     btn.addEventListener('click', () => {
       platformBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
+      const platform = btn.getAttribute('data-platform');
+      appendLog('PLATFORM', `Plataforma seleccionada: ${platform.toUpperCase()}`);
     });
   });
 
@@ -123,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function enumerateAudioDevices() {
     try {
+      appendLog('AUDIO', 'Detectando dispositivos de entrada y salida del sistema...');
       const devices = await navigator.mediaDevices.enumerateDevices();
       micInputSelect.innerHTML = '';
       virtualCableSelect.innerHTML = '';
@@ -147,8 +183,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         virtualCableSelect.appendChild(option);
       });
 
+      appendLog('AUDIO', `Encontrados: ${audioInputs.length} micrófonos, ${audioOutputs.length} salidas de audio.`, 'audio');
+
     } catch (err) {
-      console.warn('[Renderer] Error enumerando dispositivos de audio:', err);
+      appendLog('AUDIO', `Error enumerando dispositivos: ${err.message}`, 'error');
     }
   }
 
@@ -163,8 +201,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const engine = sttEngineSelect.value;
     const key = geminiKeyInput.value.trim();
 
-    if (engine === 'gemini_live' && key.startsWith('AIzaSy')) {
-      startGeminiLiveTest(key);
+    appendLog('TEST', `Iniciando prueba de voz con motor: ${engine}`);
+
+    if (engine === 'gemini_live') {
+      if (key.startsWith('AIzaSy')) {
+        startGeminiLiveTest(key);
+      } else {
+        appendLog('GEMINI', 'API Key de Gemini no válida (debe empezar con AIzaSy...). Fallback a WebSpeech.', 'warn');
+        startWebSpeechTest();
+      }
     } else {
       startWebSpeechTest();
     }
@@ -173,6 +218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   function stopTest() {
     isListeningTest = false;
     btnTestMic.innerHTML = '<span>🎙️ Probar Transcripción y Traducción en Vivo</span>';
+    appendLog('TEST', 'Prueba de voz finalizada por el usuario.');
 
     if (speechRecognizer) {
       try { speechRecognizer.stop(); } catch (e) {}
@@ -188,6 +234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       previewOrig.textContent = '⚠️ Web Speech API no soportada en este entorno.';
+      appendLog('WEBSPEECH', 'Web Speech API no disponible en Chromium Renderer.', 'error');
       return;
     }
 
@@ -195,6 +242,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     speechRecognizer.continuous = true;
     speechRecognizer.interimResults = true;
     speechRecognizer.lang = sourceLangSelect.value === 'auto' ? 'es-ES' : sourceLangSelect.value;
+
+    appendLog('WEBSPEECH', `Reconocedor de voz iniciado en idioma: ${speechRecognizer.lang}`, 'audio');
 
     speechRecognizer.onresult = async (event) => {
       let finalTranscript = '';
@@ -205,6 +254,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (finalTranscript.trim()) {
+        appendLog('VOICE', `Reconocido: "${finalTranscript.trim()}"`, 'audio');
         previewOrig.textContent = `🎙️ ${finalTranscript}`;
 
         const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
@@ -213,9 +263,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           targetLang: targetLangSelect.value
         });
 
+        appendLog('TRANSLATE', `Traducido: "${translation.translated}"`, 'translate');
         previewTrans.textContent = `✨ ${translation.translated}`;
 
-        // Enviar resultado al overlay flotante
         ipcRenderer.send('DISPLAY_SUBTITLE', {
           originalText: translation.original,
           translatedText: translation.translated,
@@ -224,14 +274,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     };
 
+    speechRecognizer.onerror = (err) => {
+      appendLog('WEBSPEECH', `Error en reconocimiento: ${err.error}`, 'error');
+    };
+
     speechRecognizer.start();
   }
 
   function startGeminiLiveTest(apiKey) {
+    appendLog('GEMINI', 'Conectando a Google Gemini Live WebSockets...', 'gemini');
+
     geminiLiveClient = new GeminiLiveClient({
       apiKey,
       voiceName: geminiVoiceSelect.value,
+      onOpen: () => {
+        appendLog('GEMINI', '🟢 Conexión con Gemini Live establecida con éxito.', 'gemini');
+      },
       onTextReceived: (text) => {
+        appendLog('GEMINI', `Texto recibido: "${text}"`, 'gemini');
         previewTrans.textContent = `✨ Gemini Live: ${text}`;
         ipcRenderer.send('DISPLAY_SUBTITLE', {
           originalText: '🎙️ Voz en vivo',
@@ -240,6 +300,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       },
       onError: (err) => {
+        appendLog('GEMINI', `Error en Gemini Live: ${err.message}`, 'error');
         previewOrig.textContent = `⚠️ Error en Gemini Live: ${err.message}`;
       }
     });

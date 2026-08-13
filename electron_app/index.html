@@ -137,6 +137,20 @@
     </div>
   </div>
 
+  <!-- Live Diagnostic Console -->
+  <div class="card">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <div class="card-title">📋 Consola de Diagnóstico en Tiempo Real</div>
+      <div style="display: flex; gap: 6px;">
+        <button type="button" class="btn-action" id="btn-clear-logs" title="Limpiar Consola">🗑️</button>
+        <button type="button" class="btn-action" id="btn-open-devtools" title="Abrir DevTools Chromium">🛠️</button>
+      </div>
+    </div>
+    <div id="log-container" class="log-console">
+      <div class="log-entry system">[SISTEMA] Consola de diagnóstico lista para registrar eventos...</div>
+    </div>
+  </div>
+
   <script src="index.js"></script>
 </body>
 </html>

@@ -349,3 +349,49 @@ input:checked + .slider:before {
   font-weight: 600;
   color: #34d399;
 }
+
+/* Live Diagnostic Console */
+.btn-action {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-action:hover {
+  background: rgba(255, 255, 255, 0.25);
+  color: white;
+}
+
+.log-console {
+  background: rgba(10, 15, 29, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-entry {
+  line-height: 1.4;
+  word-break: break-all;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.log-entry.system { color: #94a3b8; }
+.log-entry.translate { color: #38bdf8; }
+.log-entry.gemini { color: #a855f7; }
+.log-entry.audio { color: #34d399; }
+.log-entry.error { color: #f87171; background: rgba(239, 68, 68, 0.15); }
+.log-entry.warn { color: #fbbf24; background: rgba(245, 158, 11, 0.15); }
+

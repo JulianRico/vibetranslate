@@ -10,6 +10,11 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { applyTechnicalGlossary, DEFAULT_GLOSSARY } = require('./glossary');
+const { defaultLogger } = require('./logger');
+
+// Inicializar logs en disco
+defaultLogger.clear();
+defaultLogger.info('SYSTEM', '🚀 Iniciando MeetTranslate Desktop App (Proceso Principal)...');
 
 // Configuración de Chromium para optimizar rendimiento y evitar bloqueos de caché en Windows
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
@@ -18,6 +23,7 @@ app.commandLine.appendSwitch('disable-http-cache');
 // Garantizar una única instancia activa para evitar colisiones de archivos
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
+  defaultLogger.warn('SYSTEM', 'Se detectó otra instancia en ejecución. Cerrando proceso duplicado...');
   app.quit();
 }
 
@@ -26,6 +32,7 @@ let overlayWindow = null;
 
 // Ruta del archivo de configuración guardado
 const settingsFilePath = path.join(app.getPath('userData'), 'settings.json');
+defaultLogger.info('CONFIG', `Ruta del archivo de configuración: ${settingsFilePath}`);
 
 const DEFAULT_SETTINGS = {
   active: false,
@@ -45,10 +52,12 @@ function loadSavedSettings() {
   try {
     if (fs.existsSync(settingsFilePath)) {
       const data = fs.readFileSync(settingsFilePath, 'utf8');
-      return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      defaultLogger.info('CONFIG', 'Configuración cargada correctamente desde disco.');
+      return loaded;
     }
   } catch (err) {
-    console.warn('[Main Process] Error leyendo settings.json:', err);
+    defaultLogger.warn('CONFIG', 'Error leyendo settings.json, usando valores por defecto:', err.message);
   }
   return DEFAULT_SETTINGS;
 }
@@ -56,18 +65,19 @@ function loadSavedSettings() {
 function saveSettings(settings) {
   try {
     fs.writeFileSync(settingsFilePath, JSON.stringify(settings, null, 2), 'utf8');
+    defaultLogger.info('CONFIG', 'Configuración guardada en disco exitosamente.');
   } catch (err) {
-    console.error('[Main Process] Error guardando settings.json:', err);
+    defaultLogger.error('CONFIG', 'Error guardando settings.json:', err.message);
   }
 }
 
 function createControlWindow() {
+  defaultLogger.info('UI', 'Creando Ventana del Panel de Control Principal...');
   controlWindow = new BrowserWindow({
-    width: 480,
-    height: 760,
+    width: 520,
+    height: 820,
     resizable: true,
     title: 'MeetTranslate Desktop AI',
-    icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -77,13 +87,15 @@ function createControlWindow() {
   controlWindow.loadFile(path.join(__dirname, 'index.html'));
 
   controlWindow.on('closed', () => {
+    defaultLogger.info('UI', 'Panel de Control cerrado.');
     controlWindow = null;
-    if (overlayWindow) overlayWindow.close();
+    if (overlayWindow && !overlayWindow.isDestroyed()) overlayWindow.close();
   });
 }
 
 function createOverlayWindow() {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+  defaultLogger.info('UI', `Creando Ventana de Subtítulos Flotante (${screenWidth}x${screenHeight})...`);
 
   overlayWindow = new BrowserWindow({
     width: 760,
@@ -102,20 +114,21 @@ function createOverlayWindow() {
   });
 
   overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
-
-  // Permitir arrastrar la ventana manteniendo siempre la visibilidad superior
   overlayWindow.setAlwaysOnTop(true, 'floating');
 
   overlayWindow.on('closed', () => {
+    defaultLogger.info('UI', 'Overlay Flotante cerrado.');
     overlayWindow = null;
   });
 }
 
 app.whenReady().then(() => {
+  defaultLogger.success('SYSTEM', '✅ Electron app.whenReady disparado.');
   createControlWindow();
   createOverlayWindow();
 
   app.on('second-instance', () => {
+    defaultLogger.info('SYSTEM', 'Se detectó intento de segunda instancia. Enfocando ventana principal...');
     if (controlWindow) {
       if (controlWindow.isMinimized()) controlWindow.restore();
       controlWindow.focus();
@@ -124,12 +137,10 @@ app.whenReady().then(() => {
 
   // Registrar Atajos de Teclado Globales
   globalShortcut.register('CommandOrControl+Shift+T', () => {
+    defaultLogger.info('SHORTCUT', 'Atajo global Ctrl+Shift+T activado. Alternando visibilidad del overlay.');
     if (overlayWindow) {
-      if (overlayWindow.isVisible()) {
-        overlayWindow.hide();
-      } else {
-        overlayWindow.show();
-      }
+      if (overlayWindow.isVisible()) overlayWindow.hide();
+      else overlayWindow.show();
     }
   });
 
@@ -142,6 +153,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  defaultLogger.info('SYSTEM', 'Cerrando aplicación y liberando atajos de teclado...');
   globalShortcut.unregisterAll();
 });
 
@@ -162,7 +174,6 @@ ipcMain.handle('SAVE_SETTINGS', async (event, newSettings) => {
   const merged = { ...current, ...newSettings };
   saveSettings(merged);
 
-  // Notificar al overlay los cambios de fuente/idioma
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.webContents.send('SETTINGS_CHANGED', merged);
   }
@@ -183,6 +194,9 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
     tgtShort = srcShort === 'es' ? 'en' : 'es';
   }
 
+  const startTime = Date.now();
+  defaultLogger.info('TRANSLATE', `Solicitando traducción (${srcShort} ➔ ${tgtShort}): "${cleanText}"`);
+
   return new Promise((resolve) => {
     const sanitizedText = correctedText.replace(/[\r\n]+/g, ' ').trim();
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${srcShort}&tl=${tgtShort}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
@@ -191,34 +205,52 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
       let body = '';
       res.on('data', (chunk) => body += chunk);
       res.on('end', () => {
+        const elapsed = Date.now() - startTime;
         try {
           const data = JSON.parse(body);
           if (data && Array.isArray(data[0])) {
             const translated = data[0].map(chunk => chunk[0]).filter(Boolean).join('');
             if (translated && translated.trim()) {
+              defaultLogger.success('TRANSLATE', `Traducción completada en ${elapsed}ms: "${translated.trim()}"`);
               return resolve({ original: correctedText, translated: translated.trim() });
             }
           }
+          defaultLogger.warn('TRANSLATE', `Respuesta vacía o no estructurada en ${elapsed}ms. Devolviendo texto corregido.`);
           resolve({ original: correctedText, translated: correctedText });
         } catch (e) {
+          defaultLogger.error('TRANSLATE', `Excepción procesando respuesta JSON de Google Translate: ${e.message}`);
           resolve({ original: correctedText, translated: correctedText });
         }
       });
-    }).on('error', () => {
+    }).on('error', (err) => {
+      defaultLogger.error('TRANSLATE', `Error en petición HTTP a Google Translate: ${err.message}`);
       resolve({ original: correctedText, translated: correctedText });
     });
   });
 });
 
 ipcMain.on('DISPLAY_SUBTITLE', (event, payload) => {
+  defaultLogger.info('SUBTITLE', `Actualizando subtítulo: [${payload.originalText || ''}] ➔ [${payload.translatedText || ''}]`);
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     overlayWindow.webContents.send('DISPLAY_SUBTITLE', payload);
   }
 });
 
 ipcMain.on('TOGGLE_OVERLAY', (event, show) => {
+  defaultLogger.info('UI', `Toggle overlay solicitado: ${show ? 'MOSTRAR' : 'OCULTAR'}`);
   if (overlayWindow && !overlayWindow.isDestroyed()) {
     if (show) overlayWindow.show();
     else overlayWindow.hide();
   }
+});
+
+ipcMain.on('OPEN_DEVTOOLS', () => {
+  defaultLogger.info('DEVTOOLS', 'Abriendo Developer Tools de Chromium...');
+  if (controlWindow && !controlWindow.isDestroyed()) {
+    controlWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+});
+
+ipcMain.on('LOG_CLIENT_EVENT', (event, { category, message, data }) => {
+  defaultLogger.log(category, message, data);
 });
