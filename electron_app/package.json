@@ -1,0 +1,27 @@
+{
+  "name": "meet-translate-desktop",
+  "version": "1.0.0",
+  "description": "Aplicación de Escritorio Nativa para Traducción Simultánea en Tiempo Real para Teams, Zoom y Meet",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "keywords": [
+    "electron",
+    "translation",
+    "teams",
+    "zoom",
+    "meet",
+    "gemini-live",
+    "whisper"
+  ],
+  "author": "MeetTranslate AI Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

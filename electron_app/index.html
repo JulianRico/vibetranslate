@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MeetTranslate Desktop AI</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- App Header -->
+  <div class="app-header">
+    <div class="brand-group">
+      <div class="brand-logo">AI</div>
+      <div class="brand-title">MeetTranslate Desktop</div>
+    </div>
+    <div class="live-badge" id="live-badge">
+      <span class="status-dot"></span>
+      <span id="status-text">DESACTIVADO</span>
+    </div>
+  </div>
+
+  <!-- Platform Selection -->
+  <div class="card">
+    <div class="card-title">🖥️ Selecciona la Plataforma de Llamada</div>
+    <div class="platform-grid">
+      <div class="platform-btn active" data-platform="teams">
+        <span class="platform-icon">🔵</span>
+        <span class="platform-name">Teams Desktop</span>
+      </div>
+      <div class="platform-btn" data-platform="zoom">
+        <span class="platform-icon">🟦</span>
+        <span class="platform-name">Zoom App</span>
+      </div>
+      <div class="platform-btn" data-platform="meet">
+        <span class="platform-icon">🟢</span>
+        <span class="platform-name">Google Meet</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Translation Switch -->
+  <div class="toggle-row">
+    <span class="toggle-label">⚡ Traducción Simultánea en Vivo</span>
+    <label class="switch">
+      <input type="checkbox" id="toggle-active">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- Main Settings Card -->
+  <div class="card">
+    <div class="card-title">⚙️ Configuración de Idiomas y Motores</div>
+    
+    <div class="form-row">
+      <div class="form-group">
+        <label for="source-lang">Origen (Mi Voz)</label>
+        <select id="source-lang">
+          <option value="es-ES">Español (ES)</option>
+          <option value="en-US">Inglés (EN)</option>
+          <option value="auto">⚡ Auto (Multilingüe)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="target-lang">Destino (Traducción)</label>
+        <select id="target-lang">
+          <option value="en">Inglés (EN)</option>
+          <option value="es">Español (ES)</option>
+          <option value="auto">⚡ Auto (Bidireccional)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="stt-engine">Motor de Transcripción IA</label>
+      <select id="stt-engine">
+        <option value="gemini_live">✨ Gemini Live (Audio-to-Audio Ultra-Fluido)</option>
+        <option value="whisper_groq">⚡ Groq Whisper AI (Baja Latencia)</option>
+        <option value="webspeech">🌐 Web Speech API (Nativo Gratis)</option>
+      </select>
+    </div>
+
+    <!-- Gemini Config -->
+    <div class="form-group" id="gemini-key-group">
+      <label for="gemini-key">Gemini API Key (Gratis en AI Studio)</label>
+      <input type="text" id="gemini-key" placeholder="AIzaSy..." value="">
+    </div>
+
+    <div class="form-group" id="gemini-voice-group">
+      <label for="gemini-voice">Voz de Gemini Live</label>
+      <select id="gemini-voice">
+        <option value="Puck">Puck (Masculina Dinámica)</option>
+        <option value="Charon">Charon (Masculina Sobria)</option>
+        <option value="Kore">Kore (Femenina Cálida)</option>
+        <option value="Fenrir">Fenrir (Masculina Profunda)</option>
+        <option value="Aoede">Aoede (Femenina Profesional)</option>
+      </select>
+    </div>
+
+    <!-- Groq Config -->
+    <div class="form-group" id="groq-key-group" style="display: none;">
+      <label for="groq-key">Groq API Key (Gratis)</label>
+      <input type="text" id="groq-key" placeholder="gsk_..." value="">
+    </div>
+  </div>
+
+  <!-- Audio Devices Card -->
+  <div class="card">
+    <div class="card-title">🎙️ Dispositivos de Audio del Sistema</div>
+    
+    <div class="form-group">
+      <label for="mic-input-select">Micrófono Físico de Entrada</label>
+      <select id="mic-input-select">
+        <option value="default">Cargando micrófonos del sistema...</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="virtual-cable-select">Salida Virtual (Hacia Teams / Zoom / Meet)</label>
+      <select id="virtual-cable-select">
+        <option value="default">VB-Audio Virtual Cable (Recomendado)</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Test & Subtitle Preview Box -->
+  <div class="card">
+    <div class="card-title">🧪 Probador de Voz y Vista Previa</div>
+    <button type="button" class="btn-primary" id="btn-test-mic">
+      <span>🎙️ Probar Transcripción y Traducción en Vivo</span>
+    </button>
+
+    <div class="preview-box" id="preview-box" style="display: none;">
+      <div class="preview-original" id="preview-orig">Habla por tu micrófono...</div>
+      <div class="preview-translated" id="preview-trans">La traducción saldrá aquí...</div>
+    </div>
+  </div>
+
+  <script src="index.js"></script>
+</body>
+</html>
