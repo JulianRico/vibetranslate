@@ -177,6 +177,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  const localMonitorToggle = document.getElementById('local-monitor-toggle');
+
   function speakText(text, lang = 'en-US') {
     if (!text || !window.speechSynthesis) return;
     try {
@@ -202,6 +204,58 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn('[TTS] Error sintetizando voz:', e);
+    }
+  }
+
+  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en') {
+    if (!text || !text.trim()) return;
+
+    const targetCode = (lang === 'es' || lang.startsWith('es')) ? 'es' : 'en';
+
+    try {
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
+      const response = await fetch(ttsUrl);
+      if (!response.ok) {
+        if (localMonitorToggle && localMonitorToggle.checked) {
+          speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
+        }
+        return;
+      }
+      const arrayBuffer = await response.arrayBuffer();
+
+      // 1. Inyectar directamente en el Cable Virtual para que Google Meet lo transmita a los demás
+      const cableId = virtualCableSelect.value;
+      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+      const ctxCable = new AudioCtxClass();
+
+      if (cableId && cableId !== 'default' && typeof ctxCable.setSinkId === 'function') {
+        try {
+          await ctxCable.setSinkId(cableId);
+        } catch (e) {
+          console.warn('[Audio Out] Error en setSinkId para Virtual Cable:', e);
+        }
+      }
+
+      const decodedBuffer = await ctxCable.decodeAudioData(arrayBuffer.slice(0));
+      const sourceCable = ctxCable.createBufferSource();
+      sourceCable.buffer = decodedBuffer;
+      sourceCable.connect(ctxCable.destination);
+      sourceCable.start(0);
+
+      sourceCable.onended = () => {
+        try { ctxCable.close(); } catch (e) {}
+      };
+
+      // 2. Monitoreo local en los parlantes/auriculares solo si está habilitado
+      if (localMonitorToggle && localMonitorToggle.checked) {
+        speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
+      }
+
+    } catch (err) {
+      console.warn('[Audio Out] Fallback a sintetizador local:', err);
+      if (localMonitorToggle && localMonitorToggle.checked) {
+        speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
+      }
     }
   }
 
@@ -239,9 +293,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveCurrentSettings();
   });
 
-  [sourceLangSelect, targetLangSelect, geminiKeyInput, geminiVoiceSelect, groqKeyInput, micInputSelect, virtualCableSelect].forEach(el => {
+  [sourceLangSelect, targetLangSelect, geminiKeyInput, geminiVoiceSelect, groqKeyInput, micInputSelect, virtualCableSelect, localMonitorToggle].forEach(el => {
+    if (!el) return;
     el.addEventListener('change', saveCurrentSettings);
-    if (el.tagName === 'INPUT') el.addEventListener('input', saveCurrentSettings);
+    if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', saveCurrentSettings);
   });
 
   platformBtns.forEach(btn => {
@@ -280,6 +335,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (s.noiseGateThreshold) {
       noiseGateSelect.value = s.noiseGateThreshold;
     }
+    if (s.localMonitor !== undefined && localMonitorToggle) {
+      localMonitorToggle.checked = !!s.localMonitor;
+    }
 
     updateEngineGroupsVisibility();
   }
@@ -294,6 +352,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       geminiVoice: geminiVoiceSelect.value,
       groqApiKey: groqKeyInput.value.trim(),
       noiseGateThreshold: parseFloat(noiseGateSelect.value) || 0.016,
+      localMonitor: localMonitorToggle ? localMonitorToggle.checked : true,
       micDeviceId: micInputSelect.value,
       virtualCableDeviceId: virtualCableSelect.value
     };
@@ -596,7 +655,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                       isFinal: true
                     });
 
-                    speakText(translatedText, targetLangSelect.value === 'es' ? 'es-ES' : 'en-US');
+                    playAudioToVirtualCableAndSpeakers(translatedText, targetLangSelect.value);
                   }
                 }
               }

@@ -107,20 +107,34 @@
 
   <!-- Audio Devices Card -->
   <div class="card">
-    <div class="card-title">🎙️ Dispositivos de Audio y Filtro de Ruido</div>
+    <div class="card-title">🎙️ Dispositivos de Audio y Aislamiento de Voz</div>
     
+    <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 11.5px; line-height: 1.4; color: #d1fae5;">
+      <strong>🛡️ Para que el receptor NO escuche tu voz en español y escuche SOLO la traducción:</strong><br>
+      1. Aquí abajo selecciona en <em>Salida Virtual</em>: <strong>CABLE Input (VB-Audio)</strong>.<br>
+      2. En Google Meet (Audio ➔ Micrófono) selecciona: <strong>CABLE Output (VB-Audio)</strong>.<br>
+      <em>(Google Meet solo escuchará la voz en inglés que envía esta app y tu voz real quedará 100% aislada).</em>
+    </div>
+
     <div class="form-group">
-      <label for="mic-input-select">Micrófono Físico de Entrada</label>
+      <label for="mic-input-select">Micrófono Físico de Entrada (Tu voz real)</label>
       <select id="mic-input-select">
         <option value="default">Cargando micrófonos del sistema...</option>
       </select>
     </div>
 
     <div class="form-group">
-      <label for="virtual-cable-select">Salida Virtual (Hacia Teams / Zoom / Meet)</label>
+      <label for="virtual-cable-select">Salida Virtual (Hacia Google Meet / Teams / Zoom)</label>
       <select id="virtual-cable-select">
         <option value="default">VB-Audio Virtual Cable (Recomendado)</option>
       </select>
+    </div>
+
+    <div class="form-group">
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e2e8f0; font-size: 12px;">
+        <input type="checkbox" id="local-monitor-toggle" checked style="width: auto; accent-color: #10b981;">
+        <span>🔊 Escuchar la traducción en mis propios auriculares (Monitoreo)</span>
+      </label>
     </div>
 
     <div class="form-group">
