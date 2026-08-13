@@ -5,6 +5,8 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "dev": "nodemon --watch main.js --watch index.js --watch overlay.js --watch index.html --watch overlay.html --watch styles.css --ext js,html,css --ignore node_modules/ --ignore logs/ --exec electron .",
+    "watch": "npm run dev",
     "build": "electron-builder"
   },
   "keywords": [
@@ -21,7 +23,8 @@
   "devDependencies": {
     "@electron/get": "^5.1.0",
     "electron": "^31.7.7",
-    "extract-zip": "^2.0.1"
+    "extract-zip": "^2.0.1",
+    "nodemon": "^3.1.14"
   },
   "dependencies": {
     "ws": "^8.18.0"

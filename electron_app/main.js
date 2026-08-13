@@ -144,6 +144,25 @@ app.whenReady().then(() => {
     }
   });
 
+  // ── Hot Reload / Watcher Automático de Vistas ──────────────────────
+  let reloadTimeout = null;
+  fs.watch(__dirname, { recursive: false }, (eventType, filename) => {
+    if (!filename || filename.includes('node_modules') || filename.includes('logs') || filename.includes('.git')) return;
+    
+    clearTimeout(reloadTimeout);
+    reloadTimeout = setTimeout(() => {
+      if (filename.endsWith('.html') || filename.endsWith('.css') || filename === 'index.js' || filename === 'overlay.js') {
+        defaultLogger.info('HOT-RELOAD', `Cambio detectado en ${filename}. Recargando vistas en vivo...`);
+        if (controlWindow && !controlWindow.isDestroyed()) {
+          controlWindow.webContents.reload();
+        }
+        if (overlayWindow && !overlayWindow.isDestroyed()) {
+          overlayWindow.webContents.reload();
+        }
+      }
+    }, 200);
+  });
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createControlWindow();
