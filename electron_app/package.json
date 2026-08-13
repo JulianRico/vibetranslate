@@ -19,7 +19,9 @@
   "author": "MeetTranslate AI Team",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.0.0"
+    "@electron/get": "^5.1.0",
+    "electron": "^31.7.7",
+    "extract-zip": "^2.0.1"
   },
   "dependencies": {
     "ws": "^8.18.0"
