@@ -124,8 +124,26 @@ document.addEventListener('DOMContentLoaded', async () => {
   const logContainer = document.getElementById('log-container');
   const btnClearLogs = document.getElementById('btn-clear-logs');
   const btnOpenDevTools = document.getElementById('btn-open-devtools');
-
   const platformBtns = document.querySelectorAll('.platform-btn');
+
+  const driverMissingBanner = document.getElementById('driver-missing-banner');
+  const driverReadyBanner = document.getElementById('driver-ready-banner');
+  const btnDownloadVbCable = document.getElementById('btn-download-vbcable');
+  const btnRefreshDevices = document.getElementById('btn-refresh-devices');
+
+  if (btnDownloadVbCable) {
+    btnDownloadVbCable.addEventListener('click', () => {
+      appendLog('SYSTEM', 'Abriendo sitio oficial de descarga de VB-Audio Virtual Cable...');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://vb-audio.com/Cable/');
+    });
+  }
+
+  if (btnRefreshDevices) {
+    btnRefreshDevices.addEventListener('click', async () => {
+      appendLog('AUDIO', 'Re-escaneando dispositivos de audio...');
+      await enumerateAudioDevices();
+    });
+  }
 
   let isPipelineRunning = false;
   let geminiLiveClient = null;
@@ -379,6 +397,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const audioInputs = devices.filter(d => d.kind === 'audioinput');
       const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
 
+      let hasVirtualCable = false;
+
       audioInputs.forEach((device, index) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
@@ -392,11 +412,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         option.textContent = device.label || `Dispositivo Salida ${index + 1}`;
         if (device.label.toLowerCase().includes('cable') || device.label.toLowerCase().includes('virtual')) {
           option.selected = true;
+          hasVirtualCable = true;
         }
         virtualCableSelect.appendChild(option);
       });
 
-      appendLog('AUDIO', `Detectados: ${audioInputs.length} micrófonos, ${audioOutputs.length} salidas.`, 'audio');
+      if (hasVirtualCable) {
+        if (driverMissingBanner) driverMissingBanner.style.display = 'none';
+        if (driverReadyBanner) driverReadyBanner.style.display = 'block';
+      } else {
+        if (driverMissingBanner) driverMissingBanner.style.display = 'block';
+        if (driverReadyBanner) driverReadyBanner.style.display = 'none';
+      }
+
+      appendLog('AUDIO', `Detectados: ${audioInputs.length} micrófonos, ${audioOutputs.length} salidas. (Driver VB-Cable: ${hasVirtualCable ? 'LISTO 🟢' : 'NO DETECTADO ⚠️'})`, 'audio');
     } catch (err) {
       appendLog('AUDIO', `Error enumerando dispositivos: ${err.message}`, 'error');
     }

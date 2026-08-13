@@ -4,7 +4,7 @@
  * Soportado para: Microsoft Teams Desktop, Zoom App y Google Meet
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -320,3 +320,10 @@ ipcMain.on('OPEN_DEVTOOLS', () => {
 ipcMain.on('LOG_CLIENT_EVENT', (event, { category, message, type }) => {
   defaultLogger.log(category, message);
 });
+
+ipcMain.on('OPEN_EXTERNAL_URL', (event, url) => {
+  if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
+    shell.openExternal(url);
+  }
+});
+
