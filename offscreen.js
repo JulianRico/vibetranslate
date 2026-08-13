@@ -394,6 +394,110 @@ function initSpeechRecognition() {
   speechRecognizer.lang = speechLang;
   speechRecognizer.maxAlternatives = 1;
 
+let geminiLiveClient = null;
+let geminiScriptNode = null;
+let geminiAudioReader = null;
+
+async function startGeminiLiveAudioStream(stream) {
+  if (!stream || !currentSettings.geminiApiKey) {
+    console.warn('[Gemini Live Offscreen] No hay stream de micrófono o falta la Gemini API Key.');
+    return;
+  }
+
+  geminiLiveClient = new GeminiLiveClient({
+    apiKey: currentSettings.geminiApiKey,
+    voiceName: currentSettings.geminiVoice || 'Puck',
+    onAudioReceived: async (rawBytes, base64Data) => {
+      try {
+        const arrayBuffer = rawBytes.buffer.slice(rawBytes.byteOffset, rawBytes.byteOffset + rawBytes.byteLength);
+        
+        chrome.runtime.sendMessage({
+          type: 'GEMINI_LIVE_AUDIO_OUT',
+          audioData: Array.from(new Uint8Array(arrayBuffer))
+        });
+      } catch (err) {
+        console.warn('[Gemini Live Offscreen] Error procesando audio de salida:', err);
+      }
+    },
+    onTextReceived: (textSpan) => {
+      chrome.runtime.sendMessage({
+        type: 'STT_RESULT',
+        text: textSpan,
+        translated: textSpan,
+        direction: 'outgoing'
+      });
+    },
+    onError: (err) => {
+      console.error('[Gemini Live Offscreen] Error en Gemini Live Client:', err);
+    }
+  });
+
+  geminiLiveClient.connect();
+
+  const track = stream.getAudioTracks()[0];
+  if (!track) {
+    console.warn('[Gemini Live Offscreen] No hay track de audio en el stream.');
+    return;
+  }
+
+  try {
+    if (typeof MediaStreamTrackProcessor !== 'undefined') {
+      const processor = new MediaStreamTrackProcessor({ track });
+      geminiAudioReader = processor.readable.getReader();
+
+      console.log('[Gemini Live Offscreen] 🚀 MediaStreamTrackProcessor iniciado exitosamente.');
+
+      while (geminiLiveClient && geminiLiveClient.isConnected) {
+        const { done, value: audioFrame } = await geminiAudioReader.read();
+        if (done) break;
+
+        try {
+          const sampleRate = audioFrame.sampleRate || 48000;
+          const numberOfFrames = audioFrame.numberOfFrames;
+          const numberOfChannels = audioFrame.numberOfChannels || 1;
+          const buffer = new Float32Array(numberOfFrames * numberOfChannels);
+
+          audioFrame.copyTo(buffer, { planeIndex: 0 });
+          audioFrame.close();
+
+          const resampled16k = resampleTo16kHZ(buffer, sampleRate);
+          const pcm16Buffer = floatTo16BitPCM(resampled16k);
+          const pcm16Base64 = arrayBufferToBase64(pcm16Buffer);
+
+          geminiLiveClient.sendRealtimeAudioChunk(pcm16Base64);
+        } catch (frameErr) {
+          if (audioFrame && audioFrame.close) audioFrame.close();
+        }
+      }
+    } else {
+      if (!audioContext || audioContext.state === 'closed') {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+      }
+
+      const micSource = audioContext.createMediaStreamSource(stream);
+      const sampleRate = audioContext.sampleRate;
+      geminiScriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+      geminiScriptNode.onaudioprocess = (e) => {
+        if (!geminiLiveClient || !geminiLiveClient.isConnected) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        const resampled16k = resampleTo16kHZ(inputData, sampleRate);
+        const pcm16Buffer = floatTo16BitPCM(resampled16k);
+        const pcm16Base64 = arrayBufferToBase64(pcm16Buffer);
+        geminiLiveClient.sendRealtimeAudioChunk(pcm16Base64);
+      };
+
+      micSource.connect(geminiScriptNode);
+      geminiScriptNode.connect(audioContext.destination);
+    }
+  } catch (err) {
+    console.error('[Gemini Live Offscreen] Error en el procesador de audio:', err);
+  }
+}
+
   speechRecognizer.onstart = () => {
     isListening = true;
     console.log('[MeetTranslate AI Offscreen] Reconocedor de voz iniciado. Idioma:', speechRecognizer.lang);
