@@ -131,6 +131,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnDownloadVbCable = document.getElementById('btn-download-vbcable');
   const btnRefreshDevices = document.getElementById('btn-refresh-devices');
 
+  const linkVbCableUrl = document.getElementById('link-vbcable-url');
+
+  if (linkVbCableUrl) {
+    linkVbCableUrl.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo enlace de descarga: https://vb-audio.com/Cable/');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://vb-audio.com/Cable/');
+    });
+  }
+
   if (btnDownloadVbCable) {
     btnDownloadVbCable.addEventListener('click', () => {
       appendLog('SYSTEM', 'Abriendo sitio oficial de descarga de VB-Audio Virtual Cable...');
