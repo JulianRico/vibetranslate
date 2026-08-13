@@ -158,6 +158,12 @@ async function startAudioCaptureAndSTT(streamId) {
       }
       startTabAudioRecorder();
     } else {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('[MeetTranslate AI Offscreen] Micrófono local activado en documento Offscreen para WebSpeech API.');
+      } catch (micErr) {
+        console.warn('[MeetTranslate AI Offscreen] Error al solicitar micrófono para WebSpeech:', micErr);
+      }
       initSpeechRecognition();
       console.warn('[MeetTranslate AI Offscreen] Motor "webspeech": la voz del participante ' +
         'remoto NO se transcribirá. Para traducir al receptor hacia el español, ' +
