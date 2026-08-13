@@ -128,7 +128,23 @@
     if (settings) {
       applySettings(settings);
     }
+
+    // Garantizar que el micrófono en español esté SILENCIADO de inmediato en la llamada WebRTC
+    window.postMessage({
+      type: 'MT_SET_MIC_MUTE',
+      muted: ttsEnabled
+    }, '*');
   }
+
+  // Intervalo de vigilancia para mantener el silenciamiento activo permanentemente mientras TTS está encendido
+  setInterval(() => {
+    if (overlayElement && !overlayElement.classList.contains('mt-hidden') && ttsEnabled) {
+      window.postMessage({
+        type: 'MT_SET_MIC_MUTE',
+        muted: true
+      }, '*');
+    }
+  }, 2500);
 
   /**
    * Actualiza el indicador visual del estado del mixer en la cabecera del overlay.
