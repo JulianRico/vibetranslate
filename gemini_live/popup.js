@@ -14,10 +14,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ollamaGroup = document.getElementById('ollama-group');
   const ollamaEndpointInput = document.getElementById('ollama-endpoint');
   const sttEngineSelect = document.getElementById('stt-engine-select');
-  const geminiKeyGroup = document.getElementById('gemini-key-group');
-  const geminiApiKeyInput = document.getElementById('gemini-api-key');
-  const geminiVoiceGroup = document.getElementById('gemini-voice-group');
-  const geminiVoiceSelect = document.getElementById('gemini-voice-select');
   const groqKeyGroup = document.getElementById('groq-key-group');
   const groqApiKeyInput = document.getElementById('groq-api-key');
   const whisperEndpointGroup = document.getElementById('whisper-endpoint-group');
@@ -91,9 +87,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (settings) {
           sourceLangSelect.value = settings.sourceLang || 'es-ES';
           targetLangSelect.value = settings.targetLang || 'en';
-          sttEngineSelect.value = settings.sttEngine || 'gemini_live';
-          if (geminiApiKeyInput) geminiApiKeyInput.value = settings.geminiApiKey || '';
-          if (geminiVoiceSelect) geminiVoiceSelect.value = settings.geminiVoice || 'Puck';
+          sttEngineSelect.value = settings.sttEngine || 'webspeech';
           groqApiKeyInput.value = settings.groqApiKey || '';
           whisperEndpointInput.value = settings.whisperEndpoint || 'http://localhost:8000';
           engineSelect.value = settings.engine || 'fast';
@@ -142,8 +136,6 @@ document.addEventListener('DOMContentLoaded', async () => {
    * Muestra u oculta las entradas de API Key / Endpoint de STT según el motor elegido
    */
   function toggleSttVisibility(sttEngine) {
-    if (geminiKeyGroup) geminiKeyGroup.style.display = (sttEngine === 'gemini_live') ? 'block' : 'none';
-    if (geminiVoiceGroup) geminiVoiceGroup.style.display = (sttEngine === 'gemini_live') ? 'block' : 'none';
     groqKeyGroup.style.display = (sttEngine === 'whisper_groq') ? 'block' : 'none';
     whisperEndpointGroup.style.display = (sttEngine === 'whisper_local') ? 'block' : 'none';
   }
@@ -156,8 +148,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       sourceLang: sourceLangSelect.value,
       targetLang: targetLangSelect.value,
       sttEngine: sttEngineSelect.value,
-      geminiApiKey: geminiApiKeyInput ? geminiApiKeyInput.value.trim() : '',
-      geminiVoice: geminiVoiceSelect ? geminiVoiceSelect.value : 'Puck',
       groqApiKey: groqApiKeyInput.value.trim(),
       whisperEndpoint: whisperEndpointInput.value.trim(),
       engine: engineSelect.value,
@@ -228,22 +218,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   groqApiKeyInput.addEventListener('change', () => {
     saveSettings();
   });
-
-  // Cambio de Gemini API Key y Voz
-  if (geminiApiKeyInput) {
-    geminiApiKeyInput.addEventListener('input', () => {
-      saveSettings();
-    });
-    geminiApiKeyInput.addEventListener('change', () => {
-      saveSettings();
-    });
-  }
-
-  if (geminiVoiceSelect) {
-    geminiVoiceSelect.addEventListener('change', () => {
-      saveSettings();
-    });
-  }
 
   // Cambio de Whisper Endpoint
   whisperEndpointInput.addEventListener('change', () => {

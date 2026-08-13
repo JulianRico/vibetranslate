@@ -11,9 +11,7 @@ const DEFAULT_SETTINGS = {
   active: false,
   sourceLang: 'es-ES',     // Idioma origen por defecto: Español ('es-ES', 'en-US' o 'auto')
   targetLang: 'en',        // Idioma destino por defecto: Inglés ('en', 'es' o 'auto')
-  sttEngine: 'gemini_live', // Motor por defecto: Gemini Multimodal Live API (Audio-to-Audio)
-  geminiApiKey: '',
-  geminiVoice: 'Puck',     // Puck, Charon, Kore, Fenrir, Aoede
+  sttEngine: 'webspeech',  // Motor STT por defecto: Web Speech API (sin necesidad de API Keys)
   groqApiKey: '',
   openaiApiKey: '',
   whisperEndpoint: 'http://localhost:8000',
@@ -433,18 +431,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               translatedText: message.translatedText,
               isFinal: message.isFinal,
               direction: message.direction || 'outgoing'
-            }).catch(() => {});
-          }
-          break;
-        }
-
-        case 'GEMINI_LIVE_AUDIO_OUT': {
-          // Reenviar trozo de audio PCM 24kHz al content script para inyectarlo en el mixer de la llamada
-          const { activeTabId } = await chrome.storage.session.get('activeTabId');
-          if (activeTabId) {
-            chrome.tabs.sendMessage(activeTabId, {
-              type: 'GEMINI_LIVE_AUDIO_OUT',
-              audioData: message.audioData
             }).catch(() => {});
           }
           break;

@@ -50,18 +50,8 @@
           message.originalText,
           message.translatedText,
           message.isFinal,
-          message.direction
+          message.direction || 'outgoing'
         );
-        break;
-
-      case 'GEMINI_LIVE_AUDIO_OUT':
-        if (message.audioData) {
-          const bytes = new Uint8Array(message.audioData);
-          window.postMessage({
-            type: 'MT_PLAY_TTS_INTO_CALL',
-            audioData: bytes.buffer
-          }, '*');
-        }
         break;
 
       case 'SETTINGS_CHANGED':
