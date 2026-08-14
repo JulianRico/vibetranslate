@@ -57,15 +57,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           if (message.settings) {
             const langChanged = currentSettings.sourceLang !== message.settings.sourceLang;
             currentSettings = { ...currentSettings, ...message.settings };
-            
+
             // Si cambió el idioma origen, reiniciar el reconocedor con la nueva configuración
             if (langChanged && isListening && speechRecognizer) {
               console.log('[MeetTranslate AI Offscreen] Cambiando idioma STT en caliente a:', currentSettings.sourceLang);
               try {
                 speechRecognizer.onend = null; // Desactivar callback para evitar inicio duplicado
                 speechRecognizer.stop();
-              } catch (e) {}
-              
+              } catch (e) { }
+
               // Reiniciar el reconocedor de voz con el nuevo idioma tras un breve retardo
               setTimeout(() => {
                 if (isListening) {
@@ -85,7 +85,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       chrome.runtime.sendMessage({
         type: 'OFFSCREEN_ERROR',
         error: err.message
-      }).catch(() => {});
+      }).catch(() => { });
     }
   })();
 
@@ -389,7 +389,7 @@ function initSpeechRecognition() {
   if (!SpeechRecognition) {
     const errorMsg = 'Web Speech API no está soportada en este navegador.';
     console.error('[MeetTranslate AI Offscreen]', errorMsg);
-    chrome.runtime.sendMessage({ type: 'OFFSCREEN_ERROR', error: errorMsg }).catch(() => {});
+    chrome.runtime.sendMessage({ type: 'OFFSCREEN_ERROR', error: errorMsg }).catch(() => { });
     return;
   }
 
@@ -403,109 +403,109 @@ function initSpeechRecognition() {
   speechRecognizer.lang = speechLang;
   speechRecognizer.maxAlternatives = 1;
 
-let geminiLiveClient = null;
-let geminiScriptNode = null;
-let geminiAudioReader = null;
+  let geminiLiveClient = null;
+  let geminiScriptNode = null;
+  let geminiAudioReader = null;
 
-async function startGeminiLiveAudioStream(stream) {
-  if (!stream || !currentSettings.geminiApiKey) {
-    console.warn('[Gemini Live Offscreen] No hay stream de micrófono o falta la Gemini API Key.');
-    return;
-  }
-
-  geminiLiveClient = new GeminiLiveClient({
-    apiKey: currentSettings.geminiApiKey,
-    voiceName: currentSettings.geminiVoice || 'Puck',
-    onAudioReceived: async (rawBytes, base64Data) => {
-      try {
-        const arrayBuffer = rawBytes.buffer.slice(rawBytes.byteOffset, rawBytes.byteOffset + rawBytes.byteLength);
-        
-        chrome.runtime.sendMessage({
-          type: 'GEMINI_LIVE_AUDIO_OUT',
-          audioData: Array.from(new Uint8Array(arrayBuffer))
-        });
-      } catch (err) {
-        console.warn('[Gemini Live Offscreen] Error procesando audio de salida:', err);
-      }
-    },
-    onTextReceived: (textSpan) => {
-      chrome.runtime.sendMessage({
-        type: 'STT_RESULT',
-        text: textSpan,
-        translated: textSpan,
-        direction: 'outgoing'
-      });
-    },
-    onError: (err) => {
-      console.error('[Gemini Live Offscreen] Error en Gemini Live Client:', err);
+  async function startGeminiLiveAudioStream(stream) {
+    if (!stream || !currentSettings.geminiApiKey) {
+      console.warn('[Gemini Live Offscreen] No hay stream de micrófono o falta la Gemini API Key.');
+      return;
     }
-  });
 
-  geminiLiveClient.connect();
-
-  const track = stream.getAudioTracks()[0];
-  if (!track) {
-    console.warn('[Gemini Live Offscreen] No hay track de audio en el stream.');
-    return;
-  }
-
-  try {
-    if (typeof MediaStreamTrackProcessor !== 'undefined') {
-      const processor = new MediaStreamTrackProcessor({ track });
-      geminiAudioReader = processor.readable.getReader();
-
-      console.log('[Gemini Live Offscreen] 🚀 MediaStreamTrackProcessor iniciado exitosamente.');
-
-      while (geminiLiveClient && geminiLiveClient.isConnected) {
-        const { done, value: audioFrame } = await geminiAudioReader.read();
-        if (done) break;
-
+    geminiLiveClient = new GeminiLiveClient({
+      apiKey: currentSettings.geminiApiKey,
+      voiceName: currentSettings.geminiVoice || 'Puck',
+      onAudioReceived: async (rawBytes, base64Data) => {
         try {
-          const sampleRate = audioFrame.sampleRate || 48000;
-          const numberOfFrames = audioFrame.numberOfFrames;
-          const numberOfChannels = audioFrame.numberOfChannels || 1;
-          const buffer = new Float32Array(numberOfFrames * numberOfChannels);
+          const arrayBuffer = rawBytes.buffer.slice(rawBytes.byteOffset, rawBytes.byteOffset + rawBytes.byteLength);
 
-          audioFrame.copyTo(buffer, { planeIndex: 0 });
-          audioFrame.close();
+          chrome.runtime.sendMessage({
+            type: 'GEMINI_LIVE_AUDIO_OUT',
+            audioData: Array.from(new Uint8Array(arrayBuffer))
+          });
+        } catch (err) {
+          console.warn('[Gemini Live Offscreen] Error procesando audio de salida:', err);
+        }
+      },
+      onTextReceived: (textSpan) => {
+        chrome.runtime.sendMessage({
+          type: 'STT_RESULT',
+          text: textSpan,
+          translated: textSpan,
+          direction: 'outgoing'
+        });
+      },
+      onError: (err) => {
+        console.error('[Gemini Live Offscreen] Error en Gemini Live Client:', err);
+      }
+    });
 
-          const resampled16k = resampleTo16kHZ(buffer, sampleRate);
+    geminiLiveClient.connect();
+
+    const track = stream.getAudioTracks()[0];
+    if (!track) {
+      console.warn('[Gemini Live Offscreen] No hay track de audio en el stream.');
+      return;
+    }
+
+    try {
+      if (typeof MediaStreamTrackProcessor !== 'undefined') {
+        const processor = new MediaStreamTrackProcessor({ track });
+        geminiAudioReader = processor.readable.getReader();
+
+        console.log('[Gemini Live Offscreen] 🚀 MediaStreamTrackProcessor iniciado exitosamente.');
+
+        while (geminiLiveClient && geminiLiveClient.isConnected) {
+          const { done, value: audioFrame } = await geminiAudioReader.read();
+          if (done) break;
+
+          try {
+            const sampleRate = audioFrame.sampleRate || 48000;
+            const numberOfFrames = audioFrame.numberOfFrames;
+            const numberOfChannels = audioFrame.numberOfChannels || 1;
+            const buffer = new Float32Array(numberOfFrames * numberOfChannels);
+
+            audioFrame.copyTo(buffer, { planeIndex: 0 });
+            audioFrame.close();
+
+            const resampled16k = resampleTo16kHZ(buffer, sampleRate);
+            const pcm16Buffer = floatTo16BitPCM(resampled16k);
+            const pcm16Base64 = arrayBufferToBase64(pcm16Buffer);
+
+            geminiLiveClient.sendRealtimeAudioChunk(pcm16Base64);
+          } catch (frameErr) {
+            if (audioFrame && audioFrame.close) audioFrame.close();
+          }
+        }
+      } else {
+        if (!audioContext || audioContext.state === 'closed') {
+          audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioContext.state === 'suspended') {
+          await audioContext.resume();
+        }
+
+        const micSource = audioContext.createMediaStreamSource(stream);
+        const sampleRate = audioContext.sampleRate;
+        geminiScriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+        geminiScriptNode.onaudioprocess = (e) => {
+          if (!geminiLiveClient || !geminiLiveClient.isConnected) return;
+          const inputData = e.inputBuffer.getChannelData(0);
+          const resampled16k = resampleTo16kHZ(inputData, sampleRate);
           const pcm16Buffer = floatTo16BitPCM(resampled16k);
           const pcm16Base64 = arrayBufferToBase64(pcm16Buffer);
-
           geminiLiveClient.sendRealtimeAudioChunk(pcm16Base64);
-        } catch (frameErr) {
-          if (audioFrame && audioFrame.close) audioFrame.close();
-        }
-      }
-    } else {
-      if (!audioContext || audioContext.state === 'closed') {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
-      }
+        };
 
-      const micSource = audioContext.createMediaStreamSource(stream);
-      const sampleRate = audioContext.sampleRate;
-      geminiScriptNode = audioContext.createScriptProcessor(4096, 1, 1);
-
-      geminiScriptNode.onaudioprocess = (e) => {
-        if (!geminiLiveClient || !geminiLiveClient.isConnected) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        const resampled16k = resampleTo16kHZ(inputData, sampleRate);
-        const pcm16Buffer = floatTo16BitPCM(resampled16k);
-        const pcm16Base64 = arrayBufferToBase64(pcm16Buffer);
-        geminiLiveClient.sendRealtimeAudioChunk(pcm16Base64);
-      };
-
-      micSource.connect(geminiScriptNode);
-      geminiScriptNode.connect(audioContext.destination);
+        micSource.connect(geminiScriptNode);
+        geminiScriptNode.connect(audioContext.destination);
+      }
+    } catch (err) {
+      console.error('[Gemini Live Offscreen] Error en el procesador de audio:', err);
     }
-  } catch (err) {
-    console.error('[Gemini Live Offscreen] Error en el procesador de audio:', err);
   }
-}
 
   speechRecognizer.onstart = () => {
     isListening = true;
@@ -571,7 +571,7 @@ async function startGeminiLiveAudioStream(stream) {
       } catch (e) {
         setTimeout(() => {
           if (isListening) {
-            try { speechRecognizer.start(); } catch (err) {}
+            try { speechRecognizer.start(); } catch (err) { }
           }
         }, 200);
       }
@@ -593,7 +593,7 @@ async function startGeminiLiveAudioStream(stream) {
       if (isListening && speechRecognizer) {
         try {
           speechRecognizer.start();
-        } catch (e) {}
+        } catch (e) { }
       }
     }, 2000);
   }
@@ -721,7 +721,7 @@ async function handleTranscription(originalText, isFinal, direction = 'outgoing'
       translatedText,
       isFinal,
       direction
-    }).catch(() => {});
+    }).catch(() => { });
 
   } catch (err) {
     console.error('[MeetTranslate AI Offscreen] Error en pipeline de traducción:', err);
@@ -826,7 +826,7 @@ async function translateWithFallback(text, srcLang, tgtLang) {
         return data['destination-text'];
       }
     }
-  } catch (e) {}
+  } catch (e) { }
   return text;
 }
 
@@ -891,14 +891,14 @@ async function stopAudioCaptureAndSTT() {
   if (micMediaRecorder) {
     try {
       if (micMediaRecorder.state !== 'inactive') micMediaRecorder.stop();
-    } catch (e) {}
+    } catch (e) { }
     micMediaRecorder = null;
   }
 
   if (micStream) {
     try {
       micStream.getTracks().forEach(t => t.stop());
-    } catch (e) {}
+    } catch (e) { }
     micStream = null;
   }
 
@@ -907,7 +907,7 @@ async function stopAudioCaptureAndSTT() {
       if (mediaRecorderSTT.state !== 'inactive') {
         mediaRecorderSTT.stop();
       }
-    } catch (e) {}
+    } catch (e) { }
     mediaRecorderSTT = null;
   }
 

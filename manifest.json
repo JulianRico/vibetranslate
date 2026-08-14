@@ -33,7 +33,9 @@
         "https://teams.microsoft.com/*",
         "https://teams.live.com/*"
       ],
-      "js": ["audio-mixer.js"],
+      "js": [
+        "audio-mixer.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN",
       "all_frames": true
@@ -45,14 +47,20 @@
         "https://teams.microsoft.com/*",
         "https://teams.live.com/*"
       ],
-      "js": ["content.js"],
-      "css": ["styles.css"],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["styles.css"],
+      "resources": [
+        "styles.css"
+      ],
       "matches": [
         "https://meet.google.com/*",
         "https://*.zoom.us/*",

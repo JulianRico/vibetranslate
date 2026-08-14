@@ -301,7 +301,7 @@ async function startTranslationFlow(tabId) {
       chrome.tabs.sendMessage(tabId, {
         type: 'TRANSLATION_ERROR',
         error: error.message || 'No se pudo capturar el audio de la reunión.'
-      }).catch(() => {});
+      }).catch(() => { });
     }
   }
 }
@@ -324,7 +324,7 @@ async function stopTranslationFlow() {
       await chrome.runtime.sendMessage({
         target: 'offscreen',
         type: 'STOP_CAPTURE'
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     // 2. Cerrar Offscreen Document para liberar recursos completamente
@@ -334,7 +334,7 @@ async function stopTranslationFlow() {
     if (activeTabId) {
       await chrome.tabs.sendMessage(activeTabId, {
         type: 'HIDE_OVERLAY'
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     // 4. Resetear badge
@@ -405,7 +405,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               target: 'offscreen',
               type: 'SETTINGS_CHANGED',
               settings: merged
-            }).catch(() => {});
+            }).catch(() => { });
           }
 
           // Notificar a Content Script en la pestaña activa
@@ -414,7 +414,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             chrome.tabs.sendMessage(activeTabId, {
               type: 'SETTINGS_CHANGED',
               settings: merged
-            }).catch(() => {});
+            }).catch(() => { });
           }
 
           sendResponse({ success: true, settings: merged });
@@ -431,7 +431,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               translatedText: message.translatedText,
               isFinal: message.isFinal,
               direction: message.direction || 'outgoing'
-            }).catch(() => {});
+            }).catch(() => { });
           }
           break;
         }

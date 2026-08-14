@@ -72,7 +72,12 @@ class PcmStreamPlayer {
   }
 
   clearQueue() {
-    if (this.audioCtx) {
+    if (this.audioCtx && this.gainNode) {
+      try {
+        this.gainNode.gain.setValueAtTime(0, this.audioCtx.currentTime);
+        this.gainNode = this.audioCtx.createGain();
+        this.gainNode.connect(this.audioCtx.destination);
+      } catch (e) {}
       this.nextStartTime = this.audioCtx.currentTime;
     }
     this.isPlaying = false;
@@ -87,6 +92,89 @@ class PcmStreamPlayer {
     }
     this.nextStartTime = 0;
     this.isPlaying = false;
+  }
+}
+
+// ── Reproductor Secuencial para Cable Virtual (Cero Superposición de Audio) ──
+class VirtualCablePlayer {
+  constructor() {
+    this.audioCtx = null;
+    this.gainNode = null;
+    this.audioQueue = [];
+    this.isPlaying = false;
+    this.currentSource = null;
+  }
+
+  async init(sinkDeviceId = '') {
+    if (!this.audioCtx || this.audioCtx.state === 'closed') {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      this.audioCtx = new AudioContextClass();
+      this.gainNode = this.audioCtx.createGain();
+      this.gainNode.connect(this.audioCtx.destination);
+
+      if (sinkDeviceId && sinkDeviceId !== 'default' && typeof this.audioCtx.setSinkId === 'function') {
+        try {
+          await this.audioCtx.setSinkId(sinkDeviceId);
+        } catch (err) {
+          console.warn('[VirtualCablePlayer] Error en setSinkId:', err);
+        }
+      }
+    }
+    if (this.audioCtx.state === 'suspended') {
+      await this.audioCtx.resume();
+    }
+  }
+
+  async enqueue(arrayBuffer, sinkDeviceId = '') {
+    if (!arrayBuffer || arrayBuffer.byteLength === 0) return;
+    this.audioQueue.push({ arrayBuffer, sinkDeviceId });
+    if (!this.isPlaying) {
+      this._playNext();
+    }
+  }
+
+  async _playNext() {
+    if (this.audioQueue.length === 0) {
+      this.isPlaying = false;
+      return;
+    }
+
+    this.isPlaying = true;
+    const item = this.audioQueue.shift();
+
+    try {
+      await this.init(item.sinkDeviceId);
+      const decodedBuffer = await this.audioCtx.decodeAudioData(item.arrayBuffer.slice(0));
+
+      const source = this.audioCtx.createBufferSource();
+      source.buffer = decodedBuffer;
+      source.connect(this.gainNode);
+      this.currentSource = source;
+
+      source.onended = () => {
+        this.currentSource = null;
+        this._playNext();
+      };
+
+      source.start(0);
+    } catch (err) {
+      console.warn('[VirtualCablePlayer] Error reproduciendo audio secuencial:', err);
+      this.currentSource = null;
+      this._playNext();
+    }
+  }
+
+  stop() {
+    this.audioQueue = [];
+    this.isPlaying = false;
+    if (this.currentSource) {
+      try { this.currentSource.stop(); } catch (e) {}
+      this.currentSource = null;
+    }
+    if (this.audioCtx) {
+      try { this.audioCtx.close(); } catch (e) {}
+      this.audioCtx = null;
+    }
   }
 }
 
@@ -160,6 +248,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isTestBtnActive = false;
   let geminiLiveClient = null;
   let pcmPlayer = new PcmStreamPlayer(24000);
+  let virtualCablePlayer = new VirtualCablePlayer();
 
   let micMediaStream = null;
   let audioContext = null;
@@ -243,33 +332,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const targetCode = (lang === 'es' || lang.startsWith('es')) ? 'es' : 'en';
 
     try {
-      // 1. Inyectar siempre en el Cable Virtual para Google Meet / Teams / Zoom
+      // 1. Inyectar secuencialmente en el Cable Virtual para Google Meet / Teams / Zoom (Cero superposición)
       const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
       const response = await fetch(ttsUrl);
       if (response.ok) {
         const arrayBuffer = await response.arrayBuffer();
-
-        const cableId = virtualCableSelect.value;
-        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-        const ctxCable = new AudioCtxClass();
-
-        if (cableId && cableId !== 'default' && typeof ctxCable.setSinkId === 'function') {
-          try {
-            await ctxCable.setSinkId(cableId);
-          } catch (e) {
-            console.warn('[Audio Out] Error en setSinkId para Virtual Cable:', e);
-          }
-        }
-
-        const decodedBuffer = await ctxCable.decodeAudioData(arrayBuffer.slice(0));
-        const sourceCable = ctxCable.createBufferSource();
-        sourceCable.buffer = decodedBuffer;
-        sourceCable.connect(ctxCable.destination);
-        sourceCable.start(0);
-
-        sourceCable.onended = () => {
-          try { ctxCable.close(); } catch (e) {}
-        };
+        await virtualCablePlayer.enqueue(arrayBuffer, virtualCableSelect.value);
       }
 
       // 2. Monitoreo local en los parlantes/auriculares si está habilitado por el usuario
@@ -519,6 +587,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (pcmPlayer) {
       pcmPlayer.stop();
     }
+    if (virtualCablePlayer) {
+      virtualCablePlayer.stop();
+    }
   }
 
   // ── Pipeline Unificado con VAD, Filtrado de Ruido y Soporte Dual ──
@@ -538,6 +609,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           },
           onInterrupted: () => {
             appendLog('GEMINI', '⚡ Voz simultánea detectada en flujo continuo...', 'gemini');
+            if (pcmPlayer) pcmPlayer.clearQueue();
           },
           onAudioReceived: (rawBytes) => {
             pcmPlayer.feedPcm(rawBytes);
