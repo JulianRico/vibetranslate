@@ -4,7 +4,7 @@
  * Soportado para: Microsoft Teams Desktop, Zoom App y Google Meet
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -302,6 +302,12 @@ ipcMain.on('DISPLAY_SUBTITLE', (event, payload) => {
   }
 });
 
+ipcMain.on('DISPLAY_SPEECH_STATE', (event, payload) => {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    overlayWindow.webContents.send('DISPLAY_SPEECH_STATE', payload);
+  }
+});
+
 ipcMain.on('TOGGLE_OVERLAY', (event, show) => {
   defaultLogger.info('UI', `Toggle overlay solicitado: ${show ? 'MOSTRAR' : 'OCULTAR'}`);
   if (overlayWindow && !overlayWindow.isDestroyed()) {
@@ -325,5 +331,18 @@ ipcMain.on('OPEN_EXTERNAL_URL', (event, url) => {
   if (url && (url.startsWith('https://') || url.startsWith('http://'))) {
     shell.openExternal(url);
   }
+});
+
+ipcMain.handle('GET_DESKTOP_AUDIO_SOURCE', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    if (sources && sources.length > 0) {
+      defaultLogger.info('AUDIO', `Fuente de audio de sistema capturada: ${sources[0].id} (${sources[0].name})`);
+      return sources[0].id;
+    }
+  } catch (err) {
+    defaultLogger.error('AUDIO', `Error obteniendo fuentes de desktopCapturer: ${err.message}`);
+  }
+  return null;
 });
 

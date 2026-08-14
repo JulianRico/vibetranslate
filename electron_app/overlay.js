@@ -30,6 +30,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  const statusBadgeText = document.querySelector('.status-badge span:last-child');
+  const statusDot = document.querySelector('.status-dot');
+
+  ipcRenderer.on('DISPLAY_SPEECH_STATE', (event, { speaking }) => {
+    if (statusBadgeText && statusDot) {
+      if (speaking) {
+        statusBadgeText.textContent = '🟡 RECEPTOR HABLANDO (Espera...)';
+        statusDot.style.background = '#f59e0b';
+        statusDot.style.boxShadow = '0 0 6px #f59e0b';
+      } else {
+        statusBadgeText.textContent = '🟢 LIBRE (Tu turno para hablar)';
+        statusDot.style.background = '#10b981';
+        statusDot.style.boxShadow = '0 0 6px #10b981';
+      }
+    }
+  });
+
   ipcRenderer.on('SETTINGS_CHANGED', (event, settings) => {
     if (settings.fontSize) {
       currentFontSize = settings.fontSize;

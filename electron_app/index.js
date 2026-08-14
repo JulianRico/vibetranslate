@@ -297,6 +297,125 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const localMonitorToggle = document.getElementById('local-monitor-toggle');
+  const translateIncomingToggle = document.getElementById('translate-incoming-toggle');
+  const spanishVoiceSelect = document.getElementById('spanish-voice-select');
+  const btnTestSpanishVoice = document.getElementById('btn-test-spanish-voice');
+
+  let incomingMediaStream = null;
+  let incomingAudioContext = null;
+  let incomingScriptProcessor = null;
+
+  function populateSpanishVoices() {
+    if (!spanishVoiceSelect || !window.speechSynthesis) return;
+    const voices = window.speechSynthesis.getVoices();
+    const spanishVoices = voices.filter(v => v.lang.startsWith('es') || v.lang.includes('es-') || v.lang.includes('es_'));
+
+    const currentVal = spanishVoiceSelect.value;
+    spanishVoiceSelect.innerHTML = `
+      <option value="auto">⚡ Auto (Mejor voz en Español detectada)</option>
+      <option value="google_tts">Google Español (Neutro Natural Online)</option>
+    `;
+
+    spanishVoices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.lang})`;
+      spanishVoiceSelect.appendChild(opt);
+    });
+
+    if (currentVal && Array.from(spanishVoiceSelect.options).some(o => o.value === currentVal)) {
+      spanishVoiceSelect.value = currentVal;
+    }
+  }
+
+  if (window.speechSynthesis) {
+    window.speechSynthesis.onvoiceschanged = populateSpanishVoices;
+    populateSpanishVoices();
+  }
+
+  const spanishVolumeSlider = document.getElementById('spanish-volume-slider');
+  const spanishVolumeText = document.getElementById('spanish-volume-text');
+  const btnPresetVols = document.querySelectorAll('.btn-preset-vol');
+
+  let currentSpanishVolume = 0.05; // 5% por defecto
+
+  if (spanishVolumeSlider) {
+    spanishVolumeSlider.addEventListener('input', () => {
+      const val = parseInt(spanishVolumeSlider.value, 10) || 5;
+      currentSpanishVolume = Math.max(0.01, Math.min(1.0, val / 100));
+      if (spanishVolumeText) spanishVolumeText.textContent = `${val}%`;
+      saveCurrentSettings();
+    });
+  }
+
+  btnPresetVols.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const val = parseInt(btn.getAttribute('data-vol'), 10) || 5;
+      if (spanishVolumeSlider) spanishVolumeSlider.value = val;
+      if (spanishVolumeText) spanishVolumeText.textContent = `${val}%`;
+      currentSpanishVolume = Math.max(0.01, Math.min(1.0, val / 100));
+      btnPresetVols.forEach(b => {
+        b.style.background = 'rgba(255,255,255,0.06)';
+        b.style.borderColor = 'rgba(255,255,255,0.15)';
+      });
+      btn.style.background = 'rgba(59, 130, 246, 0.25)';
+      btn.style.borderColor = 'rgba(59, 130, 246, 0.5)';
+      saveCurrentSettings();
+    });
+  });
+
+  async function speakSpanishToUser(text) {
+    if (!text || !text.trim()) return;
+
+    const selectedVoice = spanishVoiceSelect ? spanishVoiceSelect.value : 'auto';
+
+    if (selectedVoice === 'google_tts') {
+      try {
+        const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=es&client=tw-ob`;
+        const audio = new Audio(url);
+        audio.volume = currentSpanishVolume;
+        await audio.play();
+        return;
+      } catch (e) {
+        console.warn('[TTS Spanish Google] Fallback a sintetizador local:', e);
+      }
+    }
+
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'es-ES';
+      utterance.rate = 1.05;
+      utterance.volume = currentSpanishVolume; // Volumen suave regulable (ej. 0.05 para 5%)
+
+      const voices = window.speechSynthesis.getVoices();
+      if (voices && voices.length > 0) {
+        let voiceToUse = null;
+        if (selectedVoice && selectedVoice !== 'auto' && selectedVoice !== 'google_tts') {
+          voiceToUse = voices.find(v => v.name === selectedVoice);
+        }
+        if (!voiceToUse) {
+          voiceToUse = voices.find(v => (v.lang.startsWith('es') || v.lang.includes('es-')) && (v.name.includes('Natural') || v.name.includes('Helena') || v.name.includes('Sabina') || v.name.includes('Laura') || v.name.includes('Google') || v.name.includes('Microsoft')))
+            || voices.find(v => v.lang.startsWith('es') || v.lang.includes('es-'));
+        }
+        if (voiceToUse) {
+          utterance.voice = voiceToUse;
+        }
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('[TTS Spanish] Error:', e);
+    }
+  }
+
+  if (btnTestSpanishVoice) {
+    btnTestSpanishVoice.addEventListener('click', () => {
+      const pct = Math.round(currentSpanishVolume * 100);
+      appendLog('TTS', `Probando reproducción de voz en español al ${pct}% de volumen...`);
+      speakSpanishToUser(`Hola, esta es una prueba de la voz en español con volumen al ${pct} por ciento.`);
+    });
+  }
 
   function speakText(text, lang = 'en-US') {
     if (!text || !window.speechSynthesis) return;
@@ -306,7 +425,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       utterance.lang = lang;
       utterance.rate = 1.05;
 
-      // Seleccionar voz nativa estadounidense de alta calidad
       const voices = window.speechSynthesis.getVoices();
       if (voices && voices.length > 0) {
         const preferredVoice = voices.find(v => 
@@ -393,7 +511,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveCurrentSettings();
   });
 
-  [sourceLangSelect, targetLangSelect, geminiKeyInput, geminiVoiceSelect, groqKeyInput, micInputSelect, virtualCableSelect, localMonitorToggle].forEach(el => {
+  [sourceLangSelect, targetLangSelect, geminiKeyInput, geminiVoiceSelect, groqKeyInput, micInputSelect, virtualCableSelect, localMonitorToggle, translateIncomingToggle, spanishVoiceSelect].forEach(el => {
     if (!el) return;
     el.addEventListener('change', saveCurrentSettings);
     if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', saveCurrentSettings);
@@ -452,6 +570,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (s.localMonitor !== undefined && localMonitorToggle) {
       localMonitorToggle.checked = !!s.localMonitor;
     }
+    if (s.translateIncoming !== undefined && translateIncomingToggle) {
+      translateIncomingToggle.checked = !!s.translateIncoming;
+    }
+    if (s.spanishVoice && spanishVoiceSelect) {
+      spanishVoiceSelect.value = s.spanishVoice;
+    }
+    if (s.spanishVolume !== undefined && spanishVolumeSlider) {
+      const vol = parseInt(s.spanishVolume, 10) || 5;
+      spanishVolumeSlider.value = vol;
+      currentSpanishVolume = Math.max(0.01, Math.min(1.0, vol / 100));
+      if (spanishVolumeText) spanishVolumeText.textContent = `${vol}%`;
+    }
 
     updateEngineGroupsVisibility();
   }
@@ -467,6 +597,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       groqApiKey: groqKeyInput.value.trim(),
       noiseGateThreshold: parseFloat(noiseGateSelect.value) || 0.016,
       localMonitor: localMonitorToggle ? localMonitorToggle.checked : true,
+      translateIncoming: translateIncomingToggle ? translateIncomingToggle.checked : true,
+      spanishVoice: spanishVoiceSelect ? spanishVoiceSelect.value : 'auto',
+      spanishVolume: spanishVolumeSlider ? parseInt(spanishVolumeSlider.value, 10) : 5,
       micDeviceId: micInputSelect.value,
       virtualCableDeviceId: virtualCableSelect.value
     };
@@ -549,6 +682,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       await startUnifiedAudioPipeline('gemini_live', geminiKey);
+      if (groqKey && groqKey.length > 5) {
+        await startIncomingAudioPipeline(groqKey);
+      }
     } else if (engine === 'whisper_groq') {
       if (!groqKey || groqKey.length < 5) {
         appendLog('GROQ', '⚠️ Ingresa tu Groq API Key en el campo de configuración.', 'warn');
@@ -558,6 +694,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       await startUnifiedAudioPipeline('whisper_groq', groqKey);
+      await startIncomingAudioPipeline(groqKey);
     }
   }
 
@@ -580,6 +717,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       try { audioContext.close(); } catch (e) {}
       audioContext = null;
     }
+    if (incomingMediaStream) {
+      incomingMediaStream.getTracks().forEach(t => t.stop());
+      incomingMediaStream = null;
+    }
+    if (incomingAudioContext) {
+      try { incomingAudioContext.close(); } catch (e) {}
+      incomingAudioContext = null;
+    }
     if (geminiLiveClient) {
       geminiLiveClient.disconnect();
       geminiLiveClient = null;
@@ -589,6 +734,144 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (virtualCablePlayer) {
       virtualCablePlayer.stop();
+    }
+  }
+
+  // ── Pipeline para Traducir la Voz del Receptor (Reunión ➔ Español) ──
+  async function startIncomingAudioPipeline(apiKey) {
+    if (!translateIncomingToggle || !translateIncomingToggle.checked) return;
+
+    try {
+      const sourceId = await ipcRenderer.invoke('GET_DESKTOP_AUDIO_SOURCE');
+      if (!sourceId) {
+        appendLog('RECEPTOR', 'No se detectó fuente de audio de videollamada para subtítulos.', 'warn');
+        return;
+      }
+
+      incomingMediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId
+          }
+        },
+        video: {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId
+          }
+        }
+      });
+
+      // Detener video inmediatamente (solo necesitamos el canal de audio del sistema)
+      incomingMediaStream.getVideoTracks().forEach(t => t.stop());
+
+      incomingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+      const incomingSource = incomingAudioContext.createMediaStreamSource(incomingMediaStream);
+      incomingScriptProcessor = incomingAudioContext.createScriptProcessor(2048, 1, 1);
+
+      const muteGain = incomingAudioContext.createGain();
+      muteGain.gain.value = 0;
+      incomingScriptProcessor.connect(muteGain);
+      muteGain.connect(incomingAudioContext.destination);
+
+      let incomingSamplesBuffer = [];
+      let incomingSpeechHold = 0;
+      let isTranscribingIncoming = false;
+
+      incomingScriptProcessor.onaudioprocess = async (e) => {
+        if (!isPipelineRunning) return;
+
+        const inputData = e.inputBuffer.getChannelData(0);
+
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) {
+          sum += inputData[i] * inputData[i];
+        }
+        const rms = Math.sqrt(sum / inputData.length);
+
+        // Umbral para detectar voz del receptor desde la videollamada
+        const incomingThreshold = 0.010;
+
+        if (rms >= incomingThreshold) {
+          incomingSpeechHold = 4;
+          ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: true });
+          for (let i = 0; i < inputData.length; i++) {
+            incomingSamplesBuffer.push(inputData[i]);
+          }
+        } else {
+          if (incomingSpeechHold > 0) {
+            incomingSpeechHold--;
+            for (let i = 0; i < inputData.length; i++) {
+              incomingSamplesBuffer.push(inputData[i]);
+            }
+            if (incomingSpeechHold === 0) {
+              ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: false });
+            }
+          }
+        }
+
+        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length > 8000) || (incomingSamplesBuffer.length > 32000);
+
+        if (shouldProcess && !isTranscribingIncoming && apiKey) {
+          const samples = new Float32Array(incomingSamplesBuffer);
+          incomingSamplesBuffer = [];
+          isTranscribingIncoming = true;
+
+          try {
+            const wavBuffer = encodeWAV(samples, 16000);
+            const wavBase64 = arrayBufferToBase64(wavBuffer);
+
+            const result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
+              audioBase64: wavBase64,
+              apiKey,
+              language: 'en',
+              format: 'wav'
+            });
+
+            if (result && result.text && result.text.trim()) {
+              const text = result.text.trim();
+              if (text.length > 2 && !text.match(/^(thank you|thanks|you|\.)$/i)) {
+                appendLog('RECEPTOR', `Inglés: "${text}"`, 'audio');
+
+                const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
+                  text: text,
+                  sourceLang: 'en',
+                  targetLang: 'es'
+                });
+
+                if (translation && translation.translated && translation.translated.trim()) {
+                  const translatedText = translation.translated.trim();
+                  appendLog('RECEPTOR', `✨ Traducido (Español): "${translatedText}"`, 'translate');
+
+                  previewOrig.textContent = `👤 Receptor (Inglés): ${text}`;
+                  previewTrans.textContent = `✨ Español: ${translatedText}`;
+
+                  ipcRenderer.send('DISPLAY_SUBTITLE', {
+                    originalText: `Receptor: ${text}`,
+                    translatedText: translatedText,
+                    direction: 'incoming',
+                    isFinal: true
+                  });
+
+                  // Reproducir la voz traducida en español en tus auriculares/altavoces
+                  speakSpanishToUser(translatedText);
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('[Incoming Pipeline] Error:', err);
+          } finally {
+            isTranscribingIncoming = false;
+          }
+        }
+      };
+
+      incomingSource.connect(incomingScriptProcessor);
+      appendLog('AUDIO', 'Traducción bidireccional del receptor (Inglés ➔ Español) ACTIVADA 🎧', 'audio');
+
+    } catch (err) {
+      appendLog('AUDIO', `Aviso de captura de audio del receptor: ${err.message}`, 'warn');
     }
   }
 

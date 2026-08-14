@@ -103,6 +103,37 @@
       <label for="groq-key">Groq API Key (Gratis)</label>
       <input type="text" id="groq-key" placeholder="gsk_..." value="">
     </div>
+
+    <!-- Spanish Voice Config for Incoming Audio -->
+    <div class="form-group" id="spanish-voice-group">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+        <label for="spanish-voice-select">Voz en Español (Para Escuchar al Receptor)</label>
+        <button type="button" id="btn-test-spanish-voice" style="background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.5); color: #c7d2fe; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+          🔊 Probar Voz
+        </button>
+      </div>
+      <select id="spanish-voice-select">
+        <option value="auto">⚡ Auto (Mejor voz en Español detectada)</option>
+        <option value="google_tts">Google Español (Neutro Natural Online)</option>
+      </select>
+    </div>
+
+    <!-- Spanish Voice Volume Control -->
+    <div class="form-group" id="spanish-volume-group">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <label for="spanish-volume-slider" style="margin-bottom: 0;">🔊 Nivel de Volumen de la Voz (Traducción al Español)</label>
+        <span id="spanish-volume-text" style="color: #60a5fa; font-weight: 700; font-size: 12px; background: rgba(59, 130, 246, 0.15); padding: 2px 8px; border-radius: 6px;">5%</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <input type="range" id="spanish-volume-slider" min="1" max="100" value="5" style="flex: 1; accent-color: #3b82f6; cursor: pointer;">
+      </div>
+      <div style="display: flex; gap: 6px; margin-top: 6px;">
+        <button type="button" class="btn-preset-vol" data-vol="5" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">5% (Suave)</button>
+        <button type="button" class="btn-preset-vol" data-vol="15" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">15%</button>
+        <button type="button" class="btn-preset-vol" data-vol="50" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">50%</button>
+        <button type="button" class="btn-preset-vol" data-vol="100" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">100% (Máx)</button>
+      </div>
+    </div>
   </div>
 
   <!-- Audio Devices Card -->
@@ -162,7 +193,14 @@
     <div class="form-group">
       <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e2e8f0; font-size: 12px;">
         <input type="checkbox" id="local-monitor-toggle" checked style="width: auto; accent-color: #10b981;">
-        <span>🔊 Escuchar la traducción en mis propios auriculares (Monitoreo)</span>
+        <span>🔊 Escuchar mi traducción en mis propios auriculares (Monitoreo)</span>
+      </label>
+    </div>
+
+    <div class="form-group">
+      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e2e8f0; font-size: 12px;">
+        <input type="checkbox" id="translate-incoming-toggle" checked style="width: auto; accent-color: #3b82f6;">
+        <span>🎧 Traducir en vivo la voz del receptor (Inglés ➔ Español en Subtítulos)</span>
       </label>
     </div>
 
