@@ -6,3 +6,7 @@ Thumbs.db
 # Environment & Logs
 *.log
 .env
+
+# Dependencies
+node_modules/
+electron_app/node_modules/
