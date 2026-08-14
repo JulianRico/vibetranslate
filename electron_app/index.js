@@ -156,6 +156,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   let isPipelineRunning = false;
+  let currentSessionMode = null; // null | 'LIVE' | 'TEST'
   let geminiLiveClient = null;
   let pcmPlayer = new PcmStreamPlayer(24000);
 
@@ -235,53 +236,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en') {
+  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en', mode = 'LIVE') {
     if (!text || !text.trim()) return;
 
     const targetCode = (lang === 'es' || lang.startsWith('es')) ? 'es' : 'en';
 
     try {
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
-      const response = await fetch(ttsUrl);
-      if (!response.ok) {
-        if (localMonitorToggle && localMonitorToggle.checked) {
-          speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
+      // 1. Inyectar en el Cable Virtual ÚNICAMENTE en modo 'LIVE' (llamada real)
+      if (mode === 'LIVE') {
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
+        const response = await fetch(ttsUrl);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+
+          const cableId = virtualCableSelect.value;
+          const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+          const ctxCable = new AudioCtxClass();
+
+          if (cableId && cableId !== 'default' && typeof ctxCable.setSinkId === 'function') {
+            try {
+              await ctxCable.setSinkId(cableId);
+            } catch (e) {
+              console.warn('[Audio Out] Error en setSinkId para Virtual Cable:', e);
+            }
+          }
+
+          const decodedBuffer = await ctxCable.decodeAudioData(arrayBuffer.slice(0));
+          const sourceCable = ctxCable.createBufferSource();
+          sourceCable.buffer = decodedBuffer;
+          sourceCable.connect(ctxCable.destination);
+          sourceCable.start(0);
+
+          sourceCable.onended = () => {
+            try { ctxCable.close(); } catch (e) {}
+          };
         }
-        return;
-      }
-      const arrayBuffer = await response.arrayBuffer();
-
-      // 1. Inyectar directamente en el Cable Virtual para que Google Meet lo transmita a los demás
-      const cableId = virtualCableSelect.value;
-      const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-      const ctxCable = new AudioCtxClass();
-
-      if (cableId && cableId !== 'default' && typeof ctxCable.setSinkId === 'function') {
-        try {
-          await ctxCable.setSinkId(cableId);
-        } catch (e) {
-          console.warn('[Audio Out] Error en setSinkId para Virtual Cable:', e);
-        }
       }
 
-      const decodedBuffer = await ctxCable.decodeAudioData(arrayBuffer.slice(0));
-      const sourceCable = ctxCable.createBufferSource();
-      sourceCable.buffer = decodedBuffer;
-      sourceCable.connect(ctxCable.destination);
-      sourceCable.start(0);
-
-      sourceCable.onended = () => {
-        try { ctxCable.close(); } catch (e) {}
-      };
-
-      // 2. Monitoreo local en los parlantes/auriculares solo si está habilitado
-      if (localMonitorToggle && localMonitorToggle.checked) {
+      // 2. Monitoreo local en los parlantes/auriculares (si está activo el monitoreo o si es una prueba)
+      if ((localMonitorToggle && localMonitorToggle.checked) || mode === 'TEST') {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
 
     } catch (err) {
       console.warn('[Audio Out] Fallback a sintetizador local:', err);
-      if (localMonitorToggle && localMonitorToggle.checked) {
+      if ((localMonitorToggle && localMonitorToggle.checked) || mode === 'TEST') {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
     }
@@ -295,17 +294,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateThresholdLine();
 
   // ── Event Listeners de UI ─────────────────────────────────────────
+  // Interruptor Maestro: Traducción Simultánea en Vivo (Llamada Real)
   toggleActive.addEventListener('change', async () => {
     const isActive = toggleActive.checked;
     updateStatusBadge(isActive);
-    appendLog('CONTROL', `Traducción en vivo ${isActive ? 'ACTIVADA 🟢' : 'DESACTIVADA ⚪'}`);
     await saveCurrentSettings();
-    ipcRenderer.send('TOGGLE_OVERLAY', isActive);
 
-    if (isActive && !isPipelineRunning) {
-      await startTranslationSession();
-    } else if (!isActive && isPipelineRunning) {
-      stopTranslationSession();
+    if (isActive) {
+      appendLog('CONTROL', 'Traducción en vivo ACTIVADA 🟢 (Transmitiendo a Google Meet / Teams)');
+      ipcRenderer.send('TOGGLE_OVERLAY', true);
+      if (isPipelineRunning) {
+        stopTranslationSession(false);
+      }
+      await startTranslationSession('LIVE');
+    } else {
+      appendLog('CONTROL', 'Traducción en vivo DESACTIVADA ⚪');
+      ipcRenderer.send('TOGGLE_OVERLAY', false);
+      if (isPipelineRunning) {
+        stopTranslationSession(true);
+      }
     }
   });
 
@@ -336,11 +343,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // Botón Probador Local de Voz (Sandbox para probar sin enviar a la llamada)
   btnTestMic.addEventListener('click', async () => {
-    if (isPipelineRunning) {
-      stopTranslationSession();
+    if (isPipelineRunning && currentSessionMode === 'TEST') {
+      stopTranslationSession(true);
+    } else if (isPipelineRunning && currentSessionMode === 'LIVE') {
+      // Si la traducción en vivo está corriendo, detenerla
+      toggleActive.checked = false;
+      updateStatusBadge(false);
+      ipcRenderer.send('TOGGLE_OVERLAY', false);
+      stopTranslationSession(true);
     } else {
-      await startTranslationSession();
+      // Iniciar modo prueba local (no envía a Google Meet)
+      await startTranslationSession('TEST');
     }
   });
 
@@ -442,40 +457,63 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ── Controlador Unificado de Sesión de Traducción ─────────────────
-  async function startTranslationSession() {
+  async function startTranslationSession(mode = 'LIVE') {
     isPipelineRunning = true;
-    btnTestMic.innerHTML = '<span>🛑 Detener Traducción en Vivo</span>';
+    currentSessionMode = mode;
+
     previewBox.style.display = 'flex';
-    previewOrig.textContent = '🎙️ Escuchando tu voz con filtro de ruido activo...';
-    previewTrans.textContent = '⚡ Traducción simultánea lista...';
+
+    if (mode === 'LIVE') {
+      toggleActive.checked = true;
+      updateStatusBadge(true);
+      btnTestMic.innerHTML = '<span>🛑 Detener Traducción en Vivo</span>';
+      previewOrig.textContent = '🎙️ Escuchando tu voz (Transmitiendo hacia Google Meet / Teams)...';
+      previewTrans.textContent = '⚡ Traducción simultánea EN VIVO activa...';
+      appendLog('PIPELINE', `Iniciando motor EN VIVO (${sttEngineSelect.value.toUpperCase()}) ➔ Google Meet`);
+    } else {
+      toggleActive.checked = false;
+      updateStatusBadge(false);
+      btnTestMic.innerHTML = '<span>🛑 Detener Prueba Local</span>';
+      previewOrig.textContent = '🎙️ Probando micrófono localmente (No se envía a la reunión)...';
+      previewTrans.textContent = '🧪 Traducción de prueba en tus parlantes...';
+      appendLog('PIPELINE', `Iniciando motor en MODO PRUEBA LOCAL (${sttEngineSelect.value.toUpperCase()})`);
+    }
 
     const engine = sttEngineSelect.value;
     const geminiKey = geminiKeyInput.value.trim();
     const groqKey = groqKeyInput.value.trim();
-
-    appendLog('PIPELINE', `Iniciando motor: ${engine.toUpperCase()}`);
 
     if (engine === 'gemini_live') {
       if (!geminiKey || geminiKey.length < 5) {
         appendLog('GEMINI', '⚠️ Ingresa tu Gemini API Key en el campo de configuración.', 'warn');
         previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
         previewTrans.textContent = 'Obtén tu clave gratis en: aistudio.google.com/app/apikey';
+        stopTranslationSession(true);
         return;
       }
-      await startUnifiedAudioPipeline('gemini_live', geminiKey);
+      await startUnifiedAudioPipeline('gemini_live', geminiKey, mode);
     } else if (engine === 'whisper_groq') {
       if (!groqKey || groqKey.length < 5) {
         appendLog('GROQ', '⚠️ Ingresa tu Groq API Key en el campo de configuración.', 'warn');
         previewOrig.textContent = '⚠️ Ingresa tu clave de Groq en el campo superior.';
         previewTrans.textContent = 'Obtén tu clave gratis en: console.groq.com/keys';
+        stopTranslationSession(true);
         return;
       }
-      await startUnifiedAudioPipeline('whisper_groq', groqKey);
+      await startUnifiedAudioPipeline('whisper_groq', groqKey, mode);
     }
   }
 
-  function stopTranslationSession() {
+  function stopTranslationSession(resetToggle = true) {
     isPipelineRunning = false;
+    currentSessionMode = null;
+
+    if (resetToggle) {
+      toggleActive.checked = false;
+      updateStatusBadge(false);
+      ipcRenderer.send('TOGGLE_OVERLAY', false);
+    }
+
     btnTestMic.innerHTML = '<span>🎙️ Probar Transcripción y Traducción en Vivo</span>';
     appendLog('PIPELINE', 'Pipeline de voz detenido.');
 
@@ -504,11 +542,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ── Pipeline Unificado con VAD, Filtrado de Ruido y Soporte Dual ──
-  async function startUnifiedAudioPipeline(engine, apiKey) {
+  async function startUnifiedAudioPipeline(engine, apiKey, mode = 'LIVE') {
     try {
       // 1. Inicializar WebSocket para Gemini Live si aplica
       if (engine === 'gemini_live') {
-        await pcmPlayer.init(virtualCableSelect.value);
+        // En modo LIVE enviamos al Virtual Cable; en modo TEST a los altavoces locales
+        const sinkTarget = (mode === 'LIVE') ? virtualCableSelect.value : '';
+        await pcmPlayer.init(sinkTarget);
 
         geminiLiveClient = new GeminiLiveClient({
           apiKey,
@@ -528,16 +568,20 @@ document.addEventListener('DOMContentLoaded', async () => {
               lastAudioLogTime = now;
               appendLog('AUDIO', `Reproduciendo voz traducida en tiempo real (PCM 24kHz)...`, 'audio');
             }
-            previewTrans.textContent = '🔊 Reproduciendo voz traducida al inglés en vivo...';
+            previewTrans.textContent = (mode === 'LIVE') 
+              ? '🔊 Transmitiendo voz traducida al inglés en la llamada...' 
+              : '🔊 Reproduciendo voz de prueba en tus parlantes...';
           },
           onTextReceived: (text) => {
             appendLog('GEMINI', `Traducción: "${text}"`, 'translate');
             previewTrans.textContent = `✨ ${text}`;
-            ipcRenderer.send('DISPLAY_SUBTITLE', {
-              originalText: '🎙️ Mi voz en vivo',
-              translatedText: text,
-              isFinal: true
-            });
+            if (mode === 'LIVE') {
+              ipcRenderer.send('DISPLAY_SUBTITLE', {
+                originalText: '🎙️ Mi voz en vivo',
+                translatedText: text,
+                isFinal: true
+              });
+            }
           },
           onError: (err) => {
             appendLog('GEMINI', `Error: ${err.message}`, 'error');
@@ -564,7 +608,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
-      appendLog('AUDIO', `Micrófono capturado con Supresión de Ruido y Cancelación de Eco (${engine.toUpperCase()}).`, 'audio');
+      appendLog('AUDIO', `Micrófono capturado con Supresión de Ruido y Cancelación de Eco (${engine.toUpperCase()} - ${mode}).`, 'audio');
 
       audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(micMediaStream);
@@ -629,12 +673,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // 4. Procesamiento según el motor seleccionado
         if (engine === 'gemini_live') {
-          // Solo enviar a Gemini Live si hay voz activa
           if (speechHoldFrames > 0) {
             if (geminiLiveClient && geminiLiveClient.isConnected) {
               if (continuousSpeechFrames > 14) {
                 continuousSpeechFrames = 0;
-                speechHoldFrames = 0; // Micro-pausa para forzar traducción
+                speechHoldFrames = 0;
               } else {
                 const pcm16Buffer = floatTo16BitPCM(inputData);
                 const base64Data = arrayBufferToBase64(pcm16Buffer);
@@ -672,7 +715,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
               if (result && result.text && result.text.trim()) {
                 const recognizedText = result.text.trim();
-                // Descartar alucinaciones típicas de Whisper en susurros
                 if (!recognizedText.match(/^(gracias|subtítulos|thank you|you|\.)$/i) || recognizedText.length > 3) {
                   appendLog('VOICE', `Reconocido (Groq): "${recognizedText}"`, 'audio');
                   previewOrig.textContent = `🎙️ ${recognizedText}`;
@@ -688,13 +730,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     appendLog('TRANSLATE', `Traducido: "${translatedText}"`, 'translate');
                     previewTrans.textContent = `✨ ${translatedText}`;
 
-                    ipcRenderer.send('DISPLAY_SUBTITLE', {
-                      originalText: translation.original,
-                      translatedText: translatedText,
-                      isFinal: true
-                    });
+                    if (mode === 'LIVE') {
+                      ipcRenderer.send('DISPLAY_SUBTITLE', {
+                        originalText: translation.original,
+                        translatedText: translatedText,
+                        isFinal: true
+                      });
+                    }
 
-                    playAudioToVirtualCableAndSpeakers(translatedText, targetLangSelect.value);
+                    playAudioToVirtualCableAndSpeakers(translatedText, targetLangSelect.value, mode);
                   }
                 }
               }
