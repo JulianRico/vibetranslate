@@ -4,7 +4,7 @@
  * Soportado para: Microsoft Teams Desktop, Zoom App y Google Meet
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -19,34 +19,39 @@ defaultLogger.info('SYSTEM', '🚀 Iniciando MeetTranslate Desktop App (Proceso 
 // Configuración de Chromium para optimizar rendimiento y evitar bloqueos de caché en Windows
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
 app.commandLine.appendSwitch('disable-http-cache');
+app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer');
 
 // Garantizar una única instancia activa para evitar colisiones de archivos
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
-  defaultLogger.warn('SYSTEM', 'Se detectó otra instancia en ejecución. Cerrando proceso duplicado...');
+  defaultLogger.warn('SYSTEM', '⚠️ Otra instancia de la aplicación ya está en ejecución. Abortando inicio...');
   app.quit();
+  process.exit(0);
 }
 
-let controlWindow = null;
-let overlayWindow = null;
-
-// Ruta del archivo de configuración guardado
-const settingsFilePath = path.join(app.getPath('userData'), 'settings.json');
-defaultLogger.info('CONFIG', `Ruta del archivo de configuración: ${settingsFilePath}`);
+// ── Rutas de Configuración Persistente ──────────────────────────────
+const userDataPath = app.getPath('userData');
+const settingsFilePath = path.join(userDataPath, 'settings.json');
 
 const DEFAULT_SETTINGS = {
-  active: false,
+  geminiApiKey: '',
+  groqApiKey: '',
+  sttEngine: 'whisper_groq',
+  geminiVoice: 'Puck',
+  spanishVoice: 'auto',
+  spanishVolume: 90,
+  noiseThreshold: 15,
   sourceLang: 'es-ES',
   targetLang: 'en',
-  sttEngine: 'gemini_live',
-  geminiApiKey: '',
-  geminiVoice: 'Puck',
-  groqApiKey: '',
-  noiseGateThreshold: 0.016,
-  engine: 'fast',
-  fontSize: 18,
-  position: { top: 100, left: 100 },
-  glossary: DEFAULT_GLOSSARY
+  virtualCableId: 'default',
+  micInputId: 'default',
+  speakerOutputId: 'default',
+  glossary: DEFAULT_GLOSSARY,
+  subtitleFontSize: 16,
+  subtitleOpacity: 92,
+  subtitleBgColor: '#000000',
+  translateIncoming: true,
+  autoStartListening: false
 };
 
 function loadSavedSettings() {
@@ -118,13 +123,33 @@ function createOverlayWindow() {
   overlayWindow.setAlwaysOnTop(true, 'floating');
 
   overlayWindow.on('closed', () => {
-    defaultLogger.info('UI', 'Overlay Flotante cerrado.');
+    defaultLogger.info('UI', 'Ventana de Subtítulos cerrada.');
     overlayWindow = null;
   });
 }
 
+// ── Ciclo de Vida de la Aplicación ───────────────────────────────────
+
 app.whenReady().then(() => {
   defaultLogger.success('SYSTEM', '✅ Electron app.whenReady disparado.');
+
+  // Configurar permisos automáticos para micrófono y captura de loopback
+  if (session.defaultSession) {
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+      callback(true);
+    });
+    session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+      return true;
+    });
+    if (session.defaultSession.setDisplayMediaRequestHandler) {
+      session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+        desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+          callback({ video: sources[0], audio: 'loopback' });
+        });
+      });
+    }
+  }
+
   createControlWindow();
   createOverlayWindow();
 
@@ -201,25 +226,23 @@ ipcMain.handle('SAVE_SETTINGS', async (event, newSettings) => {
 });
 
 ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang }) => {
-  if (!text || !text.trim()) return '';
+  if (!text || !text.trim()) return { original: '', translated: '', detectedLang: 'es', targetLang: 'en' };
 
   const cleanText = text.trim();
   const settings = loadSavedSettings();
   const correctedText = applyTechnicalGlossary(cleanText, settings.glossary);
 
-  let srcShort = (sourceLang || 'es-ES').substring(0, 2);
-  let tgtShort = (targetLang || 'en').substring(0, 2);
-
-  if (srcShort === tgtShort && targetLang !== 'auto') {
-    tgtShort = srcShort === 'es' ? 'en' : 'es';
-  }
+  let srcShort = (sourceLang || 'auto').substring(0, 2);
+  let tgtShort = (targetLang || 'auto').substring(0, 2);
 
   const startTime = Date.now();
-  defaultLogger.info('TRANSLATE', `Solicitando traducción (${srcShort} ➔ ${tgtShort}): "${cleanText}"`);
 
   return new Promise((resolve) => {
     const sanitizedText = correctedText.replace(/[\r\n]+/g, ' ').trim();
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${srcShort}&tl=${tgtShort}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
+    const slParam = (srcShort === 'es' || srcShort === 'en') ? srcShort : 'auto';
+    const tlParam = (tgtShort === 'es' || tgtShort === 'en') ? tgtShort : (slParam === 'es' ? 'en' : 'es');
+
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tlParam}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
 
     https.get(url, (res) => {
       let body = '';
@@ -228,23 +251,42 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
         const elapsed = Date.now() - startTime;
         try {
           const data = JSON.parse(body);
+          const detected = (data && data[2]) ? data[2] : (slParam !== 'auto' ? slParam : 'es');
+
+          // Si el texto hablado está en inglés y el destino era inglés, auto-traducir a español
+          if (detected === 'en' && tlParam === 'en') {
+            const urlEs = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(sanitizedText)}`;
+            https.get(urlEs, (resEs) => {
+              let bodyEs = '';
+              resEs.on('data', (c) => bodyEs += c);
+              resEs.on('end', () => {
+                try {
+                  const dataEs = JSON.parse(bodyEs);
+                  const translated = dataEs[0].map(chunk => chunk[0]).filter(Boolean).join('');
+                  defaultLogger.success('TRANSLATE', `Auto-traducción bidireccional (EN ➔ ES) en ${elapsed}ms: "${translated.trim()}"`);
+                  resolve({ original: correctedText, translated: translated.trim(), detectedLang: 'en', targetLang: 'es' });
+                } catch (e) {
+                  resolve({ original: correctedText, translated: correctedText, detectedLang: 'en', targetLang: 'es' });
+                }
+              });
+            });
+            return;
+          }
+
           if (data && Array.isArray(data[0])) {
             const translated = data[0].map(chunk => chunk[0]).filter(Boolean).join('');
             if (translated && translated.trim()) {
-              defaultLogger.success('TRANSLATE', `Traducción completada en ${elapsed}ms: "${translated.trim()}"`);
-              return resolve({ original: correctedText, translated: translated.trim() });
+              defaultLogger.success('TRANSLATE', `Traducción completada (${detected} ➔ ${tlParam}) en ${elapsed}ms: "${translated.trim()}"`);
+              return resolve({ original: correctedText, translated: translated.trim(), detectedLang: detected, targetLang: tlParam });
             }
           }
-          defaultLogger.warn('TRANSLATE', `Respuesta vacía o no estructurada en ${elapsed}ms. Devolviendo texto corregido.`);
-          resolve({ original: correctedText, translated: correctedText });
+          resolve({ original: correctedText, translated: correctedText, detectedLang: detected, targetLang: tlParam });
         } catch (e) {
-          defaultLogger.error('TRANSLATE', `Excepción procesando respuesta JSON de Google Translate: ${e.message}`);
-          resolve({ original: correctedText, translated: correctedText });
+          resolve({ original: correctedText, translated: correctedText, detectedLang: 'es', targetLang: 'en' });
         }
       });
     }).on('error', (err) => {
-      defaultLogger.error('TRANSLATE', `Error en petición HTTP a Google Translate: ${err.message}`);
-      resolve({ original: correctedText, translated: correctedText });
+      resolve({ original: correctedText, translated: correctedText, detectedLang: 'es', targetLang: 'en' });
     });
   });
 });
@@ -335,7 +377,7 @@ ipcMain.on('OPEN_EXTERNAL_URL', (event, url) => {
 
 ipcMain.handle('GET_DESKTOP_AUDIO_SOURCE', async () => {
   try {
-    const sources = await desktopCapturer.getSources({ types: ['screen'] });
+    const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
     if (sources && sources.length > 0) {
       defaultLogger.info('AUDIO', `Fuente de audio de sistema capturada: ${sources[0].id} (${sources[0].name})`);
       return sources[0].id;

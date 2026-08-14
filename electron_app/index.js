@@ -337,12 +337,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const spanishVolumeText = document.getElementById('spanish-volume-text');
   const btnPresetVols = document.querySelectorAll('.btn-preset-vol');
 
-  let currentSpanishVolume = 0.05; // 5% por defecto
+  let currentSpanishVolume = 0.90; // 90% por defecto
 
   if (spanishVolumeSlider) {
     spanishVolumeSlider.addEventListener('input', () => {
-      const val = parseInt(spanishVolumeSlider.value, 10) || 5;
-      currentSpanishVolume = Math.max(0.01, Math.min(1.0, val / 100));
+      const val = parseInt(spanishVolumeSlider.value, 10) || 90;
+      currentSpanishVolume = Math.max(0.1, Math.min(1.0, val / 100));
       if (spanishVolumeText) spanishVolumeText.textContent = `${val}%`;
       saveCurrentSettings();
     });
@@ -350,10 +350,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   btnPresetVols.forEach(btn => {
     btn.addEventListener('click', () => {
-      const val = parseInt(btn.getAttribute('data-vol'), 10) || 5;
+      const val = parseInt(btn.getAttribute('data-vol'), 10) || 90;
       if (spanishVolumeSlider) spanishVolumeSlider.value = val;
       if (spanishVolumeText) spanishVolumeText.textContent = `${val}%`;
-      currentSpanishVolume = Math.max(0.01, Math.min(1.0, val / 100));
+      currentSpanishVolume = Math.max(0.1, Math.min(1.0, val / 100));
       btnPresetVols.forEach(b => {
         b.style.background = 'rgba(255,255,255,0.06)';
         b.style.borderColor = 'rgba(255,255,255,0.15)';
@@ -364,56 +364,90 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  let isAppSpeaking = false;
+  let lastAppSpeakingEndTime = 0;
+
+  function markAppSpeakingStart() {
+    isAppSpeaking = true;
+  }
+
+  function markAppSpeakingEnd(delayMs = 450) {
+    setTimeout(() => {
+      isAppSpeaking = false;
+      lastAppSpeakingEndTime = Date.now();
+    }, delayMs);
+  }
+
   async function speakSpanishToUser(text) {
     if (!text || !text.trim()) return;
 
+    const vol = Math.max(0.1, Math.min(1.0, currentSpanishVolume));
     const selectedVoice = spanishVoiceSelect ? spanishVoiceSelect.value : 'auto';
 
-    if (selectedVoice === 'google_tts') {
+    appendLog('TTS', `🔊 Voz en español: "${text}" (${Math.round(vol * 100)}%)`, 'audio');
+
+    // Intentar primero con Google TTS natural (MP3 de alta fidelidad)
+    if (selectedVoice === 'google_tts' || selectedVoice === 'auto') {
       try {
         const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=es&client=tw-ob`;
         const audio = new Audio(url);
-        audio.volume = currentSpanishVolume;
+        audio.volume = vol;
+        markAppSpeakingStart();
+        audio.onended = () => markAppSpeakingEnd(450);
+        audio.onerror = () => {
+          fallbackWebSpeech(text, vol, selectedVoice);
+        };
         await audio.play();
         return;
       } catch (e) {
-        console.warn('[TTS Spanish Google] Fallback a sintetizador local:', e);
+        console.warn('[TTS Google] Intentando fallback Web Speech:', e);
       }
     }
 
+    fallbackWebSpeech(text, vol, selectedVoice);
+  }
+
+  function fallbackWebSpeech(text, vol, selectedVoice) {
     try {
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'es-ES';
-      utterance.rate = 1.05;
-      utterance.volume = currentSpanishVolume; // Volumen suave regulable (ej. 0.05 para 5%)
+      setTimeout(() => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'es-ES';
+        utterance.rate = 1.05;
+        utterance.volume = vol;
 
-      const voices = window.speechSynthesis.getVoices();
-      if (voices && voices.length > 0) {
-        let voiceToUse = null;
-        if (selectedVoice && selectedVoice !== 'auto' && selectedVoice !== 'google_tts') {
-          voiceToUse = voices.find(v => v.name === selectedVoice);
-        }
-        if (!voiceToUse) {
-          voiceToUse = voices.find(v => (v.lang.startsWith('es') || v.lang.includes('es-')) && (v.name.includes('Natural') || v.name.includes('Helena') || v.name.includes('Sabina') || v.name.includes('Laura') || v.name.includes('Google') || v.name.includes('Microsoft')))
-            || voices.find(v => v.lang.startsWith('es') || v.lang.includes('es-'));
-        }
-        if (voiceToUse) {
-          utterance.voice = voiceToUse;
-        }
-      }
+        utterance.onstart = () => markAppSpeakingStart();
+        utterance.onend = () => markAppSpeakingEnd(450);
+        utterance.onerror = () => markAppSpeakingEnd(0);
 
-      window.speechSynthesis.speak(utterance);
+        const voices = window.speechSynthesis.getVoices();
+        if (voices && voices.length > 0) {
+          let voiceToUse = null;
+          if (selectedVoice && selectedVoice !== 'auto' && selectedVoice !== 'google_tts') {
+            voiceToUse = voices.find(v => v.name === selectedVoice);
+          }
+          if (!voiceToUse) {
+            voiceToUse = voices.find(v => (v.lang.startsWith('es') || v.lang.includes('es-')) && (v.name.includes('Natural') || v.name.includes('Helena') || v.name.includes('Sabina') || v.name.includes('Laura') || v.name.includes('Google') || v.name.includes('Microsoft')))
+              || voices.find(v => v.lang.startsWith('es') || v.lang.includes('es-'));
+          }
+          if (voiceToUse) {
+            utterance.voice = voiceToUse;
+          }
+        }
+
+        markAppSpeakingStart();
+        window.speechSynthesis.speak(utterance);
+      }, 50);
     } catch (e) {
-      console.warn('[TTS Spanish] Error:', e);
+      console.warn('[TTS Web Speech Error]:', e);
+      markAppSpeakingEnd(0);
     }
   }
 
   if (btnTestSpanishVoice) {
     btnTestSpanishVoice.addEventListener('click', () => {
       const pct = Math.round(currentSpanishVolume * 100);
-      appendLog('TTS', `Probando reproducción de voz en español al ${pct}% de volumen...`);
-      speakSpanishToUser(`Hola, esta es una prueba de la voz en español con volumen al ${pct} por ciento.`);
+      speakSpanishToUser(`Hola, esta es una prueba de la voz del traductor en español con volumen al ${pct} por ciento.`);
     });
   }
 
@@ -424,6 +458,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.lang = lang;
       utterance.rate = 1.05;
+
+      utterance.onstart = () => markAppSpeakingStart();
+      utterance.onend = () => markAppSpeakingEnd(450);
+      utterance.onerror = () => markAppSpeakingEnd(0);
 
       const voices = window.speechSynthesis.getVoices();
       if (voices && voices.length > 0) {
@@ -438,9 +476,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
 
+      markAppSpeakingStart();
       window.speechSynthesis.speak(utterance);
     } catch (e) {
       console.warn('[TTS] Error sintetizando voz:', e);
+      markAppSpeakingEnd(0);
     }
   }
 
@@ -763,8 +803,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
-      // Detener video inmediatamente (solo necesitamos el canal de audio del sistema)
-      incomingMediaStream.getVideoTracks().forEach(t => t.stop());
+      // Mantener activo el stream completo para que Chromium no desactive el loopback de audio del sistema
 
       incomingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const incomingSource = incomingAudioContext.createMediaStreamSource(incomingMediaStream);
@@ -782,6 +821,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       incomingScriptProcessor.onaudioprocess = async (e) => {
         if (!isPipelineRunning) return;
 
+        // 0. Bloqueo Total de Eco: Si la aplicación está reproduciendo la voz por los altavoces, IGNORAR el loopback
+        const isCurrentlyPlayingAudio = isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 750);
+        if (isCurrentlyPlayingAudio) {
+          incomingSpeechHold = 0;
+          incomingSamplesBuffer = [];
+          return;
+        }
+
         const inputData = e.inputBuffer.getChannelData(0);
 
         let sum = 0;
@@ -790,8 +837,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         const rms = Math.sqrt(sum / inputData.length);
 
-        // Umbral para detectar voz del receptor desde la videollamada
-        const incomingThreshold = 0.010;
+        // Umbral sensible para capturar la voz del receptor en Google Meet
+        const incomingThreshold = 0.002;
 
         if (rms >= incomingThreshold) {
           incomingSpeechHold = 4;
@@ -811,7 +858,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
         }
 
-        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length > 8000) || (incomingSamplesBuffer.length > 32000);
+        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length > 6000) || (incomingSamplesBuffer.length > 28000);
 
         if (shouldProcess && !isTranscribingIncoming && apiKey) {
           const samples = new Float32Array(incomingSamplesBuffer);
@@ -842,6 +889,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                 if (translation && translation.translated && translation.translated.trim()) {
                   const translatedText = translation.translated.trim();
+
+                  // Si el audio capturado del receptor ya era español (ej. eco de los altavoces), descartar para evitar bucles
+                  if (translation.detectedLang === 'es' || text.toLowerCase() === translatedText.toLowerCase()) {
+                    appendLog('RECEPTOR', `🔇 Eco de altavoces filtrado: "${text}"`, 'warn');
+                    return;
+                  }
+
                   appendLog('RECEPTOR', `✨ Traducido (Español): "${translatedText}"`, 'translate');
 
                   previewOrig.textContent = `👤 Receptor (Inglés): ${text}`;
@@ -926,16 +980,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       // 2. Captura de audio del micrófono con DSP WebRTC nativo
       const micDeviceId = micInputSelect.value;
-      micMediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          deviceId: (micDeviceId && micDeviceId !== 'default') ? { exact: micDeviceId } : undefined,
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+      try {
+        micMediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: (micDeviceId && micDeviceId !== 'default') ? { ideal: micDeviceId } : undefined,
+            channelCount: 1,
+            sampleRate: 16000,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+      } catch (e1) {
+        console.warn('[Microphone] Usando fallback de captura directa:', e1);
+        micMediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
 
       appendLog('AUDIO', `Micrófono capturado con Supresión de Ruido y Cancelación de Eco (${engine.toUpperCase()}).`, 'audio');
 
@@ -956,6 +1015,21 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       scriptProcessor.onaudioprocess = async (audioProcessingEvent) => {
         if (!isPipelineRunning) return;
+
+        // 0. Bloqueo de Eco Acústico (Si el altavoz está reproduciendo audio, ignorar el micrófono)
+        const isCurrentlyPlayingAudio = isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 450);
+        if (isCurrentlyPlayingAudio) {
+          speechHoldFrames = 0;
+          speechSamplesBuffer = [];
+          continuousSpeechFrames = 0;
+          if (vadBadge) {
+            vadBadge.className = 'vad-badge noise';
+            vadBadge.textContent = '🔇 ECO BLOQUEADO';
+          }
+          if (vuBar) vuBar.style.width = '0%';
+          if (vuValText) vuValText.textContent = '0%';
+          return;
+        }
 
         const inputBuffer = audioProcessingEvent.inputBuffer;
         const inputData = inputBuffer.getChannelData(0);
@@ -1056,16 +1130,25 @@ document.addEventListener('DOMContentLoaded', async () => {
 
                   if (translation && translation.translated && translation.translated.trim()) {
                     const translatedText = translation.translated.trim();
-                    appendLog('TRANSLATE', `Traducido: "${translatedText}"`, 'translate');
+                    const isTargetSpanish = (translation.targetLang === 'es' || translation.detectedLang === 'en');
+
+                    appendLog('TRANSLATE', `Traducido (${isTargetSpanish ? 'Inglés ➔ Español' : 'Español ➔ Inglés'}): "${translatedText}"`, 'translate');
                     previewTrans.textContent = `✨ ${translatedText}`;
 
                     ipcRenderer.send('DISPLAY_SUBTITLE', {
                       originalText: translation.original,
                       translatedText: translatedText,
+                      direction: isTargetSpanish ? 'incoming' : 'outgoing',
                       isFinal: true
                     });
 
-                    playAudioToVirtualCableAndSpeakers(translatedText, targetLangSelect.value);
+                    if (isTargetSpanish) {
+                      // Si la traducción es a español, reproducir por los altavoces locales
+                      speakSpanishToUser(translatedText);
+                    } else {
+                      // Si la traducción es a inglés, inyectar en Cable Virtual para Google Meet
+                      playAudioToVirtualCableAndSpeakers(translatedText, 'en');
+                    }
                   }
                 }
               }
