@@ -156,7 +156,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   let isPipelineRunning = false;
-  let currentSessionMode = null; // null | 'LIVE' | 'TEST'
+  let isLiveToggleActive = false;
+  let isTestBtnActive = false;
   let geminiLiveClient = null;
   let pcmPlayer = new PcmStreamPlayer(24000);
 
@@ -236,51 +237,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en', mode = 'LIVE') {
+  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en') {
     if (!text || !text.trim()) return;
 
     const targetCode = (lang === 'es' || lang.startsWith('es')) ? 'es' : 'en';
 
     try {
-      // 1. Inyectar en el Cable Virtual ÚNICAMENTE en modo 'LIVE' (llamada real)
-      if (mode === 'LIVE') {
-        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
-        const response = await fetch(ttsUrl);
-        if (response.ok) {
-          const arrayBuffer = await response.arrayBuffer();
+      // 1. Inyectar siempre en el Cable Virtual para Google Meet / Teams / Zoom
+      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
+      const response = await fetch(ttsUrl);
+      if (response.ok) {
+        const arrayBuffer = await response.arrayBuffer();
 
-          const cableId = virtualCableSelect.value;
-          const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
-          const ctxCable = new AudioCtxClass();
+        const cableId = virtualCableSelect.value;
+        const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+        const ctxCable = new AudioCtxClass();
 
-          if (cableId && cableId !== 'default' && typeof ctxCable.setSinkId === 'function') {
-            try {
-              await ctxCable.setSinkId(cableId);
-            } catch (e) {
-              console.warn('[Audio Out] Error en setSinkId para Virtual Cable:', e);
-            }
+        if (cableId && cableId !== 'default' && typeof ctxCable.setSinkId === 'function') {
+          try {
+            await ctxCable.setSinkId(cableId);
+          } catch (e) {
+            console.warn('[Audio Out] Error en setSinkId para Virtual Cable:', e);
           }
-
-          const decodedBuffer = await ctxCable.decodeAudioData(arrayBuffer.slice(0));
-          const sourceCable = ctxCable.createBufferSource();
-          sourceCable.buffer = decodedBuffer;
-          sourceCable.connect(ctxCable.destination);
-          sourceCable.start(0);
-
-          sourceCable.onended = () => {
-            try { ctxCable.close(); } catch (e) {}
-          };
         }
+
+        const decodedBuffer = await ctxCable.decodeAudioData(arrayBuffer.slice(0));
+        const sourceCable = ctxCable.createBufferSource();
+        sourceCable.buffer = decodedBuffer;
+        sourceCable.connect(ctxCable.destination);
+        sourceCable.start(0);
+
+        sourceCable.onended = () => {
+          try { ctxCable.close(); } catch (e) {}
+        };
       }
 
-      // 2. Monitoreo local en los parlantes/auriculares (si está activo el monitoreo o si es una prueba)
-      if ((localMonitorToggle && localMonitorToggle.checked) || mode === 'TEST') {
+      // 2. Monitoreo local en los parlantes/auriculares si está habilitado por el usuario
+      if (localMonitorToggle && localMonitorToggle.checked) {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
 
     } catch (err) {
       console.warn('[Audio Out] Fallback a sintetizador local:', err);
-      if ((localMonitorToggle && localMonitorToggle.checked) || mode === 'TEST') {
+      if (localMonitorToggle && localMonitorToggle.checked) {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
     }
@@ -294,24 +293,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   updateThresholdLine();
 
   // ── Event Listeners de UI ─────────────────────────────────────────
-  // Interruptor Maestro: Traducción Simultánea en Vivo (Llamada Real)
+  // Control 1: Switch Superior (Traducción Simultánea en Vivo)
   toggleActive.addEventListener('change', async () => {
-    const isActive = toggleActive.checked;
-    updateStatusBadge(isActive);
+    isLiveToggleActive = toggleActive.checked;
+    updateStatusBadge(isLiveToggleActive);
     await saveCurrentSettings();
+    ipcRenderer.send('TOGGLE_OVERLAY', isLiveToggleActive);
 
-    if (isActive) {
-      appendLog('CONTROL', 'Traducción en vivo ACTIVADA 🟢 (Transmitiendo a Google Meet / Teams)');
-      ipcRenderer.send('TOGGLE_OVERLAY', true);
-      if (isPipelineRunning) {
-        stopTranslationSession(false);
+    if (isLiveToggleActive) {
+      appendLog('CONTROL', 'Traducción Simultánea ACTIVADA desde switch superior 🟢');
+      if (!isPipelineRunning) {
+        await startTranslationPipeline();
       }
-      await startTranslationSession('LIVE');
     } else {
-      appendLog('CONTROL', 'Traducción en vivo DESACTIVADA ⚪');
-      ipcRenderer.send('TOGGLE_OVERLAY', false);
-      if (isPipelineRunning) {
-        stopTranslationSession(true);
+      appendLog('CONTROL', 'Switch superior DESACTIVADO ⚪');
+      if (!isTestBtnActive && isPipelineRunning) {
+        stopTranslationPipeline();
       }
     }
   });
@@ -343,19 +340,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
-  // Botón Probador Local de Voz (Sandbox para probar sin enviar a la llamada)
+  // Control 2: Botón Inferior de Pruebas (Independiente)
   btnTestMic.addEventListener('click', async () => {
-    if (isPipelineRunning && currentSessionMode === 'TEST') {
-      stopTranslationSession(true);
-    } else if (isPipelineRunning && currentSessionMode === 'LIVE') {
-      // Si la traducción en vivo está corriendo, detenerla
-      toggleActive.checked = false;
-      updateStatusBadge(false);
-      ipcRenderer.send('TOGGLE_OVERLAY', false);
-      stopTranslationSession(true);
+    isTestBtnActive = !isTestBtnActive;
+
+    if (isTestBtnActive) {
+      btnTestMic.innerHTML = '<span>🛑 Detener Prueba de Voz</span>';
+      btnTestMic.classList.add('active-test');
+      appendLog('CONTROL', 'Traducción y transcripción ACTIVADA desde botón de pruebas 🎙️');
+      if (!isPipelineRunning) {
+        await startTranslationPipeline();
+      }
     } else {
-      // Iniciar modo prueba local (no envía a Google Meet)
-      await startTranslationSession('TEST');
+      btnTestMic.innerHTML = '<span>🎙️ Probar Transcripción y Traducción en Vivo</span>';
+      btnTestMic.classList.remove('active-test');
+      appendLog('CONTROL', 'Botón de pruebas DETENIDO ⚪');
+      if (!isLiveToggleActive && isPipelineRunning) {
+        stopTranslationPipeline();
+      }
     }
   });
 
@@ -368,6 +370,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function applySettingsToUI(s) {
     toggleActive.checked = !!s.active;
+    isLiveToggleActive = !!s.active;
     updateStatusBadge(!!s.active);
     sourceLangSelect.value = s.sourceLang || 'es-ES';
     targetLangSelect.value = s.targetLang || 'en';
@@ -457,64 +460,41 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ── Controlador Unificado de Sesión de Traducción ─────────────────
-  async function startTranslationSession(mode = 'LIVE') {
+  async function startTranslationPipeline() {
     isPipelineRunning = true;
-    currentSessionMode = mode;
-
     previewBox.style.display = 'flex';
-
-    if (mode === 'LIVE') {
-      toggleActive.checked = true;
-      updateStatusBadge(true);
-      btnTestMic.innerHTML = '<span>🛑 Detener Traducción en Vivo</span>';
-      previewOrig.textContent = '🎙️ Escuchando tu voz (Transmitiendo hacia Google Meet / Teams)...';
-      previewTrans.textContent = '⚡ Traducción simultánea EN VIVO activa...';
-      appendLog('PIPELINE', `Iniciando motor EN VIVO (${sttEngineSelect.value.toUpperCase()}) ➔ Google Meet`);
-    } else {
-      toggleActive.checked = false;
-      updateStatusBadge(false);
-      btnTestMic.innerHTML = '<span>🛑 Detener Prueba Local</span>';
-      previewOrig.textContent = '🎙️ Probando micrófono localmente (No se envía a la reunión)...';
-      previewTrans.textContent = '🧪 Traducción de prueba en tus parlantes...';
-      appendLog('PIPELINE', `Iniciando motor en MODO PRUEBA LOCAL (${sttEngineSelect.value.toUpperCase()})`);
-    }
+    previewOrig.textContent = '🎙️ Escuchando tu voz con filtro de ruido activo...';
+    previewTrans.textContent = '⚡ Traducción simultánea en vivo lista...';
 
     const engine = sttEngineSelect.value;
     const geminiKey = geminiKeyInput.value.trim();
     const groqKey = groqKeyInput.value.trim();
+
+    appendLog('PIPELINE', `Iniciando motor de traducción: ${engine.toUpperCase()}`);
 
     if (engine === 'gemini_live') {
       if (!geminiKey || geminiKey.length < 5) {
         appendLog('GEMINI', '⚠️ Ingresa tu Gemini API Key en el campo de configuración.', 'warn');
         previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
         previewTrans.textContent = 'Obtén tu clave gratis en: aistudio.google.com/app/apikey';
-        stopTranslationSession(true);
+        stopTranslationPipeline();
         return;
       }
-      await startUnifiedAudioPipeline('gemini_live', geminiKey, mode);
+      await startUnifiedAudioPipeline('gemini_live', geminiKey);
     } else if (engine === 'whisper_groq') {
       if (!groqKey || groqKey.length < 5) {
         appendLog('GROQ', '⚠️ Ingresa tu Groq API Key en el campo de configuración.', 'warn');
         previewOrig.textContent = '⚠️ Ingresa tu clave de Groq en el campo superior.';
         previewTrans.textContent = 'Obtén tu clave gratis en: console.groq.com/keys';
-        stopTranslationSession(true);
+        stopTranslationPipeline();
         return;
       }
-      await startUnifiedAudioPipeline('whisper_groq', groqKey, mode);
+      await startUnifiedAudioPipeline('whisper_groq', groqKey);
     }
   }
 
-  function stopTranslationSession(resetToggle = true) {
+  function stopTranslationPipeline() {
     isPipelineRunning = false;
-    currentSessionMode = null;
-
-    if (resetToggle) {
-      toggleActive.checked = false;
-      updateStatusBadge(false);
-      ipcRenderer.send('TOGGLE_OVERLAY', false);
-    }
-
-    btnTestMic.innerHTML = '<span>🎙️ Probar Transcripción y Traducción en Vivo</span>';
     appendLog('PIPELINE', 'Pipeline de voz detenido.');
 
     if (vadBadge) {
@@ -542,13 +522,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ── Pipeline Unificado con VAD, Filtrado de Ruido y Soporte Dual ──
-  async function startUnifiedAudioPipeline(engine, apiKey, mode = 'LIVE') {
+  async function startUnifiedAudioPipeline(engine, apiKey) {
     try {
       // 1. Inicializar WebSocket para Gemini Live si aplica
       if (engine === 'gemini_live') {
-        // En modo LIVE enviamos al Virtual Cable; en modo TEST a los altavoces locales
-        const sinkTarget = (mode === 'LIVE') ? virtualCableSelect.value : '';
-        await pcmPlayer.init(sinkTarget);
+        await pcmPlayer.init(virtualCableSelect.value);
 
         geminiLiveClient = new GeminiLiveClient({
           apiKey,
@@ -568,20 +546,16 @@ document.addEventListener('DOMContentLoaded', async () => {
               lastAudioLogTime = now;
               appendLog('AUDIO', `Reproduciendo voz traducida en tiempo real (PCM 24kHz)...`, 'audio');
             }
-            previewTrans.textContent = (mode === 'LIVE') 
-              ? '🔊 Transmitiendo voz traducida al inglés en la llamada...' 
-              : '🔊 Reproduciendo voz de prueba en tus parlantes...';
+            previewTrans.textContent = '🔊 Transmitiendo voz traducida al inglés en vivo...';
           },
           onTextReceived: (text) => {
             appendLog('GEMINI', `Traducción: "${text}"`, 'translate');
             previewTrans.textContent = `✨ ${text}`;
-            if (mode === 'LIVE') {
-              ipcRenderer.send('DISPLAY_SUBTITLE', {
-                originalText: '🎙️ Mi voz en vivo',
-                translatedText: text,
-                isFinal: true
-              });
-            }
+            ipcRenderer.send('DISPLAY_SUBTITLE', {
+              originalText: '🎙️ Mi voz en vivo',
+              translatedText: text,
+              isFinal: true
+            });
           },
           onError: (err) => {
             appendLog('GEMINI', `Error: ${err.message}`, 'error');
@@ -608,7 +582,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
 
-      appendLog('AUDIO', `Micrófono capturado con Supresión de Ruido y Cancelación de Eco (${engine.toUpperCase()} - ${mode}).`, 'audio');
+      appendLog('AUDIO', `Micrófono capturado con Supresión de Ruido y Cancelación de Eco (${engine.toUpperCase()}).`, 'audio');
 
       audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(micMediaStream);
@@ -730,15 +704,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     appendLog('TRANSLATE', `Traducido: "${translatedText}"`, 'translate');
                     previewTrans.textContent = `✨ ${translatedText}`;
 
-                    if (mode === 'LIVE') {
-                      ipcRenderer.send('DISPLAY_SUBTITLE', {
-                        originalText: translation.original,
-                        translatedText: translatedText,
-                        isFinal: true
-                      });
-                    }
+                    ipcRenderer.send('DISPLAY_SUBTITLE', {
+                      originalText: translation.original,
+                      translatedText: translatedText,
+                      isFinal: true
+                    });
 
-                    playAudioToVirtualCableAndSpeakers(translatedText, targetLangSelect.value, mode);
+                    playAudioToVirtualCableAndSpeakers(translatedText, targetLangSelect.value);
                   }
                 }
               }
