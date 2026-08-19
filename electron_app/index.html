@@ -3,259 +3,370 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MeetTranslate Desktop AI</title>
+  <title>ViBeTranslate Desktop - Studio Translation Console</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-  <!-- App Header -->
-  <div class="app-header">
+  <!-- Top App Header -->
+  <header class="app-header">
     <div class="brand-group">
-      <div class="brand-logo">AI</div>
-      <div class="brand-title">MeetTranslate Desktop</div>
+      <div class="brand-icon-circle">
+        <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+      </div>
+      <div class="brand-text-col">
+        <div class="brand-title-row">
+          <span class="brand-name">ViBeTranslate</span>
+          <span class="pro-badge">PRO STUDIO</span>
+        </div>
+        <span class="brand-subtitle">Simultaneous Audio Translation Workstation</span>
+      </div>
     </div>
-    <div class="live-badge" id="live-badge">
-      <span class="status-dot"></span>
-      <span id="status-text">DESACTIVADO</span>
+    
+    <div class="header-actions">
+      <div class="live-badge" id="live-badge">
+        <span class="status-dot"></span>
+        <span id="status-text">DESACTIVADO</span>
+      </div>
+      <button type="button" class="btn-hardware-pill" id="btn-hardware-check">
+        <span class="dot-cyan"></span>
+        <span>🖥️ Validador de Hardware</span>
+      </button>
+      <button type="button" class="btn-icon-round" id="btn-theme-toggle" title="Cambiar Tema">🌙</button>
+      <button type="button" class="btn-icon-round" id="btn-pip-toggle" title="Modo Ventana">🗗</button>
+      <button type="button" class="btn-icon-round" id="btn-export-all" title="Exportar">📤</button>
     </div>
-  </div>
+  </header>
 
-  <!-- Platform Selection -->
-  <div class="card">
-    <div class="card-title">🖥️ Selecciona la Plataforma de Llamada</div>
-    <div class="platform-grid">
-      <div class="platform-btn active" data-platform="teams">
-        <span class="platform-icon">🔵</span>
-        <span class="platform-name">Teams Desktop</span>
+  <!-- Row 2: Platform Bar & Translation Switch -->
+  <div class="top-controls-row">
+    <div class="platform-card">
+      <div class="platform-btn" data-platform="teams">
+        <span class="platform-icon">👥</span>
+        <span class="platform-name">Microsoft Teams</span>
       </div>
       <div class="platform-btn" data-platform="zoom">
-        <span class="platform-icon">🟦</span>
-        <span class="platform-name">Zoom App</span>
+        <span class="platform-icon">📹</span>
+        <span class="platform-name">Zoom Workplace</span>
       </div>
-      <div class="platform-btn" data-platform="meet">
+      <div class="platform-btn active" data-platform="meet">
         <span class="platform-icon">🟢</span>
         <span class="platform-name">Google Meet</span>
       </div>
     </div>
-  </div>
 
-  <!-- Translation Switch -->
-  <div class="toggle-row">
-    <span class="toggle-label">⚡ Traducción Simultánea en Vivo</span>
-    <label class="switch">
-      <input type="checkbox" id="toggle-active">
-      <span class="slider"></span>
-    </label>
-  </div>
-
-  <!-- Main Settings Card -->
-  <div class="card">
-    <div class="card-title">⚙️ Configuración de Idiomas y Motores</div>
-    
-    <div class="form-row">
-      <div class="form-group">
-        <label for="source-lang">Origen (Mi Voz)</label>
-        <select id="source-lang">
-          <option value="es-ES">Español (ES)</option>
-          <option value="en-US">Inglés (EN)</option>
-          <option value="auto">⚡ Auto (Multilingüe)</option>
-        </select>
+    <div class="toggle-card">
+      <div class="toggle-text">
+        <span class="toggle-title">Traducción Simultánea</span>
+        <span class="toggle-sub">Procesamiento continuo y enrutamiento en tiempo real</span>
       </div>
-
-      <div class="form-group">
-        <label for="target-lang">Destino (Traducción)</label>
-        <select id="target-lang">
-          <option value="en">Inglés (EN)</option>
-          <option value="es">Español (ES)</option>
-          <option value="auto">⚡ Auto (Bidireccional)</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label for="stt-engine">Motor de Transcripción IA</label>
-      <select id="stt-engine">
-        <option value="gemini_live">✨ Gemini Live (Audio-to-Audio Ultra-Fluido)</option>
-        <option value="whisper_groq">⚡ Groq Whisper AI (Baja Latencia)</option>
-        <option value="webspeech">🌐 Web Speech API (Nativo Gratis)</option>
-      </select>
-    </div>
-
-    <!-- Gemini Config -->
-    <div class="form-group" id="gemini-key-group">
-      <label for="gemini-key">Gemini API Key (Gratis en AI Studio)</label>
-      <input type="text" id="gemini-key" placeholder="AIzaSy..." value="">
-    </div>
-
-    <div class="form-group" id="gemini-voice-group">
-      <label for="gemini-voice">Voz de Gemini Live</label>
-      <select id="gemini-voice">
-        <option value="Puck">Puck (Masculina Dinámica)</option>
-        <option value="Charon">Charon (Masculina Sobria)</option>
-        <option value="Kore">Kore (Femenina Cálida)</option>
-        <option value="Fenrir">Fenrir (Masculina Profunda)</option>
-        <option value="Aoede">Aoede (Femenina Profesional)</option>
-      </select>
-    </div>
-
-    <!-- Groq Config -->
-    <div class="form-group" id="groq-key-group" style="display: none;">
-      <label for="groq-key">Groq API Key (Gratis)</label>
-      <input type="text" id="groq-key" placeholder="gsk_..." value="">
-    </div>
-
-    <!-- Spanish Voice Config for Incoming Audio -->
-    <div class="form-group" id="spanish-voice-group">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-        <label for="spanish-voice-select">Voz en Español (Para Escuchar al Receptor)</label>
-        <button type="button" id="btn-test-spanish-voice" style="background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.5); color: #c7d2fe; font-size: 11px; padding: 3px 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
-          🔊 Probar Voz
-        </button>
-      </div>
-      <select id="spanish-voice-select">
-        <option value="auto">⚡ Auto (Mejor voz en Español detectada)</option>
-        <option value="google_tts">Google Español (Neutro Natural Online)</option>
-      </select>
-    </div>
-
-    <!-- Spanish Voice Volume Control -->
-    <div class="form-group" id="spanish-volume-group">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-        <label for="spanish-volume-slider" style="margin-bottom: 0;">🔊 Volumen de la Voz del Traductor en Español</label>
-        <span id="spanish-volume-text" style="color: #60a5fa; font-weight: 700; font-size: 12px; background: rgba(59, 130, 246, 0.15); padding: 2px 8px; border-radius: 6px;">90%</span>
-      </div>
-      <div style="display: flex; align-items: center; gap: 10px;">
-        <input type="range" id="spanish-volume-slider" min="10" max="100" value="90" style="flex: 1; accent-color: #3b82f6; cursor: pointer;">
-      </div>
-      <div style="display: flex; gap: 6px; margin-top: 6px;">
-        <button type="button" class="btn-preset-vol" data-vol="30" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">30% (Suave)</button>
-        <button type="button" class="btn-preset-vol" data-vol="60" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">60%</button>
-        <button type="button" class="btn-preset-vol" data-vol="90" style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.4); color: #93c5fd; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">90% (Recomendado)</button>
-        <button type="button" class="btn-preset-vol" data-vol="100" style="background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); color: #cbd5e1; font-size: 11px; padding: 2px 8px; border-radius: 4px; cursor: pointer;">100% (Máx)</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Audio Devices Card -->
-  <div class="card">
-    <div class="card-title">🎙️ Dispositivos de Audio y Aislamiento de Voz</div>
-    
-    <!-- Driver Status Banner -->
-    <div id="driver-missing-banner" style="background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.35); border-radius: 10px; padding: 12px; margin-bottom: 14px; display: none;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-        <span style="color: #fca5a5; font-weight: 700; font-size: 12.5px; display: flex; align-items: center; gap: 6px;">
-          ⚠️ Driver Virtual VB-CABLE Requerido
-        </span>
-        <button type="button" id="btn-refresh-devices" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; padding: 4px 8px; border-radius: 6px; font-size: 11px; cursor: pointer;">
-          🔄 Actualizar
-        </button>
-      </div>
-      <p style="color: #fecaca; font-size: 11.5px; line-height: 1.45; margin-bottom: 10px;">
-        Para enviar la traducción a <strong>Google Meet, Teams o Zoom</strong> y silenciar tu voz real, Windows necesita el driver gratuito <strong>VB-Audio Virtual Cable</strong>.
-      </p>
-      <div style="background: rgba(0,0,0,0.3); border: 1px dashed rgba(255,255,255,0.2); border-radius: 6px; padding: 7px 10px; margin-bottom: 10px; font-size: 11px; word-break: break-all; color: #93c5fd;">
-        🔗 <strong>Ruta de Descarga:</strong> <a href="#" id="link-vbcable-url" style="color: #60a5fa; text-decoration: underline; font-weight: 600;">https://vb-audio.com/Cable/</a>
-      </div>
-      <div style="display: flex; gap: 8px;">
-        <button type="button" id="btn-download-vbcable" style="flex: 1; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 700; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
-          <span>📥 Abrir Web de Descarga Oficial</span>
-        </button>
-      </div>
-      <div style="background: rgba(0,0,0,0.25); border-radius: 6px; padding: 8px; margin-top: 10px; font-size: 11px; color: #cbd5e1; line-height: 1.45;">
-        <strong>Instalación rápida (1 minuto):</strong><br>
-        1. Clic en el botón rojo de arriba para descargar el ZIP.<br>
-        2. Descomprime y ejecuta <code>VBCABLE_Setup_x64.exe</code> como Administrador.<br>
-        3. Clic en <em>"Install Driver"</em> y luego pulsa <em>"Actualizar"</em> aquí arriba.
-      </div>
-    </div>
-
-    <div id="driver-ready-banner" style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px; margin-bottom: 12px; font-size: 11.5px; line-height: 1.4; color: #d1fae5; display: none;">
-      <strong>✅ Driver VB-Audio Cable detectado y listo:</strong><br>
-      1. Aquí abajo selecciona en <em>Salida Virtual</em>: <strong>CABLE Input (VB-Audio)</strong>.<br>
-      2. En Google Meet (Audio ➔ Micrófono) selecciona: <strong>CABLE Output (VB-Audio)</strong>.<br>
-      <em>(Google Meet solo escuchará la voz en inglés de la app y tu voz real quedará 100% suprimida).</em>
-    </div>
-
-    <div class="form-group">
-      <label for="mic-input-select">Micrófono Físico de Entrada (Tu voz real)</label>
-      <select id="mic-input-select">
-        <option value="default">Cargando micrófonos del sistema...</option>
-      </select>
-    </div>
-
-    <div class="form-group">
-      <label for="virtual-cable-select">Salida Virtual (Hacia Google Meet / Teams / Zoom)</label>
-      <select id="virtual-cable-select">
-        <option value="default">VB-Audio Virtual Cable (Recomendado)</option>
-      </select>
-    </div>
-
-    <div class="form-group">
-      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e2e8f0; font-size: 12px;">
-        <input type="checkbox" id="local-monitor-toggle" checked style="width: auto; accent-color: #10b981;">
-        <span>🔊 Escuchar mi traducción en mis propios auriculares (Monitoreo)</span>
+      <label class="switch">
+        <input type="checkbox" id="toggle-active">
+        <span class="slider"></span>
       </label>
     </div>
-
-    <div class="form-group">
-      <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; color: #e2e8f0; font-size: 12px;">
-        <input type="checkbox" id="translate-incoming-toggle" checked style="width: auto; accent-color: #3b82f6;">
-        <span>🎧 Traducir en vivo la voz del receptor (Inglés ➔ Español en Subtítulos)</span>
-      </label>
-    </div>
-
-    <div class="form-group">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <label for="noise-gate-select">Filtro de Ruido Ambiental (Noise Gate / VAD)</label>
-        <span class="vad-badge" id="vad-badge">⚪ SILENCIO</span>
-      </div>
-      <select id="noise-gate-select">
-        <option value="0.008">Sensible (Espacio silencioso / Oficina privada)</option>
-        <option value="0.016" selected>Equilibrado (Recomendado - Filtra respiración y eco)</option>
-        <option value="0.030">Alto (Filtra teclado, clics y ruido de fondo moderado)</option>
-        <option value="0.055">Agresivo (Ambiente concurrido o con eco)</option>
-      </select>
-    </div>
-
-    <!-- Realtime Audio VU Meter -->
-    <div class="vu-container">
-      <div class="vu-label">
-        <span>Nivel de Entrada</span>
-        <span id="vu-val-text">0%</span>
-      </div>
-      <div class="vu-track">
-        <div class="vu-bar" id="vu-bar"></div>
-        <div class="vu-threshold-line" id="vu-threshold-line" title="Umbral de Activación de Voz"></div>
-      </div>
-    </div>
   </div>
 
-  <!-- Test & Subtitle Preview Box -->
-  <div class="card">
-    <div class="card-title">🧪 Probador de Voz y Vista Previa</div>
-    <button type="button" class="btn-primary" id="btn-test-mic">
-      <span>🎙️ Probar Transcripción y Traducción en Vivo</span>
-    </button>
+  <!-- Main 2-Column Grid -->
+  <main class="main-grid">
+    
+    <!-- LEFT COLUMN -->
+    <div class="grid-col left-col">
 
-    <div class="preview-box" id="preview-box" style="display: none;">
-      <div class="preview-original" id="preview-orig">Habla por tu micrófono...</div>
-      <div class="preview-translated" id="preview-trans">La traducción saldrá aquí...</div>
-    </div>
-  </div>
+      <!-- Panel 1: ENRUTAMIENTO DE AUDIO Y DISPOSITIVOS -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon icon-blue">⚡</span> ENRUTAMIENTO DE AUDIO Y DISPOSITIVOS
+          </div>
+          <button type="button" class="btn-header-action" id="btn-refresh-devices">
+            <span>🔄 Escanear</span>
+          </button>
+        </div>
 
-  <!-- Live Diagnostic Console -->
-  <div class="card">
-    <div style="display: flex; align-items: center; justify-content: space-between;">
-      <div class="card-title">📋 Consola de Diagnóstico en Tiempo Real</div>
-      <div style="display: flex; gap: 6px;">
-        <button type="button" class="btn-action" id="btn-clear-logs" title="Limpiar Consola">🗑️</button>
-        <button type="button" class="btn-action" id="btn-open-devtools" title="Abrir DevTools Chromium">🛠️</button>
-      </div>
+        <!-- Banner Estado Driver VB-Cable -->
+        <div class="alert-banner green-banner" id="driver-ready-banner">
+          <div class="banner-title">
+            <span class="banner-icon">🛡️</span> Driver VB-Audio Cable activo y calibrado
+          </div>
+          <div class="banner-desc">
+            En la videollamada selecciona <strong>CABLE Output</strong> como micrófono para enviar únicamente la traducción en inglés.
+          </div>
+        </div>
+
+        <div class="alert-banner red-banner" id="driver-missing-banner" style="display: none;">
+          <div class="banner-title">⚠️ Driver Virtual VB-CABLE Requerido</div>
+          <div class="banner-desc">
+            Para enviar la traducción a Google Meet, Teams o Zoom y silenciar tu voz real, Windows necesita el driver VB-Audio Cable.
+          </div>
+          <div class="banner-actions">
+            <button type="button" class="btn-download" id="btn-download-vbcable">📥 Descargar VB-CABLE</button>
+            <a href="#" id="link-vbcable-url" class="link-url">https://vb-audio.com/Cable/</a>
+          </div>
+        </div>
+
+        <!-- Form 2 Cols: Mic Input + Virtual Cable Output -->
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="mic-input-select">Micrófono de Entrada (Tu voz)</label>
+            <select id="mic-input-select">
+              <option value="default">Cargando micrófonos del sistema...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <div class="label-row">
+              <label for="virtual-cable-select">Salida Virtual (Hacia la Reunión)</label>
+              <button type="button" class="btn-mini-test" id="btn-test-vbcable">🔊 Probar</button>
+            </div>
+            <select id="virtual-cable-select">
+              <option value="default">CABLE Input (VB-Audio Virtual Cable)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Checkbox List -->
+        <div class="checkbox-list">
+          <label class="checkbox-card">
+            <input type="checkbox" id="local-monitor-toggle">
+            <span class="checkbox-label">Monitoreo local (Escuchar mi voz traducida en mis propios auriculares)</span>
+          </label>
+
+          <label class="checkbox-card">
+            <input type="checkbox" id="translate-incoming-toggle" checked>
+            <span class="checkbox-label">Traducción bidireccional (Traducir al receptor de la llamada al español)</span>
+          </label>
+
+          <label class="checkbox-card">
+            <input type="checkbox" id="three-toggle" checked>
+            <span class="checkbox-label">🌿 Renderizado y Animación 3D (Desmarcar para Modo Eco / 0% GPU)</span>
+          </label>
+        </div>
+
+        <!-- Noise Gate & VU Meter -->
+        <div class="noise-gate-section">
+          <div class="label-row">
+            <label for="noise-gate-select">Filtro de Ruido Ambiental (Noise Gate / VAD)</label>
+            <span class="vad-badge" id="vad-badge">⚪ SILENCIO</span>
+          </div>
+          <select id="noise-gate-select">
+            <option value="0.008">Sensible (Espacio silencioso / Oficina privada)</option>
+            <option value="0.016" selected>Equilibrado (Recomendado - Filtra respiración y eco)</option>
+            <option value="0.030">Alto (Filtra teclado, clics y ruido de fondo moderado)</option>
+            <option value="0.055">Agresivo (Ambiente concurrido o con eco)</option>
+          </select>
+
+          <div class="vu-container">
+            <div class="vu-label">
+              <span>Nivel de Entrada</span>
+              <span id="vu-val-text">0%</span>
+            </div>
+            <div class="vu-track">
+              <div class="vu-bar" id="vu-bar"></div>
+              <div class="vu-threshold-line" id="vu-threshold-line" title="Umbral de Activación de Voz"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Panel 2: MOTORES DE TRANSCRIPCIÓN Y VOCES -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon icon-gear">⚙️</span> MOTORES DE TRANSCRIPCIÓN Y VOCES
+          </div>
+        </div>
+
+        <!-- 2 Cols: Canal Origen + Canal Destino -->
+        <div class="form-row-2">
+          <div class="form-group">
+            <label for="source-lang">Canal Origen</label>
+            <select id="source-lang">
+              <option value="es-ES">Español (ES)</option>
+              <option value="en-US">Inglés (EN)</option>
+              <option value="auto">⚡ Auto (Multilingüe)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="target-lang">Canal Destino</label>
+            <select id="target-lang">
+              <option value="en">Inglés (EN)</option>
+              <option value="es">Español (ES)</option>
+              <option value="auto">⚡ Auto (Bidireccional)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Motor Select -->
+        <div class="form-group">
+          <label for="stt-engine">Motor de Procesamiento</label>
+          <select id="stt-engine">
+            <option value="whisper_groq">Groq Whisper AI (Ultra Baja Latencia ~300ms)</option>
+            <option value="gemini_live">Gemini Live (Audio-to-Audio Ultra-Fluido)</option>
+            <option value="webspeech">Web Speech API (Nativo Gratis)</option>
+          </select>
+        </div>
+
+        <!-- Groq API Key -->
+        <div class="form-group" id="groq-key-group">
+          <label for="groq-key">Groq API Key</label>
+          <input type="text" id="groq-key" placeholder="gsk_..." value="">
+        </div>
+
+        <!-- Gemini API Key & Voice (Hidden unless Gemini is active) -->
+        <div class="form-group" id="gemini-key-group" style="display: none;">
+          <label for="gemini-key">Gemini API Key</label>
+          <input type="text" id="gemini-key" placeholder="AIzaSy..." value="">
+        </div>
+
+        <div class="form-group" id="gemini-voice-group" style="display: none;">
+          <label for="gemini-voice">Voz de Gemini Live</label>
+          <select id="gemini-voice">
+            <option value="Puck">Puck (Masculina Dinámica)</option>
+            <option value="Charon">Charon (Masculina Sobria)</option>
+            <option value="Kore">Kore (Femenina Cálida)</option>
+            <option value="Fenrir">Fenrir (Masculina Profunda)</option>
+            <option value="Aoede">Aoede (Femenina Profesional)</option>
+          </select>
+        </div>
+
+        <!-- Spanish Voice Select -->
+        <div class="form-group" id="spanish-voice-group">
+          <div class="label-row">
+            <label for="spanish-voice-select">Voz del Traductor en Español</label>
+            <button type="button" class="btn-mini-test" id="btn-test-spanish-voice">🔊 Probar</button>
+          </div>
+          <select id="spanish-voice-select">
+            <option value="google_tts">Google Español (Neutro Natural Online)</option>
+            <option value="auto">⚡ Auto (Mejor voz en Español detectada)</option>
+          </select>
+        </div>
+
+        <!-- Spanish Volume Slider & Presets -->
+        <div class="form-group" id="spanish-volume-group">
+          <div class="label-row">
+            <label for="spanish-volume-slider">Nivel de Volumen (Traducción en Español)</label>
+            <span class="vol-badge" id="spanish-volume-text">90%</span>
+          </div>
+          <div class="range-container">
+            <input type="range" id="spanish-volume-slider" min="10" max="100" value="90">
+          </div>
+          <div class="presets-row">
+            <button type="button" class="btn-preset-vol" data-vol="30">30% Suave</button>
+            <button type="button" class="btn-preset-vol" data-vol="60">60%</button>
+            <button type="button" class="btn-preset-vol active-preset" data-vol="90">90% Recomendado</button>
+            <button type="button" class="btn-preset-vol" data-vol="100">100% Máx</button>
+          </div>
+        </div>
+      </section>
     </div>
-    <div id="log-container" class="log-console">
-      <div class="log-entry system">[SISTEMA] Consola de diagnóstico lista para registrar eventos...</div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="grid-col right-col">
+
+      <!-- Panel 3: MONITOR Y PARTICIPANTES EN VIVO -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon icon-monitor">🖥️</span> MONITOR Y PARTICIPANTES EN VIVO
+          </div>
+          <div class="card-header-actions">
+            <button type="button" class="btn-pill-action" id="btn-toggle-3d">
+              <span>⚡ Activar 3D Studio</span>
+            </button>
+            <button type="button" class="btn-pill-action" id="btn-export-conv">
+              <span>📥 Exportar Conversación</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Dark 3D / Eco Mode Stage Box -->
+        <div class="stage-box">
+          <!-- Top Bar inside stage -->
+          <div class="stage-top-bar">
+            <div class="stage-pills-left">
+              <span class="stage-pill active">🎙️ Estudio</span>
+              <span class="stage-pill">👤 Host</span>
+              <span class="stage-pill">👥 Reunión</span>
+            </div>
+            <div class="stage-pills-right">
+              <span class="stage-pill eco-pill">🌿 Modo Eco</span>
+              <span class="stage-pill">👥 4 Participantes</span>
+              <span class="stage-pill add-pill">+ Añadir</span>
+            </div>
+          </div>
+
+          <!-- Center Stage Graphic -->
+          <div class="stage-center">
+            <div class="eco-icon-wrap">
+              <span class="eco-dollar-icon">$</span>
+            </div>
+            <div class="eco-title">Modo Eco de Alto Rendimiento Activo</div>
+            <div class="eco-desc">
+              Renderizado 3D WebGL suspendido para máxima autonomía y 0% consumo de GPU.
+            </div>
+
+            <div class="avatar-pills-row">
+              <div class="avatar-pill active">
+                <span>👤 Tú (Host)</span>
+              </div>
+              <div class="avatar-pill">
+                <span>👤 Receptor</span>
+              </div>
+              <div class="avatar-pill">
+                <span>⚡ Gemini Live</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom bar inside stage -->
+          <div class="stage-bottom-bar">
+            <span class="stage-status-dot"></span>
+            <span class="stage-status-text">Escenario 3D Listo</span>
+          </div>
+        </div>
+
+        <!-- Big Purple-Blue Vibrant Action Button -->
+        <button type="button" class="btn-vibrant-gradient" id="btn-test-mic">
+          <span>▶ Probar Transcripción y Traducción</span>
+        </button>
+
+        <!-- Subtitle / Preview pill row -->
+        <div class="preview-pills-row" id="preview-box">
+          <span class="preview-badge entrada">ENTRADA</span>
+          <span class="preview-text orig-text" id="preview-orig">🎙️ ¡Mamá!</span>
+          <span class="preview-badge traduccion">TRADUCCIÓN</span>
+          <span class="preview-text trans-text" id="preview-trans">✨ Mother!</span>
+        </div>
+      </section>
+
+      <!-- Panel 4: REGISTRO DE EVENTOS Y DIAGNÓSTICO -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon icon-terminal">>_</span> REGISTRO DE EVENTOS Y DIAGNÓSTICO
+          </div>
+          <div class="card-header-actions">
+            <button type="button" class="btn-pill-action" id="btn-export-logs">
+              <span>📥 Exportar Logs</span>
+            </button>
+            <button type="button" class="btn-icon-btn" id="btn-clear-logs" title="Limpiar Consola">🗑️</button>
+            <button type="button" class="btn-icon-btn" id="btn-open-devtools" title="Herramientas de Desarrollador">🛠️</button>
+          </div>
+        </div>
+
+        <!-- Dark Log Terminal -->
+        <div id="log-container" class="log-terminal">
+          <div class="log-entry system">[SISTEMA] Consola de diagnóstico lista para registrar eventos...</div>
+        </div>
+      </section>
+
     </div>
-  </div>
+  </main>
 
   <script src="index.js"></script>
 </body>

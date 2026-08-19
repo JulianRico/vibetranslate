@@ -243,6 +243,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  const btnTestVbCable = document.getElementById('btn-test-vbcable');
+  if (btnTestVbCable) {
+    btnTestVbCable.addEventListener('click', () => {
+      appendLog('AUDIO', 'Emitiendo audio de prueba hacia el Cable Virtual...');
+      playAudioToVirtualCableAndSpeakers('Hello, this is a live test of the virtual audio cable output.', 'en');
+    });
+  }
+
+  const btnHardwareCheck = document.getElementById('btn-hardware-check');
+  if (btnHardwareCheck) {
+    btnHardwareCheck.addEventListener('click', async () => {
+      appendLog('SYSTEM', 'Ejecutando diagnóstico de hardware y drivers...');
+      await enumerateAudioDevices();
+    });
+  }
+
   let isPipelineRunning = false;
   let isLiveToggleActive = false;
   let isTestBtnActive = false;
