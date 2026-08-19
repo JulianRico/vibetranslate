@@ -5,7 +5,7 @@
 
 const { ipcRenderer } = require('electron');
 const GeminiLiveClient = require('./gemini-live-client');
-const { floatTo16BitPCM, arrayBufferToBase64, encodeWAV } = require('./audio-utils');
+const { floatTo16BitPCM, arrayBufferToBase64, encodeWAV, isWhisperHallucination } = require('./audio-utils');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
 class PcmStreamPlayer {
@@ -1005,14 +1005,30 @@ Generado automáticamente por ViBeTranslate Desktop
             if (incomingSpeechHold === 0) {
               ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: false });
             }
+          } else {
+            // Descartar fragmentos de ruido aislados que no alcancen duración mínima de habla (~500ms)
+            if (incomingSamplesBuffer.length > 0 && incomingSamplesBuffer.length < 8000) {
+              incomingSamplesBuffer = [];
+            }
           }
         }
 
-        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length > 6000) || (incomingSamplesBuffer.length > 28000);
+        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length >= 8000) || (incomingSamplesBuffer.length > 28000);
 
         if (shouldProcess && !isTranscribingIncoming && apiKey) {
           const samples = new Float32Array(incomingSamplesBuffer);
           incomingSamplesBuffer = [];
+
+          // Comprobar si el búfer tiene suficiente energía promedio (no solo un clic o estática)
+          let energySum = 0;
+          for (let i = 0; i < samples.length; i++) {
+            energySum += samples[i] * samples[i];
+          }
+          const avgRms = Math.sqrt(energySum / samples.length);
+          if (avgRms < 0.001) {
+            return;
+          }
+
           isTranscribingIncoming = true;
 
           try {
@@ -1028,7 +1044,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
             if (result && result.text && result.text.trim()) {
               const text = result.text.trim();
-              if (text.length > 2 && !text.match(/^(thank you|thanks|you|\.)$/i)) {
+              if (!isWhisperHallucination(text)) {
                 appendLog('RECEPTOR', `Inglés: "${text}"`, 'audio');
 
                 const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
@@ -1249,15 +1265,32 @@ Generado automáticamente por ViBeTranslate Desktop
             for (let i = 0; i < inputData.length; i++) {
               speechSamplesBuffer.push(inputData[i]);
             }
+          } else {
+            // Si el usuario dejó de hablar y las muestras acumuladas son muy pocas (< 600ms = 9600 muestras),
+            // se trataba de un ruido breve (teclado, respiración, chasquido). Descartarlo para no acumular ruidos a lo largo del tiempo.
+            if (speechSamplesBuffer.length > 0 && speechSamplesBuffer.length < 9600) {
+              speechSamplesBuffer = [];
+            }
           }
 
           // Si el usuario pausó O se alcanzó ~1.8s de habla continua (28000 muestras)
-          const shouldProcessGroq = (speechHoldFrames === 0 && speechSamplesBuffer.length > 8000) || (speechSamplesBuffer.length > 28000);
+          const shouldProcessGroq = (speechHoldFrames === 0 && speechSamplesBuffer.length >= 9600) || (speechSamplesBuffer.length > 28000);
 
           if (shouldProcessGroq && !isTranscribingGroq) {
             const samplesToSend = new Float32Array(speechSamplesBuffer);
             speechSamplesBuffer = [];
             continuousSpeechFrames = 0;
+
+            // Verificar energía RMS promedio del búfer completo
+            let energySum = 0;
+            for (let i = 0; i < samplesToSend.length; i++) {
+              energySum += samplesToSend[i] * samplesToSend[i];
+            }
+            const avgRms = Math.sqrt(energySum / samplesToSend.length);
+            if (avgRms < threshold * 0.4) {
+              return;
+            }
+
             isTranscribingGroq = true;
 
             try {
@@ -1273,7 +1306,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
               if (result && result.text && result.text.trim()) {
                 const recognizedText = result.text.trim();
-                if (!recognizedText.match(/^(gracias|subtítulos|thank you|you|\.)$/i) || recognizedText.length > 3) {
+                if (!isWhisperHallucination(recognizedText)) {
                   appendLog('VOICE', `Reconocido (Groq): "${recognizedText}"`, 'audio');
                   previewOrig.textContent = `🎙️ ${recognizedText}`;
 
@@ -1285,7 +1318,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
                     if (translation && translation.translated && translation.translated.trim()) {
                       const translatedText = translation.translated.trim();
-                      const isTargetSpanish = (translation.targetLang === 'es' || translation.detectedLang === 'en');
+                      const isTargetSpanish = (translation.targetLang === 'es');
 
                       sessionTranslationHistory.push({
                         time: new Date().toLocaleTimeString(),

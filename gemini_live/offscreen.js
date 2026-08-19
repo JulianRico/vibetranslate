@@ -288,11 +288,42 @@ async function processAudioChunk(blob, direction) {
     return;
   }
 
-  if (transcribedText && transcribedText.trim().length > 0) {
+  if (transcribedText && transcribedText.trim().length > 0 && !isWhisperHallucination(transcribedText)) {
     const etiqueta = direction === 'incoming' ? 'Voz del participante remoto' : 'Mi voz (micrófono)';
     console.log('[MeetTranslate AI Offscreen] ' + etiqueta + ' transcrita:', transcribedText);
     await handleTranscription(transcribedText.trim(), true, direction);
   }
+}
+
+/**
+ * Detecta si el texto devuelto por Whisper es una alucinación por ruido de fondo o silencio.
+ */
+function isWhisperHallucination(text) {
+  if (!text || typeof text !== 'string') return true;
+  const cleaned = text.trim();
+  if (cleaned.length === 0) return true;
+  if (/^[.\s\-–—,;:!¡?¿"'\(\)\[\]{}…*~_/\\]+$/.test(cleaned)) return true;
+  if (/^\[.+\]$/.test(cleaned) || /^\(.+\)$/.test(cleaned)) return true;
+
+  const normalized = cleaned
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()?"'¡¿♪…«»]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized.length === 0) return true;
+
+  const patterns = [
+    /^gracias$/, /^muchas gracias$/, /^muchas gracias por ver$/, /^gracias por ver$/,
+    /^gracias por ver el video$/, /^gracias por ver este video$/, /^gracias por su atencion$/,
+    /^thank you$/, /^thank you very much$/, /^thank you so much$/, /^thank you for watching$/,
+    /^thanks$/, /^thanks for watching$/, /^subtitulos/i, /^amara\.?org/i, /^sous-titres/i,
+    /^transcribed by/i, /^translated by/i, /^you$/, /^bye$/, /^goodbye$/, /^hello$/, /^silence$/, /^music$/
+  ];
+
+  return patterns.some(p => p.test(normalized));
 }
 
 /**

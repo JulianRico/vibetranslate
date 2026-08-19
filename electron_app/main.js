@@ -10,6 +10,7 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { applyTechnicalGlossary, DEFAULT_GLOSSARY } = require('./glossary');
+const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
 
 // Inicializar logs en disco
@@ -234,17 +235,20 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
   const settings = loadSavedSettings();
   const correctedText = applyTechnicalGlossary(cleanText, settings.glossary);
 
-  let srcShort = (sourceLang || 'auto').substring(0, 2);
-  let tgtShort = (targetLang || 'auto').substring(0, 2);
+  let srcShort = (sourceLang || 'auto').substring(0, 2).toLowerCase();
+  let tgtShort = (targetLang || 'auto').substring(0, 2).toLowerCase();
+
+  const isAutoSource = (srcShort === 'au' || !srcShort);
+  const isAutoTarget = (tgtShort === 'au' || !tgtShort);
 
   const startTime = Date.now();
 
   return new Promise((resolve) => {
     const sanitizedText = correctedText.replace(/[\r\n]+/g, ' ').trim();
-    const slParam = (srcShort === 'es' || srcShort === 'en') ? srcShort : 'auto';
-    const tlParam = (tgtShort === 'es' || tgtShort === 'en') ? tgtShort : (slParam === 'es' ? 'en' : 'es');
+    const slParam = isAutoSource ? 'auto' : (srcShort === 'en' ? 'en' : 'es');
+    const tlParam = isAutoTarget ? (slParam === 'es' ? 'en' : 'es') : (tgtShort === 'es' ? 'es' : 'en');
 
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${tlParam}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${slParam}&tl=${tlParam}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
 
     https.get(url, (res) => {
       let body = '';
@@ -253,10 +257,10 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
         const elapsed = Date.now() - startTime;
         try {
           const data = JSON.parse(body);
-          const detected = (data && data[2]) ? data[2] : (slParam !== 'auto' ? slParam : 'es');
+          const detected = (data && data[2]) ? data[2] : slParam;
 
-          // Si el texto hablado está en inglés y el destino era inglés, auto-traducir a español
-          if (detected === 'en' && tlParam === 'en') {
+          // Solo si el usuario configuró explícitamente modo Auto bidireccional
+          if (isAutoSource && isAutoTarget && detected === 'en' && tlParam === 'en') {
             const urlEs = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(sanitizedText)}`;
             https.get(urlEs, (resEs) => {
               let bodyEs = '';
@@ -278,17 +282,17 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
           if (data && Array.isArray(data[0])) {
             const translated = data[0].map(chunk => chunk[0]).filter(Boolean).join('');
             if (translated && translated.trim()) {
-              defaultLogger.success('TRANSLATE', `Traducción completada (${detected} ➔ ${tlParam}) en ${elapsed}ms: "${translated.trim()}"`);
+              defaultLogger.success('TRANSLATE', `Traducción completada (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${translated.trim()}"`);
               return resolve({ original: correctedText, translated: translated.trim(), detectedLang: detected, targetLang: tlParam });
             }
           }
           resolve({ original: correctedText, translated: correctedText, detectedLang: detected, targetLang: tlParam });
         } catch (e) {
-          resolve({ original: correctedText, translated: correctedText, detectedLang: 'es', targetLang: 'en' });
+          resolve({ original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam });
         }
       });
     }).on('error', (err) => {
-      resolve({ original: correctedText, translated: correctedText, detectedLang: 'es', targetLang: 'en' });
+      resolve({ original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam });
     });
   });
 });
@@ -309,6 +313,7 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     formData.append('model', 'whisper-large-v3-turbo');
     formData.append('response_format', 'json');
     formData.append('temperature', '0.0');
+    formData.append('prompt', 'Conversación en vivo. Live conversation.');
     if (language && language !== 'auto') {
       formData.append('language', language);
     }
@@ -330,8 +335,15 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     }
 
     const data = await response.json();
-    defaultLogger.success('GROQ', `Transcripción Groq Whisper completada en ${elapsed}ms: "${data.text}"`);
-    return { text: data.text || '' };
+    const rawText = data.text || '';
+
+    if (isWhisperHallucination(rawText)) {
+      defaultLogger.info('GROQ', `🔇 Alucinación de silencio/ruido filtrada ("${rawText.trim()}") en ${elapsed}ms`);
+      return { text: '' };
+    }
+
+    defaultLogger.success('GROQ', `Transcripción Groq Whisper completada en ${elapsed}ms: "${rawText}"`);
+    return { text: rawText };
 
   } catch (err) {
     defaultLogger.error('GROQ', `Excepción en llamada a Groq Whisper: ${err.message}`);

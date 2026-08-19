@@ -78,13 +78,92 @@ function encodeWAV(samples, sampleRate = 16000) {
   return buffer;
 }
 
+/**
+ * Detecta si el texto devuelto por Whisper es una alucinación generada por silencio o ruido de fondo.
+ */
+function isWhisperHallucination(text) {
+  if (!text || typeof text !== 'string') return true;
+  const cleaned = text.trim();
+  if (cleaned.length === 0) return true;
+
+  // Si contiene solo caracteres especiales, puntos, espacios o corchetes de sonido
+  if (/^[.\s\-–—,;:!¡?¿"'\(\)\[\]{}…*~_/\\]+$/.test(cleaned)) {
+    return true;
+  }
+
+  // Notaciones de sonido o subtítulos automáticos ej. [Música], (Risas), [Aplausos], [silence]
+  if (/^\[.+\]$/.test(cleaned) || /^\(.+\)$/.test(cleaned)) {
+    return true;
+  }
+
+  // Normalizar: minúsculas, sin acentos para matching robusto, sin puntuación
+  const normalized = cleaned
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // quitar tildes/diacríticos
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()?"'¡¿♪…«»]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (normalized.length === 0) return true;
+
+  const hallucinationPatterns = [
+    /^gracias$/,
+    /^muchas gracias$/,
+    /^muchas gracias por ver$/,
+    /^muchas gracias por su atencion$/,
+    /^gracias por ver$/,
+    /^gracias por ver el video$/,
+    /^gracias por ver el video$/,
+    /^gracias por ver este video$/,
+    /^gracias por su atencion$/,
+    /^gracias por su tiempo$/,
+    /^gracias a todos$/,
+    /^thank you$/,
+    /^thank you very much$/,
+    /^thank you so much$/,
+    /^thank you for watching$/,
+    /^thank you for watching this video$/,
+    /^thanks$/,
+    /^thanks for watching$/,
+    /^thanks for watching this video$/,
+    /^subtitulos/i,
+    /^amara\.?org/i,
+    /^sous-titres/i,
+    /^transcribed by/i,
+    /^translated by/i,
+    /^captions by/i,
+    /^you$/,
+    /^bye$/,
+    /^goodbye$/,
+    /^hello$/,
+    /^mbc$/,
+    /^mooji$/,
+    /^silence$/,
+    /^music$/,
+    /^applause$/,
+    /^laughter$/,
+    /^cough$/
+  ];
+
+  for (const pattern of hallucinationPatterns) {
+    if (pattern.test(normalized)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     floatTo16BitPCM,
     resampleTo16kHZ,
     arrayBufferToBase64,
     base64ToArrayBuffer,
-    encodeWAV
+    encodeWAV,
+    isWhisperHallucination
   };
 }
+
 
