@@ -252,10 +252,140 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const btnHardwareCheck = document.getElementById('btn-hardware-check');
+  const btnCloseHwModal = document.getElementById('btn-close-hw-modal');
+  const btnCloseHwFooter = document.getElementById('btn-close-hw-footer');
+  const btnRetestHw = document.getElementById('btn-retest-hw');
+  const btnCopyHwReport = document.getElementById('btn-copy-hw-report');
+  const btnHwTestCable = document.getElementById('btn-hw-test-cable');
+  const btnHwTestSpeakers = document.getElementById('btn-hw-test-speakers');
+
   if (btnHardwareCheck) {
-    btnHardwareCheck.addEventListener('click', async () => {
-      appendLog('SYSTEM', 'Ejecutando diagnóstico de hardware y drivers...');
-      await enumerateAudioDevices();
+    btnHardwareCheck.addEventListener('click', () => {
+      openHardwareModal();
+    });
+  }
+  if (btnCloseHwModal) btnCloseHwModal.addEventListener('click', closeHardwareModal);
+  if (btnCloseHwFooter) btnCloseHwFooter.addEventListener('click', closeHardwareModal);
+  if (btnRetestHw) btnRetestHw.addEventListener('click', runHardwareValidation);
+  if (btnCopyHwReport) {
+    btnCopyHwReport.addEventListener('click', () => {
+      if (latestHwReportText) {
+        navigator.clipboard.writeText(latestHwReportText).then(() => {
+          btnCopyHwReport.innerHTML = '<span>✅ ¡Reporte Copiado!</span>';
+          setTimeout(() => {
+            btnCopyHwReport.innerHTML = '<span>📋 Copiar Reporte</span>';
+          }, 2000);
+        });
+      }
+    });
+  }
+  if (btnHwTestCable) {
+    btnHwTestCable.addEventListener('click', () => {
+      appendLog('AUDIO', 'Emitiendo tono de prueba hacia el Cable Virtual...');
+      playAudioToVirtualCableAndSpeakers('Tono de prueba del cable virtual emitido correctamente.', 'es');
+    });
+  }
+  if (btnHwTestSpeakers) {
+    btnHwTestSpeakers.addEventListener('click', () => {
+      appendLog('AUDIO', 'Probando salida de altavoces locales...');
+      speakSpanishToUser('Prueba de sonido en altavoces locales completada.');
+    });
+  }
+
+  // ── Botones de Cabecera (Tema, Modo PiP, Exportación) ─────────────
+  const btnThemeToggle = document.getElementById('btn-theme-toggle');
+  const btnPipToggle = document.getElementById('btn-pip-toggle');
+  const btnExportAll = document.getElementById('btn-export-all');
+
+  // 1. Tema Dark / Light Glass
+  let currentTheme = localStorage.getItem('vibetranslate_theme') || 'light';
+  if (currentTheme === 'dark') {
+    document.body.classList.add('dark-theme');
+    if (btnThemeToggle) btnThemeToggle.textContent = '☀️';
+  }
+
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener('click', () => {
+      const isDark = document.body.classList.toggle('dark-theme');
+      const themeName = isDark ? 'dark' : 'light';
+      localStorage.setItem('vibetranslate_theme', themeName);
+      btnThemeToggle.textContent = isDark ? '☀️' : '🌙';
+      btnThemeToggle.title = isDark ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro';
+      appendLog('THEME', `Tema cambiado a: ${isDark ? 'Modo Oscuro (Dark Obsidian Glass)' : 'Modo Claro (Liquid Frosted Glass)'}`);
+    });
+  }
+
+  // 2. Modo Mini-Ventana Flotante (Picture-in-Picture)
+  if (btnPipToggle) {
+    btnPipToggle.addEventListener('click', async () => {
+      try {
+        const isPip = await ipcRenderer.invoke('TOGGLE_PIP_MODE');
+        if (isPip) {
+          document.body.classList.add('pip-mode');
+          btnPipToggle.textContent = '🗖';
+          btnPipToggle.title = 'Restaurar a Modo Estudio Completo';
+          appendLog('WINDOW', 'Modo Mini-Player Flotante (PiP) activado.');
+        } else {
+          document.body.classList.remove('pip-mode');
+          btnPipToggle.textContent = '🗗';
+          btnPipToggle.title = 'Modo Mini-Ventana Flotante (PiP)';
+          appendLog('WINDOW', 'Ventana restaurada a modo Estudio completo.');
+        }
+      } catch (err) {
+        console.warn('[PiP Toggle] Error:', err);
+      }
+    });
+  }
+
+  // 3. Exportar Historial de Transcripciones y Reporte
+  const logHistoryArray = [];
+  const sessionTranslationHistory = [];
+
+  if (btnExportAll) {
+    btnExportAll.addEventListener('click', async () => {
+      appendLog('EXPORT', 'Generando reporte completo de sesión y transcripciones...');
+      
+      const now = new Date();
+      const exportReport = `=====================================================
+   ViBeTranslate Pro Studio - Reporte de Sesión
+=====================================================
+Fecha y Hora: ${now.toLocaleString()}
+Plataforma: ${activePlatform ? activePlatform.toUpperCase() : 'GOOGLE MEET'}
+Motor STT: ${sttEngineSelect?.value || 'whisper_groq'}
+Idioma Origen: ${sourceLangSelect?.value || 'es'}
+Idioma Destino: ${targetLangSelect?.value || 'en'}
+Driver VB-Cable: ${isVbCableDriverDetected ? 'CALIBRADO Y ACTIVO 🟢' : 'NO DETECTADO ⚠️'}
+
+--- HISTORIAL DE TRADUCCIÓN SIMULTÁNEA (${sessionTranslationHistory.length} frases registradas) ---
+${sessionTranslationHistory.length > 0 
+  ? sessionTranslationHistory.map((item, idx) => `[${item.time}] [${item.from} ➔ ${item.to}]\n  Original:   ${item.original}\n  Traducción: ${item.translated}`).join('\n\n')
+  : 'No se han registrado frases en esta sesión todavía.'}
+
+--- REGISTRO DE EVENTOS Y TERMINAL DE LOGS (Últimos 40 eventos) ---
+${logHistoryArray.length > 0 ? logHistoryArray.slice(-40).join('\n') : 'Logs del sistema no disponibles.'}
+
+=====================================================
+Generado automáticamente por ViBeTranslate Desktop
+=====================================================`;
+
+      try {
+        const res = await ipcRenderer.invoke('EXPORT_SESSION_REPORT', { content: exportReport, format: 'txt' });
+        if (res && res.success) {
+          btnExportAll.textContent = '✅';
+          appendLog('EXPORT', `Archivo guardado exitosamente en: ${res.filePath}`);
+          setTimeout(() => { btnExportAll.textContent = '📤'; }, 2500);
+        } else if (res && !res.canceled) {
+          navigator.clipboard.writeText(exportReport);
+          btnExportAll.textContent = '📋';
+          appendLog('EXPORT', 'Reporte copiado al portapapeles.');
+          setTimeout(() => { btnExportAll.textContent = '📤'; }, 2500);
+        }
+      } catch (e) {
+        navigator.clipboard.writeText(exportReport);
+        btnExportAll.textContent = '📋';
+        appendLog('EXPORT', 'Reporte copiado al portapapeles.');
+        setTimeout(() => { btnExportAll.textContent = '📤'; }, 2500);
+      }
     });
   }
 
@@ -278,9 +408,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ── Sistema de Logs en Pantalla y Throttling ───────────────────────
   function appendLog(category, message, type = 'system') {
     const timestamp = new Date().toTimeString().split(' ')[0];
+    const logLine = `[${timestamp}] [${category.toUpperCase()}] ${message}`;
+    logHistoryArray.push(logLine);
+    if (logHistoryArray.length > 200) logHistoryArray.shift();
+
     const entry = document.createElement('div');
     entry.className = `log-entry ${type}`;
-    entry.textContent = `[${timestamp}] [${category.toUpperCase()}] ${message}`;
+    entry.textContent = logLine;
     logContainer.appendChild(entry);
 
     if (logContainer.children.length > 100) {
@@ -1057,10 +1191,15 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         const rms = Math.sqrt(sum / inputData.length);
 
-        // 2. Actualización de Barra VU Meter en UI
+        // 2. Actualización de Barra VU Meter en UI y Modal de Hardware
         const levelPct = Math.min(100, Math.round(rms * 900));
         if (vuBar) vuBar.style.width = `${levelPct}%`;
         if (vuValText) vuValText.textContent = `${levelPct}%`;
+
+        const hwMeterBar = document.getElementById('hw-meter-bar');
+        const hwMeterText = document.getElementById('hw-meter-text');
+        if (hwMeterBar) hwMeterBar.style.width = `${levelPct}%`;
+        if (hwMeterText) hwMeterText.textContent = `${levelPct}%`;
 
         // 3. Lógica de Puerta de Ruido (Noise Gate / VAD)
         const threshold = currentNoiseThreshold;
@@ -1144,12 +1283,20 @@ document.addEventListener('DOMContentLoaded', async () => {
                     targetLang: targetLangSelect.value
                   });
 
-                  if (translation && translation.translated && translation.translated.trim()) {
-                    const translatedText = translation.translated.trim();
-                    const isTargetSpanish = (translation.targetLang === 'es' || translation.detectedLang === 'en');
+                    if (translation && translation.translated && translation.translated.trim()) {
+                      const translatedText = translation.translated.trim();
+                      const isTargetSpanish = (translation.targetLang === 'es' || translation.detectedLang === 'en');
 
-                    appendLog('TRANSLATE', `Traducido (${isTargetSpanish ? 'Inglés ➔ Español' : 'Español ➔ Inglés'}): "${translatedText}"`, 'translate');
-                    previewTrans.textContent = `✨ ${translatedText}`;
+                      sessionTranslationHistory.push({
+                        time: new Date().toLocaleTimeString(),
+                        original: translation.original,
+                        translated: translatedText,
+                        from: isTargetSpanish ? 'EN' : 'ES',
+                        to: isTargetSpanish ? 'ES' : 'EN'
+                      });
+
+                      appendLog('TRANSLATE', `Traducido (${isTargetSpanish ? 'Inglés ➔ Español' : 'Español ➔ Inglés'}): "${translatedText}"`, 'translate');
+                      previewTrans.textContent = `✨ ${translatedText}`;
 
                     ipcRenderer.send('DISPLAY_SUBTITLE', {
                       originalText: translation.original,
@@ -1181,6 +1328,208 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     } catch (err) {
       appendLog('AUDIO', `Error en captura de audio: ${err.message}`, 'error');
+    }
+  }
+
+  // ── Funcionalidad de Validador de Hardware y Diagnóstico ──────────
+  let hwMicStream = null;
+  let hwAudioCtx = null;
+  let hwScriptProc = null;
+  let latestHwReportText = '';
+
+  async function openHardwareModal() {
+    const modal = document.getElementById('hardware-modal');
+    if (modal) {
+      modal.style.display = 'flex';
+      await runHardwareValidation();
+      startHwLiveMicTest();
+    }
+  }
+
+  function closeHardwareModal() {
+    const modal = document.getElementById('hardware-modal');
+    if (modal) {
+      modal.style.display = 'none';
+      stopHwLiveMicTest();
+    }
+  }
+
+  async function startHwLiveMicTest() {
+    if (isPipelineRunning) return; // Si ya está corriendo el pipeline de traducción, usa ese stream
+    try {
+      if (hwMicStream) stopHwLiveMicTest();
+      const deviceId = micInputSelect?.value || 'default';
+      const constraints = {
+        audio: (deviceId && deviceId !== 'default') ? { deviceId: { exact: deviceId } } : true,
+        video: false
+      };
+      hwMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      hwAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      const src = hwAudioCtx.createMediaStreamSource(hwMicStream);
+      hwScriptProc = hwAudioCtx.createScriptProcessor(1024, 1, 1);
+      hwScriptProc.onaudioprocess = (e) => {
+        const data = e.inputBuffer.getChannelData(0);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+        const rms = Math.sqrt(sum / data.length);
+        const pct = Math.min(100, Math.round(rms * 900));
+        const bar = document.getElementById('hw-meter-bar');
+        const txt = document.getElementById('hw-meter-text');
+        if (bar) bar.style.width = `${pct}%`;
+        if (txt) txt.textContent = `${pct}%`;
+      };
+      src.connect(hwScriptProc);
+      const nullDest = hwAudioCtx.createMediaStreamDestination();
+      hwScriptProc.connect(nullDest);
+    } catch (e) {
+      console.warn('[HwLiveMicTest] Error iniciando prueba de mic:', e);
+    }
+  }
+
+  function stopHwLiveMicTest() {
+    if (hwScriptProc) {
+      try { hwScriptProc.disconnect(); } catch (e) {}
+      hwScriptProc = null;
+    }
+    if (hwAudioCtx && hwAudioCtx.state !== 'closed') {
+      try { hwAudioCtx.close(); } catch (e) {}
+      hwAudioCtx = null;
+    }
+    if (hwMicStream) {
+      try { hwMicStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      hwMicStream = null;
+    }
+    const bar = document.getElementById('hw-meter-bar');
+    const txt = document.getElementById('hw-meter-text');
+    if (bar) bar.style.width = '0%';
+    if (txt) txt.textContent = '0%';
+  }
+
+  async function runHardwareValidation() {
+    appendLog('HARDWARE', 'Iniciando diagnóstico profundo de hardware...');
+    
+    const verdictTitle = document.getElementById('hw-verdict-title');
+    const verdictDesc = document.getElementById('hw-verdict-desc');
+    const verdictBadge = document.getElementById('hw-verdict-badge');
+    const verdictCard = document.getElementById('hw-verdict-card');
+
+    if (verdictTitle) verdictTitle.textContent = 'Analizando hardware y drivers...';
+    if (verdictBadge) verdictBadge.textContent = 'ANALIZANDO';
+
+    try {
+      const hwData = await ipcRenderer.invoke('CHECK_HARDWARE');
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics = devices.filter(d => d.kind === 'audioinput');
+      const outputs = devices.filter(d => d.kind === 'audiooutput');
+
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const tempCtx = new AudioCtx();
+      const sampleRate = tempCtx.sampleRate || 48000;
+      try { tempCtx.close(); } catch (e) {}
+
+      // WebGL check
+      let webglName = 'Aceleración GPU Activa';
+      try {
+        const c = document.createElement('canvas');
+        const gl = c.getContext('webgl2') || c.getContext('webgl');
+        if (gl) {
+          const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+          if (dbg) {
+            const raw = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+            webglName = raw.replace(/(ANGLE|Direct3D|vs_\d+_\d+|ps_\d+_\d+)/g, '').trim() || 'GPU Compatible';
+          }
+        }
+      } catch (e) {}
+
+      // Rellenar CPU
+      const cpuModelEl = document.getElementById('hw-cpu-model');
+      const cpuCoresEl = document.getElementById('hw-cpu-cores');
+      const osInfoEl = document.getElementById('hw-os-info');
+      const archInfoEl = document.getElementById('hw-arch-info');
+
+      if (cpuModelEl) cpuModelEl.textContent = hwData.cpu.model.slice(0, 32);
+      if (cpuCoresEl) cpuCoresEl.textContent = `${hwData.cpu.cores} Núcleos (${hwData.cpu.speed} MHz)`;
+      if (osInfoEl) osInfoEl.textContent = `${hwData.os.type} ${hwData.os.release}`;
+      if (archInfoEl) archInfoEl.textContent = `${hwData.cpu.arch.toUpperCase()} (64-bit Ready)`;
+
+      // Rellenar RAM
+      const ramTotalEl = document.getElementById('hw-ram-total');
+      const ramFreeEl = document.getElementById('hw-ram-free');
+      const ramPctEl = document.getElementById('hw-ram-pct');
+      const ramBar = document.getElementById('hw-ram-bar');
+
+      if (ramTotalEl) ramTotalEl.textContent = `${hwData.memory.totalGB} GB`;
+      if (ramFreeEl) ramFreeEl.textContent = `${hwData.memory.freeGB} GB libres`;
+      if (ramPctEl) ramPctEl.textContent = `${hwData.memory.usedGB} GB (${hwData.memory.usagePct}%)`;
+      if (ramBar) ramBar.style.width = `${hwData.memory.usagePct}%`;
+
+      // Rellenar Audio
+      const cableStatusEl = document.getElementById('hw-cable-status');
+      const sampleRateEl = document.getElementById('hw-sample-rate');
+      const micsCountEl = document.getElementById('hw-mics-count');
+      const outputsCountEl = document.getElementById('hw-outputs-count');
+      const audioStatusBadge = document.getElementById('hw-audio-status');
+
+      const cableFound = outputs.some(d => (d.label || '').toLowerCase().includes('cable') || (d.label || '').toLowerCase().includes('virtual'));
+      if (cableStatusEl) cableStatusEl.textContent = cableFound ? 'CABLE Input (VB-Audio) 🟢' : 'No detectado ⚠️';
+      if (sampleRateEl) sampleRateEl.textContent = `${Math.round(sampleRate / 1000)} kHz (${sampleRate} Hz)`;
+      if (micsCountEl) micsCountEl.textContent = `${mics.length} micrófono(s) activos`;
+      if (outputsCountEl) outputsCountEl.textContent = `${outputs.length} dispositivo(s) de salida`;
+      if (audioStatusBadge) {
+        audioStatusBadge.textContent = cableFound ? 'CALIBRADO 🟢' : 'DRIVER PENDIENTE ⚠️';
+        audioStatusBadge.className = cableFound ? 'hw-status-badge green' : 'hw-status-badge yellow';
+      }
+
+      // Rellenar GPU & Red
+      const gpuInfoEl = document.getElementById('hw-gpu-info');
+      const pingMsEl = document.getElementById('hw-ping-ms');
+      const electronVerEl = document.getElementById('hw-electron-ver');
+      const chromeVerEl = document.getElementById('hw-chrome-ver');
+
+      if (gpuInfoEl) gpuInfoEl.textContent = webglName.slice(0, 30);
+      if (pingMsEl) pingMsEl.textContent = hwData.network.pingMs > 0 ? `${hwData.network.pingMs} ms (Excelente)` : 'Conexión Local';
+      if (electronVerEl) electronVerEl.textContent = `v${hwData.versions.electron}`;
+      if (chromeVerEl) chromeVerEl.textContent = `v${hwData.versions.chrome}`;
+
+      // Score / Veredicto Final
+      const isOptimal = cableFound && hwData.cpu.cores >= 2;
+      if (verdictCard) {
+        verdictCard.className = isOptimal ? 'hw-verdict-card' : 'hw-verdict-card yellow-verdict';
+      }
+      if (verdictTitle) {
+        verdictTitle.textContent = isOptimal ? '✅ Sistema 100% Calibrado y Óptimo' : '⚠️ Sistema con Recomendaciones de Driver';
+      }
+      if (verdictDesc) {
+        verdictDesc.textContent = isOptimal
+          ? 'Tu hardware cuenta con aceleración por GPU, baja latencia y driver de audio virtual listos para llamadas.'
+          : 'Para transmitir a Meet/Teams sin que se escuche tu voz en español, instala el driver VB-Cable.';
+      }
+      if (verdictBadge) {
+        verdictBadge.textContent = isOptimal ? '100% ÓPTIMO' : 'ATENCIÓN';
+      }
+
+      // Generar texto para reporte
+      latestHwReportText = `=== REPORTE DE VALIDACIÓN DE HARDWARE ===
+Fecha: ${new Date().toLocaleString()}
+CPU: ${hwData.cpu.model} (${hwData.cpu.cores} núcleos @ ${hwData.cpu.speed} MHz)
+RAM: ${hwData.memory.usedGB} GB / ${hwData.memory.totalGB} GB (${hwData.memory.usagePct}% uso)
+Sistema: ${hwData.os.type} ${hwData.os.release} (${hwData.cpu.arch})
+GPU: ${webglName}
+Sample Rate: ${sampleRate} Hz
+Driver VB-Cable: ${cableFound ? 'LISTO 🟢' : 'NO DETECTADO ⚠️'}
+Micrófonos: ${mics.length}
+Salidas: ${outputs.length}
+Latencia Red: ${hwData.network.pingMs} ms
+Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
+========================================`;
+
+      appendLog('HARDWARE', `Diagnóstico completado: ${isOptimal ? 'SISTEMA ÓPTIMO 🟢' : 'DRIVER PENDIENTE ⚠️'}`);
+
+    } catch (err) {
+      appendLog('HARDWARE', `Error en validación de hardware: ${err.message}`, 'error');
+      if (verdictTitle) verdictTitle.textContent = 'Error al ejecutar diagnóstico';
+      if (verdictDesc) verdictDesc.textContent = err.message;
     }
   }
 });

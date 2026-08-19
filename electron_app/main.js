@@ -4,7 +4,7 @@
  * Soportado para: Microsoft Teams Desktop, Zoom App y Google Meet
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer, session } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer, session, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -80,10 +80,12 @@ function saveSettings(settings) {
 function createControlWindow() {
   defaultLogger.info('UI', 'Creando Ventana del Panel de Control Principal...');
   controlWindow = new BrowserWindow({
-    width: 520,
-    height: 840,
+    width: 1060,
+    height: 880,
+    minWidth: 860,
+    minHeight: 640,
     resizable: true,
-    title: 'MeetTranslate Desktop AI',
+    title: 'ViBeTranslate Pro Studio',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -387,4 +389,136 @@ ipcMain.handle('GET_DESKTOP_AUDIO_SOURCE', async () => {
   }
   return null;
 });
+
+// ── Diagnóstico y Validación de Hardware ─────────────────────────────
+ipcMain.handle('CHECK_HARDWARE', async () => {
+  const os = require('os');
+  const cpus = os.cpus();
+  const totalMem = os.totalmem();
+  const freeMem = os.freemem();
+  const usedMem = totalMem - freeMem;
+  const memUsagePct = Math.round((usedMem / totalMem) * 100);
+
+  let gpuFeatureStatus = {};
+  let gpuInfo = {};
+  try {
+    gpuFeatureStatus = app.getGPUFeatureStatus();
+    gpuInfo = await app.getGPUInfo('basic');
+  } catch (e) {
+    gpuFeatureStatus = { error: e.message };
+  }
+
+  // Medir latencia a endpoints clave
+  const startPing = Date.now();
+  let networkPing = -1;
+  try {
+    await new Promise((resolve) => {
+      const req = https.get('https://translate.google.com/', { timeout: 2500 }, (res) => {
+        networkPing = Date.now() - startPing;
+        res.resume();
+        resolve();
+      });
+      req.on('error', () => { networkPing = -1; resolve(); });
+      req.on('timeout', () => { req.destroy(); networkPing = -1; resolve(); });
+    });
+  } catch (e) {
+    networkPing = -1;
+  }
+
+  return {
+    cpu: {
+      model: cpus[0]?.model || 'Procesador estándar',
+      cores: cpus.length,
+      speed: cpus[0]?.speed || 0,
+      arch: os.arch()
+    },
+    memory: {
+      totalGB: (totalMem / (1024 ** 3)).toFixed(1),
+      freeGB: (freeMem / (1024 ** 3)).toFixed(1),
+      usedGB: (usedMem / (1024 ** 3)).toFixed(1),
+      usagePct: memUsagePct
+    },
+    os: {
+      platform: os.platform(),
+      release: os.release(),
+      type: os.type(),
+      uptimeHours: (os.uptime() / 3600).toFixed(1)
+    },
+    gpu: {
+      features: gpuFeatureStatus,
+      info: gpuInfo
+    },
+    network: {
+      pingMs: networkPing,
+      online: networkPing > 0
+    },
+    versions: {
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node
+    }
+  };
+});
+
+// ── Handlers para Acciones de Cabecera (PiP y Exportación) ─────────
+let isPipMode = false;
+let previousBounds = null;
+
+ipcMain.handle('TOGGLE_PIP_MODE', async () => {
+  if (!controlWindow || controlWindow.isDestroyed()) return false;
+  
+  if (isPipMode) {
+    if (previousBounds) {
+      controlWindow.setBounds(previousBounds);
+    } else {
+      controlWindow.setSize(1060, 880);
+      controlWindow.center();
+    }
+    controlWindow.setAlwaysOnTop(false);
+    controlWindow.setResizable(true);
+    isPipMode = false;
+    defaultLogger.info('WINDOW', 'Ventana restaurada a modo Estudio.');
+  } else {
+    previousBounds = controlWindow.getBounds();
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+    const pipWidth = 460;
+    const pipHeight = 360;
+    const pipX = screenWidth - pipWidth - 24;
+    const pipY = screenHeight - pipHeight - 24;
+
+    controlWindow.setBounds({ x: pipX, y: pipY, width: pipWidth, height: pipHeight });
+    controlWindow.setAlwaysOnTop(true, 'screen-saver');
+    isPipMode = true;
+    defaultLogger.info('WINDOW', 'Ventana configurada en modo Mini-Player Flotante (PiP).');
+  }
+  return isPipMode;
+});
+
+ipcMain.handle('EXPORT_SESSION_REPORT', async (event, { content, format = 'txt' }) => {
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const defaultFilename = `ViBeTranslate_Report_${timestamp}.${format}`;
+    const result = await dialog.showSaveDialog(controlWindow, {
+      title: 'Guardar Reporte y Transcripción de Sesión',
+      defaultPath: path.join(app.getPath('downloads'), defaultFilename),
+      filters: [
+        { name: 'Documento de Texto', extensions: ['txt', 'md', 'json'] },
+        { name: 'Todos los Archivos', extensions: ['*'] }
+      ]
+    });
+
+    if (!result.canceled && result.filePath) {
+      fs.writeFileSync(result.filePath, content, 'utf8');
+      defaultLogger.success('EXPORT', `Reporte exportado exitosamente a: ${result.filePath}`);
+      return { success: true, filePath: result.filePath };
+    }
+    return { success: false, canceled: true };
+  } catch (err) {
+    defaultLogger.error('EXPORT', `Error al exportar reporte: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+
 
