@@ -12,10 +12,17 @@ const http = require('http');
 const { applyTechnicalGlossary, DEFAULT_GLOSSARY } = require('./glossary');
 const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
+const { FishAudioService } = require('./fish-audio-service');
 
 // Inicializar logs en disco
 defaultLogger.clear();
 defaultLogger.info('SYSTEM', '🚀 Iniciando MeetTranslate Desktop App (Proceso Principal)...');
+
+// Instancia de servicio Fish Audio
+const fishAudioService = new FishAudioService({
+  apiKey: '00000000000000000000000000000000',
+  model: 's2.1-pro-free'
+});
 
 // Configuración de Chromium para optimizar rendimiento y evitar bloqueos de caché en Windows
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
@@ -36,7 +43,14 @@ const settingsFilePath = path.join(userDataPath, 'settings.json');
 
 const DEFAULT_SETTINGS = {
   geminiApiKey: '',
-  groqApiKey: '',
+  groqApiKey: 'gsk_dummy_replace_with_your_groq_api_key_000000000000',
+  fishApiKey: '00000000000000000000000000000000',
+  fishVoiceModelId: '0356fc9e08b646ed91607baa54a847c3',
+  fishModel: 's2.1-pro-free',
+  fishLatency: 'balanced',
+  fishVolume: 95,
+  fishSpeed: 1.0,
+  ttsEngine: 'fish_audio',
   sttEngine: 'whisper_groq',
   geminiVoice: 'Puck',
   spanishVoice: 'auto',
@@ -303,8 +317,15 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     return { text: '' };
   }
 
-  try {
+  const cleanKey = apiKey.trim();
+
+  // Función interna con timeout y reintento
+  const doFetchTranscription = async (attempt = 1) => {
     const buffer = Buffer.from(audioBase64, 'base64');
+    if (!buffer || buffer.length < 1000) {
+      return { text: '' };
+    }
+
     const mimeType = format === 'wav' ? 'audio/wav' : 'audio/webm';
     const fileName = format === 'wav' ? 'audio.wav' : 'audio.webm';
     const blob = new Blob([buffer], { type: mimeType });
@@ -322,9 +343,10 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey.trim()}`
+        'Authorization': `Bearer ${cleanKey}`
       },
-      body: formData
+      body: formData,
+      signal: AbortSignal.timeout(10000)
     });
 
     const elapsed = Date.now() - startTime;
@@ -344,10 +366,104 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
 
     defaultLogger.success('GROQ', `Transcripción Groq Whisper completada en ${elapsed}ms: "${rawText}"`);
     return { text: rawText };
+  };
 
+  try {
+    return await doFetchTranscription(1);
   } catch (err) {
-    defaultLogger.error('GROQ', `Excepción en llamada a Groq Whisper: ${err.message}`);
-    return { text: '' };
+    const causeDetail = err.cause ? (err.cause.code || err.cause.message || JSON.stringify(err.cause)) : '';
+    defaultLogger.warn('GROQ', `Aviso en intento 1 a Groq Whisper: ${err.message} ${causeDetail ? `(${causeDetail})` : ''}. Reintentando...`);
+
+    // Reintento único tras 350ms
+    try {
+      await new Promise(r => setTimeout(r, 350));
+      return await doFetchTranscription(2);
+    } catch (retryErr) {
+      const retryCause = retryErr.cause ? (retryErr.cause.code || retryErr.cause.message || JSON.stringify(retryErr.cause)) : '';
+      defaultLogger.error('GROQ', `Excepción en llamada a Groq Whisper: ${retryErr.message} ${retryCause ? `(${retryCause})` : ''}`);
+      return { text: '' };
+    }
+  }
+});
+
+// ── Handlers IPC para Fish Audio AI (Clonación de Voz y TTS) ────────
+ipcMain.handle('FISH_AUDIO_SYNTHESIZE', async (event, { text, voiceModelId, model, format = 'mp3', latency = 'balanced', apiKey = null }) => {
+  try {
+    const settings = loadSavedSettings();
+    const effectiveKey = apiKey || settings.fishApiKey || '00000000000000000000000000000000';
+    fishAudioService.setApiKey(effectiveKey);
+
+    const activeModel = model || settings.fishModel || 's2.1-pro-free';
+    const activeVoice = voiceModelId || settings.fishVoiceModelId || null;
+
+    const result = await fishAudioService.synthesizeTTS({
+      text,
+      voiceModelId: activeVoice,
+      model: activeModel,
+      format,
+      latency
+    });
+
+    if (result && result.audioBuffer) {
+      return {
+        success: true,
+        audioBase64: result.audioBuffer.toString('base64'),
+        format: result.format,
+        model: result.model,
+        elapsedMs: result.elapsedMs
+      };
+    }
+    return { success: false, error: 'No se obtuvo buffer de audio' };
+  } catch (err) {
+    defaultLogger.error('FISH-AUDIO', `Error en síntesis IPC: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('FISH_AUDIO_LIST_MODELS', async (event, { apiKey = null, selfOnly = false, pageSize = 30 } = {}) => {
+  try {
+    const settings = loadSavedSettings();
+    const effectiveKey = apiKey || settings.fishApiKey || '00000000000000000000000000000000';
+    fishAudioService.setApiKey(effectiveKey);
+
+    const models = await fishAudioService.listVoiceModels({ selfOnly, pageSize });
+    return models;
+  } catch (err) {
+    defaultLogger.error('FISH-AUDIO', `Error en listado de modelos IPC: ${err.message}`);
+    return { total: 0, items: [] };
+  }
+});
+
+ipcMain.handle('FISH_AUDIO_CREATE_MODEL', async (event, { title, audioBase64, audioMimeType = 'audio/wav', sampleText = '', description = '', visibility = 'private', apiKey = null }) => {
+  try {
+    const settings = loadSavedSettings();
+    const effectiveKey = apiKey || settings.fishApiKey || '00000000000000000000000000000000';
+    fishAudioService.setApiKey(effectiveKey);
+
+    const audioBuffer = Buffer.from(audioBase64, 'base64');
+    const result = await fishAudioService.createVoiceClone({
+      title,
+      audioBuffer,
+      audioMimeType,
+      sampleText,
+      description,
+      visibility
+    });
+
+    return result;
+  } catch (err) {
+    defaultLogger.error('FISH-AUDIO', `Error en creación de modelo IPC: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('FISH_AUDIO_TEST_KEY', async (event, { apiKey = null } = {}) => {
+  try {
+    const settings = loadSavedSettings();
+    const effectiveKey = apiKey || settings.fishApiKey;
+    return await fishAudioService.testConnection(effectiveKey);
+  } catch (err) {
+    return { ok: false, message: err.message };
   }
 });
 

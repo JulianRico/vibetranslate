@@ -5,7 +5,7 @@
 
 const { ipcRenderer } = require('electron');
 const GeminiLiveClient = require('./gemini-live-client');
-const { floatTo16BitPCM, arrayBufferToBase64, encodeWAV, isWhisperHallucination } = require('./audio-utils');
+const { floatTo16BitPCM, arrayBufferToBase64, base64ToArrayBuffer, encodeWAV, isWhisperHallucination } = require('./audio-utils');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
 class PcmStreamPlayer {
@@ -195,6 +195,48 @@ document.addEventListener('DOMContentLoaded', async () => {
   const groqKeyGroup = document.getElementById('groq-key-group');
   const groqKeyInput = document.getElementById('groq-key');
 
+  // ── Elementos de Fish Audio AI ─────────────────────────────────────
+  const ttsEngineSelect = document.getElementById('tts-engine-select');
+  const ttsEngineBadge = document.getElementById('tts-engine-badge');
+  const fishAudioPanel = document.getElementById('fish-audio-panel');
+  const fishApiKeyInput = document.getElementById('fish-api-key');
+  const btnToggleFishKey = document.getElementById('btn-toggle-fish-key');
+  const btnVerifyFishKey = document.getElementById('btn-verify-fish-key');
+  const fishStatusPill = document.getElementById('fish-status-pill');
+  const fishVoiceSelect = document.getElementById('fish-voice-select');
+  const btnRefreshFishVoices = document.getElementById('btn-refresh-fish-voices');
+  const fishCustomVoiceGroup = document.getElementById('fish-custom-voice-group');
+  const fishVoiceIdInput = document.getElementById('fish-voice-id-input');
+  const btnOpenCloneStudio = document.getElementById('btn-open-clone-studio');
+  const btnTestFishVoice = document.getElementById('btn-test-fish-voice');
+  const fishModelTier = document.getElementById('fish-model-tier');
+  const fishLatencyMode = document.getElementById('fish-latency-mode');
+
+  // ── Elementos del Modal de Clonación de Voz ────────────────────────
+  const voiceCloneModal = document.getElementById('voice-clone-modal');
+  const btnCloseCloneModal = document.getElementById('btn-close-clone-modal');
+  const btnCloseCloneFooter = document.getElementById('btn-close-clone-footer');
+  const btnToggleRecord = document.getElementById('btn-toggle-record');
+  const btnRecordText = document.getElementById('btn-record-text');
+  const recordStatusDot = document.getElementById('record-status-dot');
+  const recordStatusLabel = document.getElementById('record-status-label');
+  const recordTimerBadge = document.getElementById('record-timer-badge');
+  const voiceWaveContainer = document.getElementById('voice-wave-container');
+  const btnPlayPreview = document.getElementById('btn-play-preview');
+  const btnDiscardRecord = document.getElementById('btn-discard-record');
+  const clonePreviewAudio = document.getElementById('clone-preview-audio');
+  const cloneModelTitle = document.getElementById('clone-model-title');
+  const cloneVisibility = document.getElementById('clone-visibility');
+  const cloneSampleTranscript = document.getElementById('clone-sample-transcript');
+  const trainingStatusBox = document.getElementById('training-status-box');
+  const trainingStatusTitle = document.getElementById('training-status-title');
+  const trainingStatusDesc = document.getElementById('training-status-desc');
+  const trainingSpinner = document.getElementById('training-spinner');
+  const trainingStatusIcon = document.getElementById('training-status-icon');
+  const trainingBadgeStep = document.getElementById('training-badge-step');
+  const trainingProgressFill = document.getElementById('training-progress-fill');
+  const btnSubmitVoiceClone = document.getElementById('btn-submit-voice-clone');
+
   const micInputSelect = document.getElementById('mic-input-select');
   const virtualCableSelect = document.getElementById('virtual-cable-select');
   const noiseGateSelect = document.getElementById('noise-gate-select');
@@ -220,6 +262,51 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnRefreshDevices = document.getElementById('btn-refresh-devices');
 
   const linkVbCableUrl = document.getElementById('link-vbcable-url');
+  const linkGetFishKey = document.getElementById('link-get-fish-key');
+  const linkGetFishKeyBottom = document.getElementById('link-get-fish-key-bottom');
+  const linkGetGroqKey = document.getElementById('link-get-groq-key');
+  const linkGetGroqKeyBottom = document.getElementById('link-get-groq-key-bottom');
+  const linkGetGeminiKey = document.getElementById('link-get-gemini-key');
+
+  if (linkGetFishKey) {
+    linkGetFishKey.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo portal de registro de Fish Audio: https://fish.audio/?aff=SNSVEP4PGIIVI');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://fish.audio/?aff=SNSVEP4PGIIVI');
+    });
+  }
+
+  if (linkGetFishKeyBottom) {
+    linkGetFishKeyBottom.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo portal de registro de Fish Audio: https://fish.audio/?aff=SNSVEP4PGIIVI');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://fish.audio/?aff=SNSVEP4PGIIVI');
+    });
+  }
+
+  if (linkGetGroqKey) {
+    linkGetGroqKey.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo Groq Console para obtener API Key: https://console.groq.com/keys');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://console.groq.com/keys');
+    });
+  }
+
+  if (linkGetGroqKeyBottom) {
+    linkGetGroqKeyBottom.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo Groq Console para obtener API Key: https://console.groq.com/keys');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://console.groq.com/keys');
+    });
+  }
+
+  if (linkGetGeminiKey) {
+    linkGetGeminiKey.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo Google AI Studio para obtener API Key: https://aistudio.google.com/app/apikey');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://aistudio.google.com/app/apikey');
+    });
+  }
 
   if (linkVbCableUrl) {
     linkVbCableUrl.addEventListener('click', (e) => {
@@ -634,28 +721,98 @@ Generado automáticamente por ViBeTranslate Desktop
     }
   }
 
-  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en') {
+  async function playAudioToVirtualCableAndSpeakers(text, lang = 'en', forceLocalMonitor = false) {
     if (!text || !text.trim()) return;
 
     const targetCode = (lang === 'es' || lang.startsWith('es')) ? 'es' : 'en';
+    const activeTtsEngine = ttsEngineSelect ? ttsEngineSelect.value : 'fish_audio';
 
     try {
-      // 1. Inyectar secuencialmente en el Cable Virtual para Google Meet / Teams / Zoom (Cero superposición)
-      const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
-      const response = await fetch(ttsUrl);
-      if (response.ok) {
-        const arrayBuffer = await response.arrayBuffer();
-        await virtualCablePlayer.enqueue(arrayBuffer, virtualCableSelect.value);
+      // 1. Si el motor seleccionado es Fish Audio AI (Clon de Voz)
+      if (activeTtsEngine === 'fish_audio') {
+        const voiceId = (fishVoiceSelect && fishVoiceSelect.value === 'custom')
+          ? (fishVoiceIdInput ? fishVoiceIdInput.value.trim() : null)
+          : (fishVoiceSelect ? fishVoiceSelect.value : null);
+
+        const modelTier = fishModelTier ? fishModelTier.value : 's2.1-pro-free';
+        const latencyMode = fishLatencyMode ? fishLatencyMode.value : 'balanced';
+
+        appendLog('FISH-AUDIO', `🔊 Sintetizando con Fish Audio (${modelTier}, voz: ${voiceId || 'estándar'}): "${text}"`, 'audio');
+
+        const result = await ipcRenderer.invoke('FISH_AUDIO_SYNTHESIZE', {
+          text: text.trim(),
+          voiceModelId: voiceId,
+          model: modelTier,
+          format: 'mp3',
+          latency: latencyMode
+        });
+
+        if (result && result.success && result.audioBase64) {
+          const arrayBuffer = base64ToArrayBuffer(result.audioBase64);
+
+          // Enviar al cable virtual para Google Meet / Teams / Zoom en paralelo
+          if (virtualCablePlayer) {
+            virtualCablePlayer.enqueue(arrayBuffer.slice(0), virtualCableSelect ? virtualCableSelect.value : '');
+          }
+
+          // Monitoreo local en altavoces/auriculares (siempre en pruebas o si el switch está activo)
+          const shouldPlayLocal = forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked);
+
+          if (shouldPlayLocal) {
+            try {
+              const blob = new Blob([arrayBuffer.slice(0)], { type: 'audio/mpeg' });
+              const blobUrl = URL.createObjectURL(blob);
+              const monitorAudio = new Audio(blobUrl);
+              monitorAudio.volume = forceLocalMonitor ? 1.0 : Math.max(0.3, Math.min(1.0, currentSpanishVolume));
+              markAppSpeakingStart();
+              monitorAudio.onended = () => {
+                markAppSpeakingEnd(450);
+                URL.revokeObjectURL(blobUrl);
+              };
+              monitorAudio.onerror = (e) => {
+                console.warn('[Fish Audio Monitor Local Error]:', e);
+                markAppSpeakingEnd(0);
+                URL.revokeObjectURL(blobUrl);
+              };
+              await monitorAudio.play();
+            } catch (e) {
+              console.warn('[Fish Audio Monitor Local] Fallback speakText:', e);
+              if (shouldPlayLocal) {
+                speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
+              }
+            }
+          }
+          return;
+        } else {
+          appendLog('FISH-AUDIO', `⚠️ Fallback a Google TTS por: ${result?.error || 'error desconocido'}`, 'error');
+        }
       }
 
-      // 2. Monitoreo local en los parlantes/auriculares si está habilitado por el usuario
-      if (localMonitorToggle && localMonitorToggle.checked) {
+      // 2. Google TTS Natural o Fallback
+      if (activeTtsEngine === 'google_tts' || activeTtsEngine === 'fish_audio') {
+        const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
+        const response = await fetch(ttsUrl);
+        if (response.ok) {
+          const arrayBuffer = await response.arrayBuffer();
+          if (virtualCablePlayer) {
+            virtualCablePlayer.enqueue(arrayBuffer.slice(0), virtualCableSelect ? virtualCableSelect.value : '');
+          }
+
+          if (forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked)) {
+            speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
+          }
+          return;
+        }
+      }
+
+      // 3. Fallback Web Speech
+      if (forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked)) {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
 
     } catch (err) {
       console.warn('[Audio Out] Fallback a sintetizador local:', err);
-      if (localMonitorToggle && localMonitorToggle.checked) {
+      if (forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked)) {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
     }
@@ -667,6 +824,8 @@ Generado automáticamente por ViBeTranslate Desktop
   applySettingsToUI(settings);
   await enumerateAudioDevices();
   updateThresholdLine();
+  await loadFishVoiceModels(settings.fishVoiceModelId);
+  validateFishApiKey(false);
 
   // ── Event Listeners de UI ─────────────────────────────────────────
   // Control 1: Switch Superior (Traducción Simultánea en Vivo)
@@ -695,13 +854,79 @@ Generado automáticamente por ViBeTranslate Desktop
     saveCurrentSettings();
   });
 
+  if (ttsEngineSelect) {
+    ttsEngineSelect.addEventListener('change', () => {
+      const isFish = ttsEngineSelect.value === 'fish_audio';
+      if (ttsEngineBadge) {
+        ttsEngineBadge.textContent = isFish ? '🐟 FISH AUDIO AI' : (ttsEngineSelect.value === 'google_tts' ? 'GOOGLE TTS' : 'WEB SPEECH');
+      }
+      if (fishAudioPanel) {
+        fishAudioPanel.style.display = isFish ? 'flex' : 'none';
+      }
+      appendLog('ENGINE', `Motor TTS cambiado a: ${ttsEngineSelect.value}`);
+      saveCurrentSettings();
+    });
+  }
+
+  if (fishVoiceSelect) {
+    fishVoiceSelect.addEventListener('change', () => {
+      const isCustom = fishVoiceSelect.value === 'custom';
+      if (fishCustomVoiceGroup) {
+        fishCustomVoiceGroup.style.display = isCustom ? 'block' : 'none';
+      }
+      saveCurrentSettings();
+    });
+  }
+
+  if (btnToggleFishKey && fishApiKeyInput) {
+    btnToggleFishKey.addEventListener('click', () => {
+      if (fishApiKeyInput.type === 'password') {
+        fishApiKeyInput.type = 'text';
+        btnToggleFishKey.textContent = '🔒 Ocultar';
+      } else {
+        fishApiKeyInput.type = 'password';
+        btnToggleFishKey.textContent = '👁️ Ver';
+      }
+    });
+  }
+
+  if (btnVerifyFishKey) {
+    btnVerifyFishKey.addEventListener('click', () => {
+      validateFishApiKey(true);
+    });
+  }
+
+  if (btnRefreshFishVoices) {
+    btnRefreshFishVoices.addEventListener('click', async () => {
+      appendLog('FISH-AUDIO', 'Actualizando lista de voces y modelos...');
+      btnRefreshFishVoices.textContent = '⏳';
+      await loadFishVoiceModels();
+      btnRefreshFishVoices.textContent = '🔄';
+    });
+  }
+
+  if (btnTestFishVoice) {
+    btnTestFishVoice.addEventListener('click', () => {
+      testFishVoice();
+    });
+  }
+
+  if (btnOpenCloneStudio) {
+    btnOpenCloneStudio.addEventListener('click', () => {
+      openCloneModal();
+    });
+  }
+
+  if (btnCloseCloneModal) btnCloseCloneModal.addEventListener('click', closeCloneModal);
+  if (btnCloseCloneFooter) btnCloseCloneFooter.addEventListener('click', closeCloneModal);
+
   noiseGateSelect.addEventListener('change', () => {
     updateThresholdLine();
     appendLog('VAD', `Umbral de filtro de ruido actualizado a: ${currentNoiseThreshold}`);
     saveCurrentSettings();
   });
 
-  [sourceLangSelect, targetLangSelect, geminiKeyInput, geminiVoiceSelect, groqKeyInput, micInputSelect, virtualCableSelect, localMonitorToggle, translateIncomingToggle, spanishVoiceSelect].forEach(el => {
+  [sourceLangSelect, targetLangSelect, geminiKeyInput, geminiVoiceSelect, groqKeyInput, micInputSelect, virtualCableSelect, localMonitorToggle, translateIncomingToggle, spanishVoiceSelect, fishApiKeyInput, fishVoiceIdInput, fishModelTier, fishLatencyMode].forEach(el => {
     if (!el) return;
     el.addEventListener('change', saveCurrentSettings);
     if (el.tagName === 'INPUT' && el.type !== 'checkbox') el.addEventListener('input', saveCurrentSettings);
@@ -750,10 +975,27 @@ Generado automáticamente por ViBeTranslate Desktop
     updateStatusBadge(!!s.active);
     sourceLangSelect.value = s.sourceLang || 'es-ES';
     targetLangSelect.value = s.targetLang || 'en';
-    sttEngineSelect.value = s.sttEngine || 'gemini_live';
+    sttEngineSelect.value = s.sttEngine || 'whisper_groq';
     geminiKeyInput.value = s.geminiApiKey || '';
     geminiVoiceSelect.value = s.geminiVoice || 'Puck';
     groqKeyInput.value = s.groqApiKey || '';
+    
+    if (ttsEngineSelect && s.ttsEngine) {
+      ttsEngineSelect.value = s.ttsEngine;
+      if (ttsEngineBadge) {
+        ttsEngineBadge.textContent = s.ttsEngine === 'fish_audio' ? '🐟 FISH AUDIO AI' : (s.ttsEngine === 'google_tts' ? 'GOOGLE TTS' : 'WEB SPEECH');
+      }
+    }
+    if (fishApiKeyInput && s.fishApiKey) {
+      fishApiKeyInput.value = s.fishApiKey;
+    }
+    if (fishModelTier && s.fishModel) {
+      fishModelTier.value = s.fishModel;
+    }
+    if (fishLatencyMode && s.fishLatency) {
+      fishLatencyMode.value = s.fishLatency;
+    }
+
     if (s.noiseGateThreshold) {
       noiseGateSelect.value = s.noiseGateThreshold;
     }
@@ -767,7 +1009,7 @@ Generado automáticamente por ViBeTranslate Desktop
       spanishVoiceSelect.value = s.spanishVoice;
     }
     if (s.spanishVolume !== undefined && spanishVolumeSlider) {
-      const vol = parseInt(s.spanishVolume, 10) || 5;
+      const vol = parseInt(s.spanishVolume, 10) || 90;
       spanishVolumeSlider.value = vol;
       currentSpanishVolume = Math.max(0.01, Math.min(1.0, vol / 100));
       if (spanishVolumeText) spanishVolumeText.textContent = `${vol}%`;
@@ -777,19 +1019,28 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   async function saveCurrentSettings() {
+    const selectedVoiceId = (fishVoiceSelect && fishVoiceSelect.value === 'custom')
+      ? (fishVoiceIdInput ? fishVoiceIdInput.value.trim() : 'default')
+      : (fishVoiceSelect ? fishVoiceSelect.value : 'default');
+
     const newSettings = {
       active: toggleActive.checked,
       sourceLang: sourceLangSelect.value,
       targetLang: targetLangSelect.value,
       sttEngine: sttEngineSelect.value,
+      ttsEngine: ttsEngineSelect ? ttsEngineSelect.value : 'fish_audio',
       geminiApiKey: geminiKeyInput.value.trim(),
       geminiVoice: geminiVoiceSelect.value,
       groqApiKey: groqKeyInput.value.trim(),
+      fishApiKey: fishApiKeyInput ? fishApiKeyInput.value.trim() : '',
+      fishVoiceModelId: selectedVoiceId,
+      fishModel: fishModelTier ? fishModelTier.value : 's2.1-pro-free',
+      fishLatency: fishLatencyMode ? fishLatencyMode.value : 'balanced',
       noiseGateThreshold: parseFloat(noiseGateSelect.value) || 0.016,
       localMonitor: localMonitorToggle ? localMonitorToggle.checked : true,
       translateIncoming: translateIncomingToggle ? translateIncomingToggle.checked : true,
       spanishVoice: spanishVoiceSelect ? spanishVoiceSelect.value : 'auto',
-      spanishVolume: spanishVolumeSlider ? parseInt(spanishVolumeSlider.value, 10) : 5,
+      spanishVolume: spanishVolumeSlider ? parseInt(spanishVolumeSlider.value, 10) : 90,
       micDeviceId: micInputSelect.value,
       virtualCableDeviceId: virtualCableSelect.value
     };
@@ -1565,6 +1816,504 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       if (verdictDesc) verdictDesc.textContent = err.message;
     }
   }
+
+  // ── Lógica de Fish Audio: Gestión de Voces, Pruebas y Estudio de Clonación ──
+
+  async function loadFishVoiceModels(selectedVoiceId = null) {
+    if (!fishVoiceSelect) return;
+
+    try {
+      const apiKey = fishApiKeyInput ? fishApiKeyInput.value.trim() : '';
+      const response = await ipcRenderer.invoke('FISH_AUDIO_LIST_MODELS', { apiKey, pageSize: 40 });
+      const items = (response && response.items) ? response.items : [];
+
+      const userPrimaryVoiceId = '0356fc9e08b646ed91607baa54a847c3';
+
+      fishVoiceSelect.innerHTML = `
+        <option value="default">⚡ Voz Estándar de Fish Audio</option>
+      `;
+
+      // Grupo de Voces Clonadas
+      const myGroup = document.createElement('optgroup');
+      myGroup.label = '⭐ Mis Voces Clonadas (IA)';
+
+      // Incluir siempre el modelo principal del usuario
+      const primaryOpt = document.createElement('option');
+      primaryOpt.value = userPrimaryVoiceId;
+      primaryOpt.textContent = '🎙️ Mi Voz Principal (Clonada)';
+      myGroup.appendChild(primaryOpt);
+
+      // Separar otros modelos de la cuenta
+      const myModels = items.filter(m => (m.visibility === 'private' || (m.tags && m.tags.includes('custom'))) && (m._id !== userPrimaryVoiceId && m.id !== userPrimaryVoiceId));
+      const communityModels = items.filter(m => m.visibility !== 'private' && m._id !== userPrimaryVoiceId && m.id !== userPrimaryVoiceId);
+
+      myModels.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m._id || m.id;
+        opt.textContent = `🎙️ ${m.title || 'Voz Clonada'}`;
+        myGroup.appendChild(opt);
+      });
+      fishVoiceSelect.appendChild(myGroup);
+
+      if (communityModels.length > 0) {
+        const commGroup = document.createElement('optgroup');
+        commGroup.label = '🌟 Voces de Alta Fidelidad y Estudio';
+        communityModels.slice(0, 15).forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m._id || m.id;
+          const langTag = (m.languages && m.languages[0]) ? `[${m.languages[0].toUpperCase()}] ` : '';
+          opt.textContent = `${langTag}${m.title || 'Voz de Estudio'}`;
+          commGroup.appendChild(opt);
+        });
+        fishVoiceSelect.appendChild(commGroup);
+      }
+
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      customOpt.textContent = '✏️ Ingresar ID de Modelo Manualmente...';
+      fishVoiceSelect.appendChild(customOpt);
+
+      // Seleccionar voz previa o la voz clonada principal
+      const targetId = selectedVoiceId || (settings && settings.fishVoiceModelId) || userPrimaryVoiceId;
+      const existsInSelect = Array.from(fishVoiceSelect.options).some(o => o.value === targetId);
+
+      if (existsInSelect) {
+        fishVoiceSelect.value = targetId;
+        if (fishCustomVoiceGroup) fishCustomVoiceGroup.style.display = 'none';
+      } else if (targetId && targetId !== 'default') {
+        fishVoiceSelect.value = 'custom';
+        if (fishVoiceIdInput) fishVoiceIdInput.value = targetId;
+        if (fishCustomVoiceGroup) fishCustomVoiceGroup.style.display = 'block';
+      }
+
+      appendLog('FISH-AUDIO', `Voces de Fish Audio cargadas. Voz activa: ${fishVoiceSelect.options[fishVoiceSelect.selectedIndex]?.textContent || targetId}`);
+    } catch (err) {
+      console.warn('[Fish Audio] Error cargando modelos:', err);
+    }
+  }
+
+  async function validateFishApiKey(showNotification = true) {
+    if (!fishApiKeyInput || !fishStatusPill) return;
+
+    const apiKey = fishApiKeyInput.value.trim();
+    if (!apiKey) {
+      fishStatusPill.className = 'status-pill-fish amber';
+      fishStatusPill.textContent = 'Clave Pendiente';
+      return;
+    }
+
+    fishStatusPill.className = 'status-pill-fish amber';
+    fishStatusPill.textContent = 'Verificando...';
+
+    try {
+      const result = await ipcRenderer.invoke('FISH_AUDIO_TEST_KEY', { apiKey });
+      if (result && result.ok) {
+        fishStatusPill.className = 'status-pill-fish green';
+        fishStatusPill.textContent = 'Conectado';
+        if (showNotification) {
+          appendLog('FISH-AUDIO', '✅ API Key de Fish Audio validada exitosamente.', 'success');
+        }
+      } else {
+        fishStatusPill.className = 'status-pill-fish red';
+        fishStatusPill.textContent = 'Error de Clave';
+        if (showNotification) {
+          appendLog('FISH-AUDIO', `❌ Error validando API Key: ${result?.message || 'Revisa la clave'}`, 'error');
+        }
+      }
+    } catch (e) {
+      fishStatusPill.className = 'status-pill-fish red';
+      fishStatusPill.textContent = 'Sin Conexión';
+    }
+  }
+
+  async function testFishVoice(testPhrase = null) {
+    const phrase = testPhrase || 'Hello! This is my cloned voice translating in real time for Google Meet, Teams, and Zoom.';
+    appendLog('FISH-AUDIO', `Iniciando prueba de voz clonada: "${phrase}"...`);
+
+    if (btnTestFishVoice) {
+      btnTestFishVoice.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">Generando...</span>';
+    }
+
+    try {
+      await playAudioToVirtualCableAndSpeakers(phrase, 'en', true);
+      appendLog('FISH-AUDIO', '✅ Audio de prueba reproducido en tus auriculares/parlantes y enviado a Cable Virtual.', 'success');
+    } catch (err) {
+      appendLog('FISH-AUDIO', `Error en prueba de voz: ${err.message}`, 'error');
+    } finally {
+      if (btnTestFishVoice) {
+        btnTestFishVoice.innerHTML = '<span class="btn-icon">🔊</span><span class="btn-text">Probar Mi Voz</span>';
+      }
+    }
+  }
+
+  // ── Estudio de Grabación de Voz para Clonación ──────────────────────
+  let cloneMediaStream = null;
+  let cloneAudioCtx = null;
+  let cloneScriptProc = null;
+  let cloneAudioSamples = [];
+  let isCloneRecording = false;
+  let cloneRecordTimerInterval = null;
+  let cloneRecordSeconds = 0;
+  let recordedWavBuffer = null;
+  let recordedBlobUrl = null;
+
+  function openCloneModal() {
+    if (voiceCloneModal) {
+      voiceCloneModal.style.display = 'flex';
+      resetCloneStudio();
+    }
+  }
+
+  function closeCloneModal() {
+    if (isCloneRecording) {
+      stopCloneRecording();
+    }
+    if (voiceCloneModal) {
+      voiceCloneModal.style.display = 'none';
+    }
+    if (recordedBlobUrl) {
+      URL.revokeObjectURL(recordedBlobUrl);
+      recordedBlobUrl = null;
+    }
+  }
+
+  function resetCloneStudio() {
+    isCloneRecording = false;
+    cloneRecordSeconds = 0;
+    cloneAudioSamples = [];
+    recordedWavBuffer = null;
+
+    if (btnRecordText) btnRecordText.textContent = 'Iniciar Grabación';
+    if (btnToggleRecord) btnToggleRecord.classList.remove('is-recording');
+    if (recordStatusDot) recordStatusDot.className = 'record-status-dot';
+    if (recordStatusLabel) recordStatusLabel.textContent = 'Micrófono listo';
+    if (recordTimerBadge) recordTimerBadge.textContent = '00:00 / 00:20';
+    if (voiceWaveContainer) voiceWaveContainer.classList.remove('recording');
+
+    if (btnPlayPreview) btnPlayPreview.style.display = 'none';
+    if (btnDiscardRecord) btnDiscardRecord.style.display = 'none';
+    if (btnSubmitVoiceClone) {
+      btnSubmitVoiceClone.disabled = true;
+      btnSubmitVoiceClone.classList.remove('btn-loading');
+      btnSubmitVoiceClone.innerHTML = '<span>✨ Entrenar y Crear Clon de Voz</span>';
+    }
+    if (trainingStatusBox) {
+      trainingStatusBox.style.display = 'none';
+      trainingStatusBox.className = 'training-status-box';
+    }
+    if (trainingSpinner) trainingSpinner.style.display = 'block';
+    if (trainingStatusIcon) trainingStatusIcon.style.display = 'none';
+    if (trainingProgressFill) trainingProgressFill.style.width = '15%';
+    if (trainingBadgeStep) trainingBadgeStep.textContent = 'Paso 1 de 3';
+  }
+
+  async function startCloneRecording() {
+    try {
+      const deviceId = micInputSelect?.value || 'default';
+      const constraints = {
+        audio: (deviceId && deviceId !== 'default') ? { deviceId: { exact: deviceId } } : true,
+        video: false
+      };
+
+      cloneMediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      cloneAudioCtx = new AudioCtx({ sampleRate: 16000 });
+      const src = cloneAudioCtx.createMediaStreamSource(cloneMediaStream);
+
+      cloneScriptProc = cloneAudioCtx.createScriptProcessor(2048, 1, 1);
+      cloneAudioSamples = [];
+      isCloneRecording = true;
+      cloneRecordSeconds = 0;
+
+      const waveBars = voiceWaveContainer ? voiceWaveContainer.querySelectorAll('.wave-bar') : [];
+
+      cloneScriptProc.onaudioprocess = (e) => {
+        if (!isCloneRecording) return;
+        const inputData = e.inputBuffer.getChannelData(0);
+        cloneAudioSamples.push(new Float32Array(inputData));
+
+        // Calcular volumen para animar barras
+        let sum = 0;
+        for (let i = 0; i < inputData.length; i++) sum += inputData[i] * inputData[i];
+        const rms = Math.sqrt(sum / inputData.length);
+        const height = Math.min(42, Math.max(6, Math.round(rms * 280)));
+
+        waveBars.forEach((bar, idx) => {
+          const factor = (idx % 3 === 0) ? 1.2 : 0.8;
+          bar.style.height = `${Math.min(44, Math.round(height * factor))}px`;
+        });
+      };
+
+      src.connect(cloneScriptProc);
+      const nullDest = cloneAudioCtx.createMediaStreamDestination();
+      cloneScriptProc.connect(nullDest);
+
+      if (btnRecordText) btnRecordText.textContent = 'Detener Grabación';
+      if (btnToggleRecord) btnToggleRecord.classList.add('is-recording');
+      if (recordStatusDot) recordStatusDot.className = 'record-status-dot recording';
+      if (recordStatusLabel) recordStatusLabel.textContent = 'Grabando muestra de voz...';
+      if (voiceWaveContainer) voiceWaveContainer.classList.add('recording');
+
+      cloneRecordTimerInterval = setInterval(() => {
+        cloneRecordSeconds++;
+        const mins = String(Math.floor(cloneRecordSeconds / 60)).padStart(2, '0');
+        const secs = String(cloneRecordSeconds % 60).padStart(2, '0');
+        if (recordTimerBadge) {
+          recordTimerBadge.textContent = `${mins}:${secs} / 00:20`;
+          if (cloneRecordSeconds >= 15) {
+            recordTimerBadge.style.color = '#34c759';
+            recordTimerBadge.style.borderColor = 'rgba(52, 199, 89, 0.5)';
+            recordStatusLabel.textContent = 'Longitud óptima alcanzada. Puedes detener cuando termines la lectura.';
+          }
+        }
+
+        // Límite máximo de 60s
+        if (cloneRecordSeconds >= 60) {
+          stopCloneRecording();
+        }
+      }, 1000);
+
+      appendLog('FISH-AUDIO', '🎙️ Grabación de muestra de voz para clonación iniciada.');
+    } catch (err) {
+      appendLog('FISH-AUDIO', `Error iniciando grabación de voz: ${err.message}`, 'error');
+    }
+  }
+
+  function stopCloneRecording() {
+    isCloneRecording = false;
+    clearInterval(cloneRecordTimerInterval);
+
+    if (cloneScriptProc) {
+      try { cloneScriptProc.disconnect(); } catch (e) {}
+      cloneScriptProc = null;
+    }
+    if (cloneAudioCtx && cloneAudioCtx.state !== 'closed') {
+      try { cloneAudioCtx.close(); } catch (e) {}
+      cloneAudioCtx = null;
+    }
+    if (cloneMediaStream) {
+      try { cloneMediaStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      cloneMediaStream = null;
+    }
+
+    if (btnRecordText) btnRecordText.textContent = 'Iniciar Nueva Grabación';
+    if (btnToggleRecord) btnToggleRecord.classList.remove('is-recording');
+    if (recordStatusDot) recordStatusDot.className = 'record-status-dot';
+    if (recordStatusLabel) recordStatusLabel.textContent = `Grabación finalizada (${cloneRecordSeconds} seg). Escucha o crea tu modelo.`;
+    if (voiceWaveContainer) voiceWaveContainer.classList.remove('recording');
+
+    // Concatenar Float32Arrays grabados
+    let totalLength = 0;
+    for (let i = 0; i < cloneAudioSamples.length; i++) {
+      totalLength += cloneAudioSamples[i].length;
+    }
+    const mergedSamples = new Float32Array(totalLength);
+    let offset = 0;
+    for (let i = 0; i < cloneAudioSamples.length; i++) {
+      mergedSamples.set(cloneAudioSamples[i], offset);
+      offset += cloneAudioSamples[i].length;
+    }
+
+    // Codificar a WAV 16-bit 16kHz
+    const wavArrayBuffer = encodeWAV(mergedSamples, 16000);
+    recordedWavBuffer = wavArrayBuffer;
+
+    // Crear preview de audio
+    const blob = new Blob([wavArrayBuffer], { type: 'audio/wav' });
+    if (recordedBlobUrl) URL.revokeObjectURL(recordedBlobUrl);
+    recordedBlobUrl = URL.createObjectURL(blob);
+
+    if (clonePreviewAudio) {
+      clonePreviewAudio.src = recordedBlobUrl;
+    }
+
+    if (btnPlayPreview) btnPlayPreview.style.display = 'inline-flex';
+    if (btnDiscardRecord) btnDiscardRecord.style.display = 'inline-flex';
+    if (btnSubmitVoiceClone) btnSubmitVoiceClone.disabled = false;
+
+    appendLog('FISH-AUDIO', `Muestra de voz lista: ${totalLength} samples (~${cloneRecordSeconds}s, ${wavArrayBuffer.byteLength} bytes).`);
+  }
+
+  if (btnToggleRecord) {
+    btnToggleRecord.addEventListener('click', () => {
+      if (isCloneRecording) {
+        stopCloneRecording();
+      } else {
+        startCloneRecording();
+      }
+    });
+  }
+
+  if (btnPlayPreview) {
+    btnPlayPreview.addEventListener('click', () => {
+      if (clonePreviewAudio) {
+        clonePreviewAudio.currentTime = 0;
+        clonePreviewAudio.play();
+        btnPlayPreview.innerHTML = '<span>🔊 Reproduciendo...</span>';
+        clonePreviewAudio.onended = () => {
+          btnPlayPreview.innerHTML = '<span>▶️ Escuchar Muestra</span>';
+        };
+      }
+    });
+  }
+
+  if (btnDiscardRecord) {
+    btnDiscardRecord.addEventListener('click', () => {
+      resetCloneStudio();
+      appendLog('FISH-AUDIO', 'Muestra de voz descartada.');
+    });
+  }
+
+  if (btnSubmitVoiceClone) {
+    btnSubmitVoiceClone.addEventListener('click', async () => {
+      if (!recordedWavBuffer) {
+        alert('Por favor graba una muestra de voz primero.');
+        return;
+      }
+
+      const title = cloneModelTitle ? cloneModelTitle.value.trim() : 'Mi Voz Clonada';
+      const visibility = cloneVisibility ? cloneVisibility.value : 'private';
+      const sampleTranscript = cloneSampleTranscript ? cloneSampleTranscript.value.trim() : '';
+      const apiKey = fishApiKeyInput ? fishApiKeyInput.value.trim() : '';
+
+      if (!title) {
+        alert('Por favor ingresa un nombre para el modelo.');
+        return;
+      }
+
+      // ── Activar Estado de Carga (Loading) en Botón y Panel ──
+      btnSubmitVoiceClone.disabled = true;
+      btnSubmitVoiceClone.classList.add('btn-loading');
+      btnSubmitVoiceClone.innerHTML = '<div class="btn-spinner"></div> <span>Entrenando y Creando Modelo IA...</span>';
+
+      if (trainingStatusBox) {
+        trainingStatusBox.className = 'training-status-box';
+        trainingStatusBox.style.display = 'flex';
+      }
+      if (trainingSpinner) trainingSpinner.style.display = 'block';
+      if (trainingStatusIcon) trainingStatusIcon.style.display = 'none';
+      if (trainingBadgeStep) trainingBadgeStep.textContent = 'Paso 1 de 3';
+      if (trainingProgressFill) trainingProgressFill.style.width = '28%';
+      if (trainingStatusTitle) trainingStatusTitle.textContent = 'Codificando y Subiendo Audio a Fish Audio...';
+      if (trainingStatusDesc) trainingStatusDesc.textContent = 'Procesando muestra WAV en alta fidelidad y extrayendo vectores fonéticos...';
+
+      // Timers visuales para feedback continuo durante la petición
+      const step2Timer = setTimeout(() => {
+        if (trainingBadgeStep) trainingBadgeStep.textContent = 'Paso 2 de 3';
+        if (trainingProgressFill) trainingProgressFill.style.width = '65%';
+        if (trainingStatusTitle) trainingStatusTitle.textContent = 'Calibrando Redes Neuronales Acústicas...';
+        if (trainingStatusDesc) trainingStatusDesc.textContent = 'Ajustando timbre, cadencia y armónicos vocales en los servidores de Fish Audio...';
+      }, 1400);
+
+      const step3Timer = setTimeout(() => {
+        if (trainingBadgeStep) trainingBadgeStep.textContent = 'Paso 3 de 3';
+        if (trainingProgressFill) trainingProgressFill.style.width = '88%';
+        if (trainingStatusTitle) trainingStatusTitle.textContent = 'Generando e Indexando Modelo de Voz...';
+        if (trainingStatusDesc) trainingStatusDesc.textContent = 'Asociando el nuevo modelo a tu cuenta privada...';
+      }, 3200);
+
+      const wavBase64 = arrayBufferToBase64(recordedWavBuffer);
+
+      appendLog('FISH-AUDIO', `Enviando muestra de audio a Fish Audio para crear modelo "${title}"...`);
+
+      try {
+        const result = await ipcRenderer.invoke('FISH_AUDIO_CREATE_MODEL', {
+          title,
+          audioBase64: wavBase64,
+          audioMimeType: 'audio/wav',
+          sampleText: sampleTranscript,
+          visibility,
+          apiKey
+        });
+
+        clearTimeout(step2Timer);
+        clearTimeout(step3Timer);
+
+        if (result && result.success) {
+          const modelId = result.modelId;
+          appendLog('FISH-AUDIO', `🎉 ¡Clon de voz creado exitosamente! ID: ${modelId}`, 'success');
+
+          if (trainingProgressFill) trainingProgressFill.style.width = '100%';
+          if (trainingStatusBox) trainingStatusBox.className = 'training-status-box success';
+          if (trainingSpinner) trainingSpinner.style.display = 'none';
+          if (trainingStatusIcon) {
+            trainingStatusIcon.style.display = 'block';
+            trainingStatusIcon.textContent = '✅';
+          }
+          if (trainingBadgeStep) trainingBadgeStep.textContent = '¡Completado!';
+          if (trainingStatusTitle) trainingStatusTitle.textContent = '¡Clon de Voz Creado con Éxito!';
+          if (trainingStatusDesc) trainingStatusDesc.textContent = `Modelo ID: ${modelId}. Asignando como tu voz activa...`;
+          btnSubmitVoiceClone.innerHTML = '<span>🎉 ¡Voz Clonada con Éxito!</span>';
+
+          // Recargar lista y seleccionar el nuevo modelo
+          await loadFishVoiceModels(modelId);
+          await saveCurrentSettings();
+
+          setTimeout(() => {
+            closeCloneModal();
+            // Ejecutar una prueba rápida para que el usuario escuche su nueva voz
+            testFishVoice('Hello! My voice clone is now active and ready for video calls.');
+          }, 1900);
+
+        } else {
+          appendLog('FISH-AUDIO', `❌ Error creando modelo: ${result?.error || 'Respuesta fallida'}`, 'error');
+          if (trainingProgressFill) trainingProgressFill.style.width = '100%';
+          if (trainingStatusBox) trainingStatusBox.className = 'training-status-box error';
+          if (trainingSpinner) trainingSpinner.style.display = 'none';
+          if (trainingStatusIcon) {
+            trainingStatusIcon.style.display = 'block';
+            trainingStatusIcon.textContent = '❌';
+          }
+          if (trainingBadgeStep) trainingBadgeStep.textContent = 'Error';
+          if (trainingStatusTitle) trainingStatusTitle.textContent = 'Error al crear modelo';
+          if (trainingStatusDesc) trainingStatusDesc.textContent = result?.error || 'Verifica tu conexión y API Key.';
+          
+          btnSubmitVoiceClone.classList.remove('btn-loading');
+          btnSubmitVoiceClone.innerHTML = '<span>✨ Reintentar Entrenamiento</span>';
+          btnSubmitVoiceClone.disabled = false;
+        }
+      } catch (err) {
+        clearTimeout(step2Timer);
+        clearTimeout(step3Timer);
+        appendLog('FISH-AUDIO', `Excepción creando clon de voz: ${err.message}`, 'error');
+        if (trainingStatusBox) trainingStatusBox.className = 'training-status-box error';
+        if (trainingSpinner) trainingSpinner.style.display = 'none';
+        if (trainingStatusIcon) {
+          trainingStatusIcon.style.display = 'block';
+          trainingStatusIcon.textContent = '❌';
+        }
+        if (trainingBadgeStep) trainingBadgeStep.textContent = 'Error';
+        if (trainingStatusTitle) trainingStatusTitle.textContent = 'Error de conexión';
+        if (trainingStatusDesc) trainingStatusDesc.textContent = err.message;
+
+        btnSubmitVoiceClone.classList.remove('btn-loading');
+        btnSubmitVoiceClone.innerHTML = '<span>✨ Reintentar Entrenamiento</span>';
+        btnSubmitVoiceClone.disabled = false;
+      }
+    });
+  }
+
+  // ── Selector de Plantillas Fonéticas para Clonación de Voz ─────────
+  const PROMPT_TEMPLATES = {
+    phonetic: 'Hola, mi nombre es Julian. Esta es una prueba de calibración y clonación de voz en alta fidelidad. A lo largo del día participo en diferentes reuniones de trabajo, presentaciones ejecutivas y llamadas estratégicas con equipos de todo el mundo. Es fundamental mantener una comunicación fluida, clara y natural en cualquier idioma. Me aseguro de hablar con un ritmo constante, pausado y con una entonación amigable para que la inteligencia artificial capture exactamente el timbre y la calidez de mi voz real.',
+    executive: 'Buenos días a todos. En la sesión de hoy revisaremos los avances clave del proyecto, las métricas de rendimiento del último trimestre y los próximos objetivos que implementaremos en la plataforma. Si tienen alguna duda técnica o sugerencia sobre la arquitectura, por favor coméntenla con total libertad para alinear nuestras prioridades antes del cierre.',
+    bilingual: 'Hola, estoy probando la traducción simultánea con mi propio clon de voz. Durante mis llamadas en vivo, mi objetivo es transmitir mis ideas con total confianza y precisión. I am excited to see how this technology translates my words into natural English, keeping my personal voice style, tone, and professional confidence across all my meetings.'
+  };
+
+  const btnPromptTpls = document.querySelectorAll('.btn-prompt-tpl');
+  const promptReadingTextEl = document.getElementById('prompt-reading-text');
+
+  btnPromptTpls.forEach(btn => {
+    btn.addEventListener('click', () => {
+      btnPromptTpls.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tplKey = btn.getAttribute('data-tpl');
+      const text = PROMPT_TEMPLATES[tplKey] || PROMPT_TEMPLATES.phonetic;
+      if (promptReadingTextEl) promptReadingTextEl.textContent = `"${text}"`;
+      if (cloneSampleTranscript) cloneSampleTranscript.value = text;
+      appendLog('FISH-AUDIO', `Plantilla de lectura seleccionada: [${btn.textContent.trim()}]`);
+    });
+  });
 });
 
 
