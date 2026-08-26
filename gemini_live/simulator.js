@@ -267,16 +267,27 @@
     }
   }
 
-  // Traducción vía Google Translate GTX API
+  // Traducción vía Google Translate API con fallback
   async function translateText(text, src, tgt) {
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${src}&tl=${tgt}&dt=t&q=${encodeURIComponent(text)}`;
+      const url = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${src}&tl=${tgt}&dt=t&q=${encodeURIComponent(text)}`;
       const res = await fetch(url);
       const data = await res.json();
       if (data && Array.isArray(data[0])) {
-        return data[0].map(c => c[0]).filter(Boolean).join('');
+        const translated = data[0].map(c => c[0]).filter(Boolean).join('');
+        if (translated && translated.trim()) return translated.trim();
       }
-    } catch (e) { }
+    } catch (e) {
+      try {
+        const fbUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${src}|${tgt}`;
+        const fbRes = await fetch(fbUrl);
+        const fbData = await fbRes.json();
+        if (fbData?.responseData?.translatedText) {
+          const trans = fbData.responseData.translatedText.trim();
+          if (trans && !trans.includes('MYMEMORY WARNING')) return trans;
+        }
+      } catch (fbErr) {}
+    }
     return text;
   }
 

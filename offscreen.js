@@ -823,7 +823,7 @@ async function translateWithFastAPI(text, srcLang, tgtLang) {
   try {
     const sanitizedText = (text || '').replace(/[\r\n]+/g, ' ').trim();
     if (!sanitizedText) return '';
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${srcLang}&tl=${tgtLang}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
+    const url = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${srcLang}&tl=${tgtLang}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`HTTP Error status: ${response.status}`);
@@ -849,12 +849,16 @@ async function translateWithFallback(text, srcLang, tgtLang) {
   try {
     const sanitizedText = (text || '').replace(/[\r\n]+/g, ' ').trim();
     if (!sanitizedText) return '';
-    const url = `https://ftapi.pythonanywhere.com/translate?sl=${srcLang}&dl=${tgtLang}&text=${encodeURIComponent(sanitizedText)}`;
+    const src = srcLang === 'auto' ? 'es' : srcLang;
+    const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(sanitizedText)}&langpair=${src}|${tgtLang}`;
     const response = await fetch(url);
     if (response.ok) {
       const data = await response.json();
-      if (data && data['destination-text']) {
-        return data['destination-text'];
+      if (data && data.responseData && data.responseData.translatedText) {
+        const trans = data.responseData.translatedText.trim();
+        if (trans && !trans.includes('MYMEMORY WARNING')) {
+          return trans;
+        }
       }
     }
   } catch (e) { }

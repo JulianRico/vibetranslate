@@ -329,7 +329,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         else tgt = tgt.substring(0, 2);
 
         try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${src}&tl=${tgt}&dt=t&q=${encodeURIComponent(transcript)}`;
+          const url = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${src}&tl=${tgt}&dt=t&q=${encodeURIComponent(transcript)}`;
           const response = await fetch(url);
           const data = await response.json();
           let translatedText = transcript;
@@ -344,7 +344,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             speakTestTranslation(translatedText, tgt);
           }
         } catch (e) {
-          console.error('Error traduciendo prueba:', e);
+          try {
+            const fbUrl = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(transcript)}&langpair=${src}|${tgt}`;
+            const fbRes = await fetch(fbUrl);
+            const fbData = await fbRes.json();
+            const translatedText = fbData?.responseData?.translatedText || transcript;
+            testTranslated.textContent = translatedText;
+            if (isFinal) speakTestTranslation(translatedText, tgt);
+          } catch (fbErr) {
+            console.error('Error traduciendo prueba:', e);
+          }
         }
       }
     };

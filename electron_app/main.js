@@ -242,6 +242,104 @@ ipcMain.handle('SAVE_SETTINGS', async (event, newSettings) => {
   return merged;
 });
 
+/**
+ * Motores de traducción con alta resiliencia y fallbacks automáticos:
+ * Nivel 1: Google Translate API rápida (dict-chrome-ex)
+ * Nivel 2: Groq AI LLM ultrarrápido (~150ms con openai/gpt-oss-20b)
+ * Nivel 3: MyMemory API de respaldo
+ */
+async function translateWithGoogleDict(text, sl, tl) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      },
+      signal: controller.signal
+    });
+    if (!res.ok) throw new Error(`Google HTTP ${res.status}`);
+    const data = await res.json();
+    const detected = (data && data[2]) ? data[2] : sl;
+    if (data && Array.isArray(data[0])) {
+      const translated = data[0].map(chunk => chunk[0]).filter(Boolean).join('');
+      if (translated && translated.trim()) {
+        return { translated: translated.trim(), detected };
+      }
+    }
+    throw new Error('Respuesta vacía de Google Translate');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function translateWithGroqLLM(text, sl, tl, apiKey) {
+  if (!apiKey || apiKey.trim().length < 5) throw new Error('Groq API Key no disponible');
+  const targetName = tl === 'en' ? 'English' : (tl === 'es' ? 'Spanish' : tl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 4000);
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey.trim()}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'openai/gpt-oss-20b',
+        messages: [
+          {
+            role: 'system',
+            content: `You are an ultra-fast real-time speech translator. Translate directly and accurately to ${targetName}. Output ONLY the final translation without quotes, notes, markdown or explanations.`
+          },
+          { role: 'user', content: text }
+        ],
+        temperature: 0.1,
+        max_tokens: 250
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Groq HTTP ${res.status}: ${errText}`);
+    }
+    const data = await res.json();
+    let content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+    if (content) {
+      content = content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      if ((content.startsWith('"') && content.endsWith('"')) || (content.startsWith('«') && content.endsWith('»'))) {
+        content = content.slice(1, -1).trim();
+      }
+      if (content) return { translated: content, detected: sl };
+    }
+    throw new Error('Respuesta vacía de Groq');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function translateWithMyMemory(text, sl, tl) {
+  const source = sl === 'auto' ? 'es' : sl;
+  const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${source}|${tl}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3500);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`MyMemory HTTP ${res.status}`);
+    const data = await res.json();
+    if (data && data.responseData && data.responseData.translatedText) {
+      const trans = data.responseData.translatedText.trim();
+      if (trans && !trans.includes('MYMEMORY WARNING')) {
+        return { translated: trans, detected: sl };
+      }
+    }
+    throw new Error('Respuesta inválida de MyMemory');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang }) => {
   if (!text || !text.trim()) return { original: '', translated: '', detectedLang: 'es', targetLang: 'en' };
 
@@ -255,60 +353,58 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
   const isAutoSource = (srcShort === 'au' || !srcShort);
   const isAutoTarget = (tgtShort === 'au' || !tgtShort);
 
+  const sanitizedText = correctedText.replace(/[\r\n]+/g, ' ').trim();
+  let slParam = isAutoSource ? 'auto' : (srcShort || 'es');
+  let tlParam = isAutoTarget ? (slParam === 'es' ? 'en' : 'es') : (tgtShort || 'en');
+  if (isAutoTarget && slParam === tlParam) {
+    tlParam = (slParam === 'es') ? 'en' : 'es';
+  }
+
   const startTime = Date.now();
+  const groqKey = (settings && settings.groqApiKey) ? settings.groqApiKey.trim() : '';
 
-  return new Promise((resolve) => {
-    const sanitizedText = correctedText.replace(/[\r\n]+/g, ' ').trim();
-    const slParam = isAutoSource ? 'auto' : (srcShort === 'en' ? 'en' : 'es');
-    const tlParam = isAutoTarget ? (slParam === 'es' ? 'en' : 'es') : (tgtShort === 'es' ? 'es' : 'en');
+  // Nivel 1: Google Translate (dict-chrome-ex)
+  try {
+    const resGoogle = await translateWithGoogleDict(sanitizedText, slParam, tlParam);
+    const elapsed = Date.now() - startTime;
+    const detected = resGoogle.detected || slParam;
 
-    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${slParam}&tl=${tlParam}&dt=t&q=${encodeURIComponent(sanitizedText)}`;
+    if (isAutoSource && isAutoTarget && detected === tlParam) {
+      const altTl = (detected === 'en') ? 'es' : 'en';
+      const resAlt = await translateWithGoogleDict(sanitizedText, detected, altTl);
+      defaultLogger.success('TRANSLATE', `Auto-traducción bidireccional (Google) (${detected} ➔ ${altTl}) en ${Date.now() - startTime}ms: "${resAlt.translated}"`);
+      return { original: correctedText, translated: resAlt.translated, detectedLang: detected, targetLang: altTl };
+    }
 
-    https.get(url, (res) => {
-      let body = '';
-      res.on('data', (chunk) => body += chunk);
-      res.on('end', () => {
-        const elapsed = Date.now() - startTime;
-        try {
-          const data = JSON.parse(body);
-          const detected = (data && data[2]) ? data[2] : slParam;
+    defaultLogger.success('TRANSLATE', `Traducción completada (Google) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGoogle.translated}"`);
+    return { original: correctedText, translated: resGoogle.translated, detectedLang: detected, targetLang: tlParam };
+  } catch (errGoogle) {
+    defaultLogger.warn('TRANSLATE', `Aviso en Google Translate (${errGoogle.message}). Probando fallback Groq AI...`);
+  }
 
-          // Solo si el usuario configuró explícitamente modo Auto bidireccional
-          if (isAutoSource && isAutoTarget && detected === 'en' && tlParam === 'en') {
-            const urlEs = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=es&dt=t&q=${encodeURIComponent(sanitizedText)}`;
-            https.get(urlEs, (resEs) => {
-              let bodyEs = '';
-              resEs.on('data', (c) => bodyEs += c);
-              resEs.on('end', () => {
-                try {
-                  const dataEs = JSON.parse(bodyEs);
-                  const translated = dataEs[0].map(chunk => chunk[0]).filter(Boolean).join('');
-                  defaultLogger.success('TRANSLATE', `Auto-traducción bidireccional (EN ➔ ES) en ${elapsed}ms: "${translated.trim()}"`);
-                  resolve({ original: correctedText, translated: translated.trim(), detectedLang: 'en', targetLang: 'es' });
-                } catch (e) {
-                  resolve({ original: correctedText, translated: correctedText, detectedLang: 'en', targetLang: 'es' });
-                }
-              });
-            });
-            return;
-          }
+  // Nivel 2: Groq AI LLM (Ultra rápido y contextual)
+  if (groqKey && groqKey.length > 5) {
+    try {
+      const resGroq = await translateWithGroqLLM(sanitizedText, slParam, tlParam, groqKey);
+      const elapsed = Date.now() - startTime;
+      defaultLogger.success('TRANSLATE', `Traducción completada (Groq AI) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGroq.translated}"`);
+      return { original: correctedText, translated: resGroq.translated, detectedLang: slParam, targetLang: tlParam };
+    } catch (errGroq) {
+      defaultLogger.warn('TRANSLATE', `Aviso en Groq LLM (${errGroq.message}). Probando fallback MyMemory...`);
+    }
+  }
 
-          if (data && Array.isArray(data[0])) {
-            const translated = data[0].map(chunk => chunk[0]).filter(Boolean).join('');
-            if (translated && translated.trim()) {
-              defaultLogger.success('TRANSLATE', `Traducción completada (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${translated.trim()}"`);
-              return resolve({ original: correctedText, translated: translated.trim(), detectedLang: detected, targetLang: tlParam });
-            }
-          }
-          resolve({ original: correctedText, translated: correctedText, detectedLang: detected, targetLang: tlParam });
-        } catch (e) {
-          resolve({ original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam });
-        }
-      });
-    }).on('error', (err) => {
-      resolve({ original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam });
-    });
-  });
+  // Nivel 3: MyMemory API
+  try {
+    const resMyMem = await translateWithMyMemory(sanitizedText, slParam, tlParam);
+    const elapsed = Date.now() - startTime;
+    defaultLogger.success('TRANSLATE', `Traducción completada (MyMemory) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resMyMem.translated}"`);
+    return { original: correctedText, translated: resMyMem.translated, detectedLang: slParam, targetLang: tlParam };
+  } catch (errMyMem) {
+    defaultLogger.error('TRANSLATE', `Fallo en todos los motores de traducción (${errMyMem.message}). Retornando texto original.`);
+  }
+
+  return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam };
 });
 
 ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language, format = 'wav' }) => {
