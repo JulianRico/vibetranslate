@@ -407,7 +407,7 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
   return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam };
 });
 
-ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language, format = 'wav' }) => {
+ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language, format = 'wav', prompt }) => {
   if (!apiKey || !apiKey.trim()) {
     defaultLogger.warn('GROQ', 'Groq API Key no configurada en la aplicación.');
     return { text: '' };
@@ -430,7 +430,12 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     formData.append('model', 'whisper-large-v3-turbo');
     formData.append('response_format', 'json');
     formData.append('temperature', '0.0');
-    formData.append('prompt', 'Conversación en vivo. Live conversation.');
+    
+    const defaultPrompt = (language === 'en')
+      ? 'Live conversational English in a business meeting. Transcribe complete, coherent sentences with proper punctuation.'
+      : 'Conversación fluida en vivo en español. Transcribir oraciones completas y coherentes con puntuación adecuada.';
+    formData.append('prompt', prompt || defaultPrompt);
+
     if (language && language !== 'auto') {
       formData.append('language', language);
     }

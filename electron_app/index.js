@@ -1222,14 +1222,6 @@ Generado automáticamente por ViBeTranslate Desktop
       incomingScriptProcessor.onaudioprocess = async (e) => {
         if (!isPipelineRunning) return;
 
-        // 0. Bloqueo Total de Eco: Si la aplicación está reproduciendo la voz por los altavoces, IGNORAR el loopback
-        const isCurrentlyPlayingAudio = isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 750);
-        if (isCurrentlyPlayingAudio) {
-          incomingSpeechHold = 0;
-          incomingSamplesBuffer = [];
-          return;
-        }
-
         const inputData = e.inputBuffer.getChannelData(0);
 
         let sum = 0;
@@ -1242,7 +1234,7 @@ Generado automáticamente por ViBeTranslate Desktop
         const incomingThreshold = 0.002;
 
         if (rms >= incomingThreshold) {
-          incomingSpeechHold = 4;
+          incomingSpeechHold = 8; // ~1024ms de retención para permitir pausas naturales al hablar
           ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: true });
           for (let i = 0; i < inputData.length; i++) {
             incomingSamplesBuffer.push(inputData[i]);
@@ -1257,14 +1249,15 @@ Generado automáticamente por ViBeTranslate Desktop
               ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: false });
             }
           } else {
-            // Descartar fragmentos de ruido aislados que no alcancen duración mínima de habla (~500ms)
-            if (incomingSamplesBuffer.length > 0 && incomingSamplesBuffer.length < 8000) {
+            // Descartar fragmentos de ruido aislados que no alcancen duración mínima de habla (~600ms = 9600 muestras)
+            if (incomingSamplesBuffer.length > 0 && incomingSamplesBuffer.length < 9600) {
               incomingSamplesBuffer = [];
             }
           }
         }
 
-        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length >= 8000) || (incomingSamplesBuffer.length > 28000);
+        // Procesar si terminó la frase (pausa natural con buffer >= 9600) O si alcanzó ~5.5s continuos (88000 muestras)
+        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length >= 9600) || (incomingSamplesBuffer.length > 88000);
 
         if (shouldProcess && !isTranscribingIncoming && apiKey) {
           const samples = new Float32Array(incomingSamplesBuffer);
@@ -1290,6 +1283,7 @@ Generado automáticamente por ViBeTranslate Desktop
               audioBase64: wavBase64,
               apiKey,
               language: 'en',
+              prompt: 'Conversational English in a live business meeting. Transcribe complete, coherent sentences with proper punctuation.',
               format: 'wav'
             });
 
@@ -1472,7 +1466,7 @@ Generado automáticamente por ViBeTranslate Desktop
         const threshold = currentNoiseThreshold;
 
         if (rms >= threshold) {
-          speechHoldFrames = 2; // 2 frames (~256ms) de retención
+          speechHoldFrames = 6; // 6 frames (~768ms) de retención para permitir pausas naturales
           continuousSpeechFrames++;
 
           if (vadBadge) {
@@ -1524,8 +1518,8 @@ Generado automáticamente por ViBeTranslate Desktop
             }
           }
 
-          // Si el usuario pausó O se alcanzó ~1.8s de habla continua (28000 muestras)
-          const shouldProcessGroq = (speechHoldFrames === 0 && speechSamplesBuffer.length >= 9600) || (speechSamplesBuffer.length > 28000);
+          // Si el usuario pausó O se alcanzó ~5.5s de habla continua (88000 muestras)
+          const shouldProcessGroq = (speechHoldFrames === 0 && speechSamplesBuffer.length >= 9600) || (speechSamplesBuffer.length > 88000);
 
           if (shouldProcessGroq && !isTranscribingGroq) {
             const samplesToSend = new Float32Array(speechSamplesBuffer);
@@ -1552,6 +1546,7 @@ Generado automáticamente por ViBeTranslate Desktop
                 audioBase64: wavBase64,
                 apiKey,
                 language: sourceLangSelect.value.substring(0, 2),
+                prompt: 'Conversación fluida en vivo en español. Transcribir oraciones completas con puntuación adecuada.',
                 format: 'wav'
               });
 
