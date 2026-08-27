@@ -27,6 +27,7 @@
     "nodemon": "^3.1.14"
   },
   "dependencies": {
+    "@google/genai": "^2.19.0",
     "ws": "^8.18.0"
   }
 }

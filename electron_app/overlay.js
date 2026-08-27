@@ -83,4 +83,11 @@ document.addEventListener('DOMContentLoaded', () => {
       btnMinimize.textContent = '_';
     }
   });
+
+  const btnCloseOverlay = document.getElementById('btn-close-overlay');
+  if (btnCloseOverlay) {
+    btnCloseOverlay.addEventListener('click', () => {
+      ipcRenderer.send('TOGGLE_OVERLAY', false);
+    });
+  }
 });

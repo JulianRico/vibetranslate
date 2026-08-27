@@ -65,9 +65,16 @@ const DEFAULT_SETTINGS = {
   subtitleFontSize: 16,
   subtitleOpacity: 92,
   subtitleBgColor: '#000000',
+  showOverlay: true,
   translateIncoming: true,
   autoStartListening: false
 };
+
+function broadcastOverlayState(isVisible) {
+  if (controlWindow && !controlWindow.isDestroyed()) {
+    controlWindow.webContents.send('OVERLAY_STATE_CHANGED', { isVisible });
+  }
+}
 
 function loadSavedSettings() {
   try {
@@ -139,9 +146,15 @@ function createOverlayWindow() {
   overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
   overlayWindow.setAlwaysOnTop(true, 'floating');
 
+  const settings = loadSavedSettings();
+  if (settings.showOverlay === false) {
+    overlayWindow.hide();
+  }
+
   overlayWindow.on('closed', () => {
     defaultLogger.info('UI', 'Ventana de Subtítulos cerrada.');
     overlayWindow = null;
+    broadcastOverlayState(false);
   });
 }
 
@@ -181,9 +194,11 @@ app.whenReady().then(() => {
   // Registrar Atajos de Teclado Globales
   globalShortcut.register('CommandOrControl+Shift+T', () => {
     defaultLogger.info('SHORTCUT', 'Atajo global Ctrl+Shift+T activado. Alternando visibilidad del overlay.');
-    if (overlayWindow) {
-      if (overlayWindow.isVisible()) overlayWindow.hide();
-      else overlayWindow.show();
+    if (overlayWindow && !overlayWindow.isDestroyed()) {
+      const willShow = !overlayWindow.isVisible();
+      if (willShow) overlayWindow.show();
+      else overlayWindow.hide();
+      broadcastOverlayState(willShow);
     }
   });
 
@@ -372,12 +387,13 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
     if (isAutoSource && isAutoTarget && detected === tlParam) {
       const altTl = (detected === 'en') ? 'es' : 'en';
       const resAlt = await translateWithGoogleDict(sanitizedText, detected, altTl);
-      defaultLogger.success('TRANSLATE', `Auto-traducción bidireccional (Google) (${detected} ➔ ${altTl}) en ${Date.now() - startTime}ms: "${resAlt.translated}"`);
-      return { original: correctedText, translated: resAlt.translated, detectedLang: detected, targetLang: altTl };
+      const totalElapsed = Date.now() - startTime;
+      defaultLogger.success('TRANSLATE', `Auto-traducción bidireccional (Google) (${detected} ➔ ${altTl}) en ${totalElapsed}ms: "${resAlt.translated}"`);
+      return { original: correctedText, translated: resAlt.translated, detectedLang: detected, targetLang: altTl, elapsedMs: totalElapsed };
     }
 
     defaultLogger.success('TRANSLATE', `Traducción completada (Google) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGoogle.translated}"`);
-    return { original: correctedText, translated: resGoogle.translated, detectedLang: detected, targetLang: tlParam };
+    return { original: correctedText, translated: resGoogle.translated, detectedLang: detected, targetLang: tlParam, elapsedMs: elapsed };
   } catch (errGoogle) {
     defaultLogger.warn('TRANSLATE', `Aviso en Google Translate (${errGoogle.message}). Probando fallback Groq AI...`);
   }
@@ -388,7 +404,7 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
       const resGroq = await translateWithGroqLLM(sanitizedText, slParam, tlParam, groqKey);
       const elapsed = Date.now() - startTime;
       defaultLogger.success('TRANSLATE', `Traducción completada (Groq AI) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGroq.translated}"`);
-      return { original: correctedText, translated: resGroq.translated, detectedLang: slParam, targetLang: tlParam };
+      return { original: correctedText, translated: resGroq.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed };
     } catch (errGroq) {
       defaultLogger.warn('TRANSLATE', `Aviso en Groq LLM (${errGroq.message}). Probando fallback MyMemory...`);
     }
@@ -399,12 +415,13 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
     const resMyMem = await translateWithMyMemory(sanitizedText, slParam, tlParam);
     const elapsed = Date.now() - startTime;
     defaultLogger.success('TRANSLATE', `Traducción completada (MyMemory) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resMyMem.translated}"`);
-    return { original: correctedText, translated: resMyMem.translated, detectedLang: slParam, targetLang: tlParam };
+    return { original: correctedText, translated: resMyMem.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed };
   } catch (errMyMem) {
     defaultLogger.error('TRANSLATE', `Fallo en todos los motores de traducción (${errMyMem.message}). Retornando texto original.`);
   }
 
-  return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam };
+  const elapsed = Date.now() - startTime;
+  return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed };
 });
 
 ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language, format = 'wav', prompt }) => {
@@ -466,7 +483,7 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     }
 
     defaultLogger.success('GROQ', `Transcripción Groq Whisper completada en ${elapsed}ms: "${rawText}"`);
-    return { text: rawText };
+    return { text: rawText, elapsedMs: elapsed, model: 'whisper-large-v3-turbo' };
   };
 
   try {
@@ -482,9 +499,99 @@ ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language,
     } catch (retryErr) {
       const retryCause = retryErr.cause ? (retryErr.cause.code || retryErr.cause.message || JSON.stringify(retryErr.cause)) : '';
       defaultLogger.error('GROQ', `Excepción en llamada a Groq Whisper: ${retryErr.message} ${retryCause ? `(${retryCause})` : ''}`);
-      return { text: '' };
+      return { text: '', elapsedMs: 0 };
     }
   }
+});
+
+ipcMain.handle('TRANSCRIBE_GEMINI_35', async (event, { audioBase64, apiKey, language, format = 'wav', customVocabulary }) => {
+  if (!apiKey || !apiKey.trim()) {
+    defaultLogger.warn('GEMINI', 'Gemini API Key no configurada.');
+    return { text: '', elapsedMs: 0 };
+  }
+
+  const cleanKey = apiKey.trim();
+  const buffer = Buffer.from(audioBase64, 'base64');
+  if (!buffer || buffer.length < 1000) {
+    return { text: '', elapsedMs: 0 };
+  }
+
+  const mimeType = format === 'wav' ? 'audio/wav' : 'audio/mp3';
+  const startTime = Date.now();
+  const vocab = Array.isArray(customVocabulary) && customVocabulary.length > 0
+    ? `Custom technical vocabulary to recognize accurately: ${customVocabulary.join(', ')}.`
+    : '';
+
+  const systemInstruction = `You are an intelligent, precise speech-to-text transcriber (Gemini 3.5 Transcribe).
+Transcribe the audio accurately. Clean up filler words (um, uh, eh, este) and resolve self-corrections into smooth text.
+${vocab}
+Output ONLY the final transcribed text without quotes, notes, markdown or explanations.`;
+
+  const payload = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: systemInstruction },
+          {
+            inlineData: {
+              mimeType: mimeType,
+              data: audioBase64
+            }
+          }
+        ]
+      }
+    ],
+    generationConfig: {
+      temperature: 0.0,
+      maxOutputTokens: 200
+    }
+  };
+
+  const modelsToTry = [
+    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
+    'gemini-3.6-flash',
+    'gemini-3-flash-preview',
+    'gemini-3.5-transcribe'
+  ];
+
+  for (const model of modelsToTry) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(9000)
+      });
+
+      if (!response.ok) {
+        const errTxt = await response.text();
+        defaultLogger.warn('GEMINI', `Aviso ${model} HTTP ${response.status}: ${errTxt.substring(0, 100)}`);
+        continue;
+      }
+
+      const data = await response.json();
+      let text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      text = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+      if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith('«') && text.endsWith('»'))) {
+        text = text.slice(1, -1).trim();
+      }
+
+      if (text && text.length > 0 && text !== '[SILENCE]') {
+        const elapsed = Date.now() - startTime;
+        defaultLogger.success('GEMINI', `Transcripción Gemini (${model}) completada en ${elapsed}ms: "${text}"`);
+        return { text, elapsedMs: elapsed, model };
+      }
+    } catch (err) {
+      defaultLogger.warn('GEMINI', `Aviso en intento con ${model}: ${err.message}`);
+    }
+  }
+
+  const elapsed = Date.now() - startTime;
+  defaultLogger.error('GEMINI', `No se pudo obtener transcripción con Gemini 3.5 tras ${elapsed}ms.`);
+  return { text: '', elapsedMs: elapsed };
 });
 
 // ── Handlers IPC para Fish Audio AI (Clonación de Voz y TTS) ────────
@@ -584,9 +691,21 @@ ipcMain.on('DISPLAY_SPEECH_STATE', (event, payload) => {
 ipcMain.on('TOGGLE_OVERLAY', (event, show) => {
   defaultLogger.info('UI', `Toggle overlay solicitado: ${show ? 'MOSTRAR' : 'OCULTAR'}`);
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    if (show) overlayWindow.show();
-    else overlayWindow.hide();
+    if (show) {
+      overlayWindow.show();
+      broadcastOverlayState(true);
+    } else {
+      overlayWindow.hide();
+      broadcastOverlayState(false);
+    }
   }
+});
+
+ipcMain.handle('GET_OVERLAY_STATE', async () => {
+  if (overlayWindow && !overlayWindow.isDestroyed()) {
+    return { isVisible: overlayWindow.isVisible() };
+  }
+  return { isVisible: false };
 });
 
 ipcMain.on('OPEN_DEVTOOLS', () => {
@@ -617,6 +736,16 @@ ipcMain.handle('GET_DESKTOP_AUDIO_SOURCE', async () => {
     defaultLogger.error('AUDIO', `Error obteniendo fuentes de desktopCapturer: ${err.message}`);
   }
   return null;
+});
+
+ipcMain.handle('DESKTOP_CAPTURER_GET_SOURCES', async (event, opts = { types: ['screen', 'window'] }) => {
+  try {
+    const sources = await desktopCapturer.getSources(opts);
+    return sources.map(s => ({ id: s.id, name: s.name }));
+  } catch (err) {
+    defaultLogger.error('AUDIO', `Error en DESKTOP_CAPTURER_GET_SOURCES: ${err.message}`);
+    return [];
+  }
 });
 
 // ── Diagnóstico y Validación de Hardware ─────────────────────────────

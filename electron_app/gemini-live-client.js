@@ -7,10 +7,12 @@ const WebSocket = require('ws');
 class GeminiLiveClient {
   constructor(options = {}) {
     this.apiKey = options.apiKey || '';
-    this.model = options.model || 'models/gemini-2.5-flash-native-audio-latest';
+    this.mode = options.mode || 'transcribe_live'; // 'transcribe_live' | 'translate_audio'
+    this.model = options.model || (this.mode === 'transcribe_live' ? 'models/gemini-3.5-transcribe-live' : 'models/gemini-2.5-flash-native-audio-latest');
     this.voiceName = options.voiceName || 'Puck';
     this.sourceLang = options.sourceLang || 'es-ES';
     this.targetLang = options.targetLang || 'en';
+    this.customVocabulary = options.customVocabulary || [];
     this.ws = null;
     this.isConnected = false;
 
@@ -49,7 +51,7 @@ class GeminiLiveClient {
 
     const cleanKey = this.apiKey.trim();
     const wsUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(cleanKey)}`;
-    console.log(`[Gemini Live Electron] Conectando a Google Gemini Live (${cleanKey.substring(0, 8)}...)...`);
+    console.log(`[Gemini Live Electron] Conectando a Google Gemini Live (${this.mode} - ${this.model})...`);
 
     try {
       this.ws = new WebSocket(wsUrl);
@@ -93,40 +95,75 @@ class GeminiLiveClient {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     const { src, tgt } = this.getLanguageNames();
+    const vocabList = Array.isArray(this.customVocabulary) && this.customVocabulary.length > 0
+      ? `\nCustom vocabulary and technical terms to recognize accurately: ${this.customVocabulary.join(', ')}.`
+      : '';
 
-    const systemPrompt = `You are a professional simultaneous interpreter for executive corporate video calls.
+    let setupMsg;
+
+    if (this.mode === 'transcribe_live') {
+      const systemPrompt = `You are an ultra-fast, intelligent real-time speech-to-text transcriber (Gemini 3.5 Transcribe Live).
+Transcribe incoming spoken ${src} with maximum precision.
+CRITICAL SMART TRANSCRIPTION RULES:
+1. Clean up disfluencies: remove filler words ("um", "uh", "eh", "este", "o sea") and smoothly resolve self-corrections into the intended phrase.
+2. Output clear, well-punctuated, capitalized text in real-time.
+3. Output ONLY the transcribed words. Zero commentary, zero preamble, zero markdown formatting.${vocabList}
+4. If unintelligible or pure silence/noise, output nothing.`;
+
+      setupMsg = {
+        setup: {
+          model: this.model,
+          generationConfig: {
+            responseModalities: ["TEXT"],
+            mediaResolution: "MEDIA_RESOLUTION_MEDIUM",
+            thinkingConfig: {
+              thinkingBudget: 0
+            }
+          },
+          contextWindowCompression: {
+            triggerTokens: "104857",
+            slidingWindow: { targetTokens: "52428" }
+          },
+          systemInstruction: {
+            parts: [
+              { text: systemPrompt }
+            ]
+          }
+        }
+      };
+    } else {
+      const systemPrompt = `You are a professional simultaneous interpreter for executive corporate video calls.
 Translate spoken ${src} into fluent, natural, idiomatic North American English with a native American business tone.
 CRITICAL RULES:
 1. Translate smoothly and idiomatically. Avoid awkward, literal, or robotic translations.
 2. Output ONLY the direct translated spoken audio in clear native English.
-3. Zero commentary, zero internal monologue, zero markdown, zero explanations.
+3. Zero commentary, zero internal monologue, zero markdown, zero explanations.${vocabList}
 4. If unintelligible or background noise, output absolute silence.`;
 
-    const setupMsg = {
-      setup: {
-        model: this.model,
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: this.voiceName
+      setupMsg = {
+        setup: {
+          model: this.model,
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: this.voiceName
+                }
               }
+            },
+            thinkingConfig: {
+              thinkingBudget: 0
             }
           },
-          thinkingConfig: {
-            thinkingBudget: 0
+          systemInstruction: {
+            parts: [
+              { text: systemPrompt }
+            ]
           }
-        },
-        systemInstruction: {
-          parts: [
-            {
-              text: systemPrompt
-            }
-          ]
         }
-      }
-    };
+      };
+    }
 
     this.ws.send(JSON.stringify(setupMsg));
   }

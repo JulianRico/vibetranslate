@@ -77,7 +77,7 @@ class PcmStreamPlayer {
         this.gainNode.gain.setValueAtTime(0, this.audioCtx.currentTime);
         this.gainNode = this.audioCtx.createGain();
         this.gainNode.connect(this.audioCtx.destination);
-      } catch (e) {}
+      } catch (e) { }
       this.nextStartTime = this.audioCtx.currentTime;
     }
     this.isPlaying = false;
@@ -87,7 +87,7 @@ class PcmStreamPlayer {
     if (this.audioCtx) {
       try {
         this.audioCtx.close();
-      } catch (e) {}
+      } catch (e) { }
       this.audioCtx = null;
     }
     this.nextStartTime = 0;
@@ -168,11 +168,11 @@ class VirtualCablePlayer {
     this.audioQueue = [];
     this.isPlaying = false;
     if (this.currentSource) {
-      try { this.currentSource.stop(); } catch (e) {}
+      try { this.currentSource.stop(); } catch (e) { }
       this.currentSource = null;
     }
     if (this.audioCtx) {
-      try { this.audioCtx.close(); } catch (e) {}
+      try { this.audioCtx.close(); } catch (e) { }
       this.audioCtx = null;
     }
   }
@@ -180,6 +180,8 @@ class VirtualCablePlayer {
 
 document.addEventListener('DOMContentLoaded', async () => {
   const toggleActive = document.getElementById('toggle-active');
+  const toggleOverlay = document.getElementById('toggle-overlay');
+  const btnToggleOverlayHeader = document.getElementById('btn-toggle-overlay-header');
   const liveBadge = document.getElementById('live-badge');
   const statusText = document.getElementById('status-text');
 
@@ -302,6 +304,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (linkGetGeminiKey) {
     linkGetGeminiKey.addEventListener('click', (e) => {
+      e.preventDefault();
+      appendLog('SYSTEM', 'Abriendo Google AI Studio para obtener API Key: https://aistudio.google.com/app/apikey');
+      ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://aistudio.google.com/app/apikey');
+    });
+  }
+
+  const linkGetGeminiKeyBottom = document.getElementById('link-get-gemini-key-bottom');
+  if (linkGetGeminiKeyBottom) {
+    linkGetGeminiKeyBottom.addEventListener('click', (e) => {
       e.preventDefault();
       appendLog('SYSTEM', 'Abriendo Google AI Studio para obtener API Key: https://aistudio.google.com/app/apikey');
       ipcRenderer.send('OPEN_EXTERNAL_URL', 'https://aistudio.google.com/app/apikey');
@@ -431,7 +442,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnExportAll) {
     btnExportAll.addEventListener('click', async () => {
       appendLog('EXPORT', 'Generando reporte completo de sesión y transcripciones...');
-      
+
       const now = new Date();
       const exportReport = `=====================================================
    ViBeTranslate Pro Studio - Reporte de Sesión
@@ -444,9 +455,9 @@ Idioma Destino: ${targetLangSelect?.value || 'en'}
 Driver VB-Cable: ${isVbCableDriverDetected ? 'CALIBRADO Y ACTIVO 🟢' : 'NO DETECTADO ⚠️'}
 
 --- HISTORIAL DE TRADUCCIÓN SIMULTÁNEA (${sessionTranslationHistory.length} frases registradas) ---
-${sessionTranslationHistory.length > 0 
-  ? sessionTranslationHistory.map((item, idx) => `[${item.time}] [${item.from} ➔ ${item.to}]\n  Original:   ${item.original}\n  Traducción: ${item.translated}`).join('\n\n')
-  : 'No se han registrado frases en esta sesión todavía.'}
+${sessionTranslationHistory.length > 0
+          ? sessionTranslationHistory.map((item, idx) => `[${item.time}] [${item.from} ➔ ${item.to}]\n  Original:   ${item.original}\n  Traducción: ${item.translated}`).join('\n\n')
+          : 'No se han registrado frases en esta sesión todavía.'}
 
 --- REGISTRO DE EVENTOS Y TERMINAL DE LOGS (Últimos 40 eventos) ---
 ${logHistoryArray.length > 0 ? logHistoryArray.slice(-40).join('\n') : 'Logs del sistema no disponibles.'}
@@ -491,6 +502,8 @@ Generado automáticamente por ViBeTranslate Desktop
   let currentNoiseThreshold = parseFloat(noiseGateSelect.value) || 0.016;
   let speechHoldFrames = 0;
   let lastAudioLogTime = 0;
+  let speechBlockStartTime = 0;
+  let isSpeakingActive = false;
 
   // ── Sistema de Logs en Pantalla y Throttling ───────────────────────
   function appendLog(category, message, type = 'system') {
@@ -616,8 +629,9 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   async function speakSpanishToUser(text) {
-    if (!text || !text.trim()) return;
+    if (!text || !text.trim()) return { success: false, elapsedMs: 0 };
 
+    const startTtsTime = Date.now();
     const vol = Math.max(0.1, Math.min(1.0, currentSpanishVolume));
     const selectedVoice = spanishVoiceSelect ? spanishVoiceSelect.value : 'auto';
 
@@ -635,13 +649,16 @@ Generado automáticamente por ViBeTranslate Desktop
           fallbackWebSpeech(text, vol, selectedVoice);
         };
         await audio.play();
-        return;
+        const elapsed = Date.now() - startTtsTime;
+        return { success: true, elapsedMs: elapsed };
       } catch (e) {
         console.warn('[TTS Google] Intentando fallback Web Speech:', e);
       }
     }
 
     fallbackWebSpeech(text, vol, selectedVoice);
+    const elapsed = Date.now() - startTtsTime;
+    return { success: true, elapsedMs: elapsed };
   }
 
   function fallbackWebSpeech(text, vol, selectedVoice) {
@@ -702,8 +719,8 @@ Generado automáticamente por ViBeTranslate Desktop
 
       const voices = window.speechSynthesis.getVoices();
       if (voices && voices.length > 0) {
-        const preferredVoice = voices.find(v => 
-          (v.lang === 'en-US' || v.lang === 'en_US') && 
+        const preferredVoice = voices.find(v =>
+          (v.lang === 'en-US' || v.lang === 'en_US') &&
           (v.name.includes('Natural') || v.name.includes('David') || v.name.includes('Zira') || v.name.includes('Jenny') || v.name.includes('Guy') || v.name.includes('Google') || v.name.includes('Aria'))
         ) || voices.find(v => (v.lang === 'en-US' || v.lang === 'en_US') && !v.name.toLowerCase().includes('india') && !v.name.toLowerCase().includes('ravi'))
           || voices.find(v => v.lang.startsWith('en') && !v.name.toLowerCase().includes('india'));
@@ -722,8 +739,9 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   async function playAudioToVirtualCableAndSpeakers(text, lang = 'en', forceLocalMonitor = false) {
-    if (!text || !text.trim()) return;
+    if (!text || !text.trim()) return { success: false, elapsedMs: 0 };
 
+    const ttsStartTime = Date.now();
     const targetCode = (lang === 'es' || lang.startsWith('es')) ? 'es' : 'en';
     const activeTtsEngine = ttsEngineSelect ? ttsEngineSelect.value : 'fish_audio';
 
@@ -737,7 +755,7 @@ Generado automáticamente por ViBeTranslate Desktop
         const modelTier = fishModelTier ? fishModelTier.value : 's2.1-pro-free';
         const latencyMode = fishLatencyMode ? fishLatencyMode.value : 'balanced';
 
-        appendLog('FISH-AUDIO', `🔊 Sintetizando con Fish Audio (${modelTier}, voz: ${voiceId || 'estándar'}): "${text}"`, 'audio');
+        appendLog('FISH-AUDIO', `🔊 Solicitando síntesis a Fish Audio (${modelTier}, voz: ${voiceId || 'estándar'})...`, 'audio');
 
         const result = await ipcRenderer.invoke('FISH_AUDIO_SYNTHESIZE', {
           text: text.trim(),
@@ -747,8 +765,11 @@ Generado automáticamente por ViBeTranslate Desktop
           latency: latencyMode
         });
 
+        const elapsed = (result && result.elapsedMs) || (Date.now() - ttsStartTime);
+
         if (result && result.success && result.audioBase64) {
           const arrayBuffer = base64ToArrayBuffer(result.audioBase64);
+          appendLog('FISH-AUDIO', `✅ Audio generado en ${elapsed}ms. Transmitiendo a Cable Virtual (Google Meet)...`, 'audio');
 
           // Enviar al cable virtual para Google Meet / Teams / Zoom en paralelo
           if (virtualCablePlayer) {
@@ -782,7 +803,7 @@ Generado automáticamente por ViBeTranslate Desktop
               }
             }
           }
-          return;
+          return { success: true, elapsedMs: elapsed };
         } else {
           appendLog('FISH-AUDIO', `⚠️ Fallback a Google TTS por: ${result?.error || 'error desconocido'}`, 'error');
         }
@@ -792,8 +813,10 @@ Generado automáticamente por ViBeTranslate Desktop
       if (activeTtsEngine === 'google_tts' || activeTtsEngine === 'fish_audio') {
         const ttsUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=${targetCode}&client=tw-ob`;
         const response = await fetch(ttsUrl);
+        const elapsed = Date.now() - ttsStartTime;
         if (response.ok) {
           const arrayBuffer = await response.arrayBuffer();
+          appendLog('TTS', `✅ Google TTS generado en ${elapsed}ms. Transmitiendo a Cable Virtual...`, 'audio');
           if (virtualCablePlayer) {
             virtualCablePlayer.enqueue(arrayBuffer.slice(0), virtualCableSelect ? virtualCableSelect.value : '');
           }
@@ -801,20 +824,24 @@ Generado automáticamente por ViBeTranslate Desktop
           if (forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked)) {
             speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
           }
-          return;
+          return { success: true, elapsedMs: elapsed };
         }
       }
 
       // 3. Fallback Web Speech
+      const elapsed = Date.now() - ttsStartTime;
       if (forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked)) {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
+      return { success: true, elapsedMs: elapsed };
 
     } catch (err) {
       console.warn('[Audio Out] Fallback a sintetizador local:', err);
+      const elapsed = Date.now() - ttsStartTime;
       if (forceLocalMonitor || (localMonitorToggle && localMonitorToggle.checked)) {
         speakText(text, targetCode === 'es' ? 'es-ES' : 'en-US');
       }
+      return { success: false, elapsedMs: elapsed };
     }
   }
 
@@ -833,7 +860,6 @@ Generado automáticamente por ViBeTranslate Desktop
     isLiveToggleActive = toggleActive.checked;
     updateStatusBadge(isLiveToggleActive);
     await saveCurrentSettings();
-    ipcRenderer.send('TOGGLE_OVERLAY', isLiveToggleActive);
 
     if (isLiveToggleActive) {
       appendLog('CONTROL', 'Traducción Simultánea ACTIVADA desde switch superior 🟢');
@@ -846,6 +872,42 @@ Generado automáticamente por ViBeTranslate Desktop
         stopTranslationPipeline();
       }
     }
+  });
+
+  // Control 2: Switch del Recuadro Flotante de Subtítulos (Encender / Apagar)
+  if (toggleOverlay) {
+    toggleOverlay.addEventListener('change', async () => {
+      const isVisible = toggleOverlay.checked;
+      ipcRenderer.send('TOGGLE_OVERLAY', isVisible);
+      await saveCurrentSettings();
+      appendLog('UI', `Recuadro Flotante de Subtítulos ${isVisible ? 'ENCENDIDO 🟢' : 'APAGADO ⚪'}`);
+      if (btnToggleOverlayHeader) {
+        btnToggleOverlayHeader.style.color = isVisible ? 'var(--apple-blue)' : 'var(--text-secondary)';
+      }
+    });
+  }
+
+  if (btnToggleOverlayHeader) {
+    btnToggleOverlayHeader.addEventListener('click', async () => {
+      if (toggleOverlay) {
+        toggleOverlay.checked = !toggleOverlay.checked;
+        const isVisible = toggleOverlay.checked;
+        ipcRenderer.send('TOGGLE_OVERLAY', isVisible);
+        await saveCurrentSettings();
+        appendLog('UI', `Recuadro Flotante de Subtítulos ${isVisible ? 'ENCENDIDO 🟢' : 'APAGADO ⚪'}`);
+        btnToggleOverlayHeader.style.color = isVisible ? 'var(--apple-blue)' : 'var(--text-secondary)';
+      }
+    });
+  }
+
+  ipcRenderer.on('OVERLAY_STATE_CHANGED', (event, { isVisible }) => {
+    if (toggleOverlay) {
+      toggleOverlay.checked = isVisible;
+    }
+    if (btnToggleOverlayHeader) {
+      btnToggleOverlayHeader.style.color = isVisible ? 'var(--apple-blue)' : 'var(--text-secondary)';
+    }
+    appendLog('UI', `Estado del Recuadro Flotante sincronizado: ${isVisible ? 'Visible 🟢' : 'Oculto ⚪'}`);
   });
 
   sttEngineSelect.addEventListener('change', () => {
@@ -964,7 +1026,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
   function updateEngineGroupsVisibility() {
     const engine = sttEngineSelect.value;
-    geminiKeyGroup.style.display = (engine === 'gemini_live') ? 'flex' : 'none';
+    geminiKeyGroup.style.display = (engine === 'gemini_live' || engine === 'gemini_35_transcribe') ? 'flex' : 'none';
     geminiVoiceGroup.style.display = (engine === 'gemini_live') ? 'flex' : 'none';
     groqKeyGroup.style.display = (engine === 'whisper_groq') ? 'flex' : 'none';
   }
@@ -973,13 +1035,19 @@ Generado automáticamente por ViBeTranslate Desktop
     toggleActive.checked = !!s.active;
     isLiveToggleActive = !!s.active;
     updateStatusBadge(!!s.active);
+    if (toggleOverlay) {
+      toggleOverlay.checked = (s.showOverlay !== undefined) ? !!s.showOverlay : true;
+      if (btnToggleOverlayHeader) {
+        btnToggleOverlayHeader.style.color = toggleOverlay.checked ? 'var(--apple-blue)' : 'var(--text-secondary)';
+      }
+    }
     sourceLangSelect.value = s.sourceLang || 'es-ES';
     targetLangSelect.value = s.targetLang || 'en';
-    sttEngineSelect.value = s.sttEngine || 'whisper_groq';
+    sttEngineSelect.value = s.sttEngine || 'gemini_35_transcribe';
     geminiKeyInput.value = s.geminiApiKey || '';
     geminiVoiceSelect.value = s.geminiVoice || 'Puck';
     groqKeyInput.value = s.groqApiKey || '';
-    
+
     if (ttsEngineSelect && s.ttsEngine) {
       ttsEngineSelect.value = s.ttsEngine;
       if (ttsEngineBadge) {
@@ -1025,6 +1093,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
     const newSettings = {
       active: toggleActive.checked,
+      showOverlay: toggleOverlay ? toggleOverlay.checked : true,
       sourceLang: sourceLangSelect.value,
       targetLang: targetLangSelect.value,
       sttEngine: sttEngineSelect.value,
@@ -1114,7 +1183,19 @@ Generado automáticamente por ViBeTranslate Desktop
 
     appendLog('PIPELINE', `Iniciando motor de traducción: ${engine.toUpperCase()}`);
 
-    if (engine === 'gemini_live') {
+    if (engine === 'gemini_35_transcribe') {
+      if (!geminiKey || geminiKey.length < 5) {
+        appendLog('GEMINI', '⚠️ Ingresa tu Gemini API Key en el campo de configuración.', 'warn');
+        previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
+        previewTrans.textContent = 'Obtén tu clave gratis en: aistudio.google.com/app/apikey';
+        stopTranslationPipeline();
+        return;
+      }
+      await startUnifiedAudioPipeline('gemini_35_transcribe', geminiKey);
+      if (groqKey && groqKey.length > 5) {
+        await startIncomingAudioPipeline(groqKey);
+      }
+    } else if (engine === 'gemini_live') {
       if (!geminiKey || geminiKey.length < 5) {
         appendLog('GEMINI', '⚠️ Ingresa tu Gemini API Key en el campo de configuración.', 'warn');
         previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
@@ -1155,7 +1236,7 @@ Generado automáticamente por ViBeTranslate Desktop
       micMediaStream = null;
     }
     if (audioContext) {
-      try { audioContext.close(); } catch (e) {}
+      try { audioContext.close(); } catch (e) { }
       audioContext = null;
     }
     if (incomingMediaStream) {
@@ -1163,7 +1244,7 @@ Generado automáticamente por ViBeTranslate Desktop
       incomingMediaStream = null;
     }
     if (incomingAudioContext) {
-      try { incomingAudioContext.close(); } catch (e) {}
+      try { incomingAudioContext.close(); } catch (e) { }
       incomingAudioContext = null;
     }
     if (geminiLiveClient) {
@@ -1179,16 +1260,26 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   // ── Pipeline para Traducir la Voz del Receptor (Reunión ➔ Español) ──
-  async function startIncomingAudioPipeline(apiKey) {
-    if (!translateIncomingToggle || !translateIncomingToggle.checked) return;
+  async function startIncomingAudioPipeline(apiKey, engineType = 'groq') {
+    if (!translateIncomingToggle || !translateIncomingToggle.checked) {
+      appendLog('AUDIO', 'Traducción del receptor desactivada por configuración.');
+      return;
+    }
 
     try {
-      const sourceId = await ipcRenderer.invoke('GET_DESKTOP_AUDIO_SOURCE');
+      appendLog('AUDIO', `Iniciando captura de audio del receptor (${engineType === 'gemini_35' ? 'Gemini 3.5 Transcribe' : 'Groq Whisper'})...`, 'audio');
+
+      let sourceId = await ipcRenderer.invoke('GET_DESKTOP_AUDIO_SOURCE');
       if (!sourceId) {
-        appendLog('RECEPTOR', 'No se detectó fuente de audio de videollamada para subtítulos.', 'warn');
+        const sources = await ipcRenderer.invoke('DESKTOP_CAPTURER_GET_SOURCES');
+        if (sources && sources.length > 0) {
+          sourceId = sources[0].id;
+        }
+      }
+      if (!sourceId) {
+        appendLog('AUDIO', 'No se detectó fuente de audio de pantalla/escritorio.', 'warn');
         return;
       }
-
       incomingMediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           mandatory: {
@@ -1233,8 +1324,16 @@ Generado automáticamente por ViBeTranslate Desktop
         // Umbral sensible para capturar la voz del receptor en Google Meet
         const incomingThreshold = 0.002;
 
+        let isIncomingSpeaking = false;
+        let incomingSpeechStart = 0;
+
         if (rms >= incomingThreshold) {
-          incomingSpeechHold = 8; // ~1024ms de retención para permitir pausas naturales al hablar
+          if (!isIncomingSpeaking) {
+            isIncomingSpeaking = true;
+            incomingSpeechStart = Date.now();
+            appendLog('RECEPTOR', `🎙️ Voz del receptor en Google Meet detectada [${new Date().toLocaleTimeString()}]...`, 'audio');
+          }
+          incomingSpeechHold = 4; // ~512ms de retención para corte rápido
           ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: true });
           for (let i = 0; i < inputData.length; i++) {
             incomingSamplesBuffer.push(inputData[i]);
@@ -1247,21 +1346,25 @@ Generado automáticamente por ViBeTranslate Desktop
             }
             if (incomingSpeechHold === 0) {
               ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: false });
+              isIncomingSpeaking = false;
             }
           } else {
-            // Descartar fragmentos de ruido aislados que no alcancen duración mínima de habla (~600ms = 9600 muestras)
-            if (incomingSamplesBuffer.length > 0 && incomingSamplesBuffer.length < 9600) {
+            // Descartar fragmentos de ruido aislados que no alcancen duración mínima de habla (~300ms = 4800 muestras)
+            if (incomingSamplesBuffer.length > 0 && incomingSamplesBuffer.length < 4800) {
               incomingSamplesBuffer = [];
             }
           }
         }
 
-        // Procesar si terminó la frase (pausa natural con buffer >= 9600) O si alcanzó ~5.5s continuos (88000 muestras)
-        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length >= 9600) || (incomingSamplesBuffer.length > 88000);
+        // Procesar si terminó la frase (pausa natural con buffer >= 4800) O si alcanzó ~4.5s continuos (72000 muestras)
+        const shouldProcess = (incomingSpeechHold === 0 && incomingSamplesBuffer.length >= 4800) || (incomingSamplesBuffer.length > 72000);
 
         if (shouldProcess && !isTranscribingIncoming && apiKey) {
           const samples = new Float32Array(incomingSamplesBuffer);
+          const voiceDurationMs = Math.round(samples.length / 16);
+          const speechStartTime = incomingSpeechStart || (Date.now() - voiceDurationMs);
           incomingSamplesBuffer = [];
+          isIncomingSpeaking = false;
 
           // Comprobar si el búfer tiene suficiente energía promedio (no solo un clic o estática)
           let energySum = 0;
@@ -1279,24 +1382,45 @@ Generado automáticamente por ViBeTranslate Desktop
             const wavBuffer = encodeWAV(samples, 16000);
             const wavBase64 = arrayBufferToBase64(wavBuffer);
 
-            const result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
-              audioBase64: wavBase64,
-              apiKey,
-              language: 'en',
-              prompt: 'Conversational English in a live business meeting. Transcribe complete, coherent sentences with proper punctuation.',
-              format: 'wav'
-            });
+            const sttStart = Date.now();
+            let result = null;
+            if (engineType === 'gemini_35') {
+              const glossaryList = (typeof DEFAULT_GLOSSARY !== 'undefined') ? Object.values(DEFAULT_GLOSSARY) : [];
+              appendLog('GEMINI', `⚡ Enviando audio receptor (${voiceDurationMs}ms) a Gemini STT...`, 'gemini');
+              result = await ipcRenderer.invoke('TRANSCRIBE_GEMINI_35', {
+                audioBase64: wavBase64,
+                apiKey,
+                language: 'en',
+                customVocabulary: glossaryList,
+                format: 'wav'
+              });
+            } else {
+              appendLog('GROQ', `⚡ Enviando audio receptor (${voiceDurationMs}ms) a Groq Whisper...`, 'audio');
+              result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
+                audioBase64: wavBase64,
+                apiKey,
+                language: 'en',
+                prompt: 'Conversational English in a live business meeting. Transcribe complete, coherent sentences with proper punctuation.',
+                format: 'wav'
+              });
+            }
+
+            const sttElapsed = (result && result.elapsedMs) || (Date.now() - sttStart);
 
             if (result && result.text && result.text.trim()) {
               const text = result.text.trim();
               if (!isWhisperHallucination(text)) {
-                appendLog('RECEPTOR', `Inglés: "${text}"`, 'audio');
+                const modelTag = (result && result.model) ? result.model : (engineType === 'gemini_35' ? 'Gemini 3.5' : 'Groq');
+                appendLog('RECEPTOR', `Inglés (${modelTag}) en ${sttElapsed}ms: "${text}"`, 'audio');
 
+                const transStart = Date.now();
                 const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
                   text: text,
                   sourceLang: 'en',
                   targetLang: 'es'
                 });
+
+                const transElapsed = (translation && translation.elapsedMs) || (Date.now() - transStart);
 
                 if (translation && translation.translated && translation.translated.trim()) {
                   const translatedText = translation.translated.trim();
@@ -1307,7 +1431,7 @@ Generado automáticamente por ViBeTranslate Desktop
                     return;
                   }
 
-                  appendLog('RECEPTOR', `✨ Traducido (Español): "${translatedText}"`, 'translate');
+                  appendLog('RECEPTOR', `✨ Traducido a Español en ${transElapsed}ms: "${translatedText}"`, 'translate');
 
                   previewOrig.textContent = `👤 Receptor (Inglés): ${text}`;
                   previewTrans.textContent = `✨ Español: ${translatedText}`;
@@ -1320,12 +1444,16 @@ Generado automáticamente por ViBeTranslate Desktop
                   });
 
                   // Reproducir la voz traducida en español en tus auriculares/altavoces
-                  speakSpanishToUser(translatedText);
+                  const ttsRes = await speakSpanishToUser(translatedText);
+                  const ttsElapsed = (ttsRes && ttsRes.elapsedMs) || 0;
+
+                  const totalChainMs = Date.now() - speechStartTime;
+                  appendLog('LATENCIA', `⏱️ Total Receptor: ${(totalChainMs / 1000).toFixed(2)}s ➔ [Voz: ${voiceDurationMs}ms] [STT: ${sttElapsed}ms] [Trad: ${transElapsed}ms] [TTS: ${ttsElapsed}ms]`, 'control');
                 }
               }
             }
           } catch (err) {
-            console.warn('[Incoming Pipeline] Error:', err);
+            console.warn('[Incoming Audio Process] Error:', err);
           } finally {
             isTranscribingIncoming = false;
           }
@@ -1343,12 +1471,13 @@ Generado automáticamente por ViBeTranslate Desktop
   // ── Pipeline Unificado con VAD, Filtrado de Ruido y Soporte Dual ──
   async function startUnifiedAudioPipeline(engine, apiKey) {
     try {
-      // 1. Inicializar WebSocket para Gemini Live si aplica
+      // 1. Inicializar WebSocket para Gemini Live (Modo Audio-to-Audio) si aplica
       if (engine === 'gemini_live') {
         await pcmPlayer.init(virtualCableSelect.value);
 
         geminiLiveClient = new GeminiLiveClient({
           apiKey,
+          mode: 'translate_audio',
           voiceName: geminiVoiceSelect.value,
           sourceLang: sourceLangSelect.value,
           targetLang: targetLangSelect.value,
@@ -1387,6 +1516,8 @@ Generado automáticamente por ViBeTranslate Desktop
         });
 
         geminiLiveClient.connect();
+      } else if (engine === 'gemini_35_transcribe') {
+        appendLog('GEMINI', '🟢 Motor Gemini 3.5 Transcribe STT inicializado y listo.', 'gemini');
       }
 
       // 2. Captura de audio del micrófono con DSP WebRTC nativo
@@ -1419,10 +1550,10 @@ Generado automáticamente por ViBeTranslate Desktop
       scriptProcessor.connect(muteGain);
       muteGain.connect(audioContext.destination);
 
-      // Buffers para Groq Whisper
+      // Buffers para STT por bloques (Groq Whisper o Gemini 3.5 REST)
       let speechSamplesBuffer = [];
       let continuousSpeechFrames = 0;
-      let isTranscribingGroq = false;
+      let isTranscribingBlock = false;
 
       scriptProcessor.onaudioprocess = async (audioProcessingEvent) => {
         if (!isPipelineRunning) return;
@@ -1466,7 +1597,12 @@ Generado automáticamente por ViBeTranslate Desktop
         const threshold = currentNoiseThreshold;
 
         if (rms >= threshold) {
-          speechHoldFrames = 6; // 6 frames (~768ms) de retención para permitir pausas naturales
+          if (!isSpeakingActive) {
+            isSpeakingActive = true;
+            speechBlockStartTime = Date.now();
+            appendLog('MIC', `🎙️ Hablando detectado [${new Date().toLocaleTimeString()}]...`, 'audio');
+          }
+          speechHoldFrames = 3; // 3 frames (~384ms) de retención para corte rápido
           continuousSpeechFrames++;
 
           if (vadBadge) {
@@ -1477,6 +1613,7 @@ Generado automáticamente por ViBeTranslate Desktop
           if (speechHoldFrames > 0) {
             speechHoldFrames--;
           } else {
+            isSpeakingActive = false;
             continuousSpeechFrames = 0;
             if (vadBadge) {
               if (rms > threshold * 0.35) {
@@ -1492,39 +1629,35 @@ Generado automáticamente por ViBeTranslate Desktop
 
         // 4. Procesamiento según el motor seleccionado
         if (engine === 'gemini_live') {
-          if (speechHoldFrames > 0) {
-            if (geminiLiveClient && geminiLiveClient.isConnected) {
-              if (continuousSpeechFrames > 14) {
-                continuousSpeechFrames = 0;
-                speechHoldFrames = 0;
-              } else {
-                const pcm16Buffer = floatTo16BitPCM(inputData);
-                const base64Data = arrayBufferToBase64(pcm16Buffer);
-                geminiLiveClient.sendRealtimeAudioChunk(base64Data);
-              }
-            }
+          if (speechHoldFrames > 0 && geminiLiveClient && geminiLiveClient.isConnected) {
+            const pcm16Buffer = floatTo16BitPCM(inputData);
+            const base64Data = arrayBufferToBase64(pcm16Buffer);
+            geminiLiveClient.sendRealtimeAudioChunk(base64Data);
           }
-        } else if (engine === 'whisper_groq') {
+        } else if (engine === 'whisper_groq' || engine === 'gemini_35_transcribe') {
           // Acumular muestras SOLO mientras hay voz
           if (speechHoldFrames > 0) {
             for (let i = 0; i < inputData.length; i++) {
               speechSamplesBuffer.push(inputData[i]);
             }
           } else {
-            // Si el usuario dejó de hablar y las muestras acumuladas son muy pocas (< 600ms = 9600 muestras),
-            // se trataba de un ruido breve (teclado, respiración, chasquido). Descartarlo para no acumular ruidos a lo largo del tiempo.
-            if (speechSamplesBuffer.length > 0 && speechSamplesBuffer.length < 9600) {
+            // Si el usuario dejó de hablar y las muestras acumuladas son muy pocas (< 300ms = 4800 muestras),
+            // descartar ruidos breves
+            if (speechSamplesBuffer.length > 0 && speechSamplesBuffer.length < 4800) {
               speechSamplesBuffer = [];
             }
           }
 
-          // Si el usuario pausó O se alcanzó ~5.5s de habla continua (88000 muestras)
-          const shouldProcessGroq = (speechHoldFrames === 0 && speechSamplesBuffer.length >= 9600) || (speechSamplesBuffer.length > 88000);
+          // Si el usuario pausó O se alcanzó ~4.5s de habla continua (72000 muestras)
+          const shouldProcessBlock = (speechHoldFrames === 0 && speechSamplesBuffer.length >= 4800) || (speechSamplesBuffer.length > 72000);
 
-          if (shouldProcessGroq && !isTranscribingGroq) {
+          if (shouldProcessBlock && !isTranscribingBlock) {
             const samplesToSend = new Float32Array(speechSamplesBuffer);
+            const voiceDurationMs = Math.round(samplesToSend.length / 16);
+            const userSpeechStart = speechBlockStartTime || (Date.now() - voiceDurationMs);
             speechSamplesBuffer = [];
             continuousSpeechFrames = 0;
+            isSpeakingActive = false;
 
             // Verificar energía RMS promedio del búfer completo
             let energySum = 0;
@@ -1532,50 +1665,71 @@ Generado automáticamente por ViBeTranslate Desktop
               energySum += samplesToSend[i] * samplesToSend[i];
             }
             const avgRms = Math.sqrt(energySum / samplesToSend.length);
-            if (avgRms < threshold * 0.4) {
+            if (avgRms < threshold * 0.35) {
               return;
             }
 
-            isTranscribingGroq = true;
+            isTranscribingBlock = true;
 
             try {
               const wavBuffer = encodeWAV(samplesToSend, 16000);
               const wavBase64 = arrayBufferToBase64(wavBuffer);
 
-              const result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
-                audioBase64: wavBase64,
-                apiKey,
-                language: sourceLangSelect.value.substring(0, 2),
-                prompt: 'Conversación fluida en vivo en español. Transcribir oraciones completas con puntuación adecuada.',
-                format: 'wav'
-              });
+              const sttStart = Date.now();
+              let result = null;
+              if (engine === 'gemini_35_transcribe') {
+                const glossaryList = (typeof DEFAULT_GLOSSARY !== 'undefined') ? Object.values(DEFAULT_GLOSSARY) : [];
+                appendLog('GEMINI', `⚡ Enviando audio (${voiceDurationMs}ms) a Gemini STT...`, 'gemini');
+                result = await ipcRenderer.invoke('TRANSCRIBE_GEMINI_35', {
+                  audioBase64: wavBase64,
+                  apiKey,
+                  language: sourceLangSelect.value.substring(0, 2),
+                  customVocabulary: glossaryList,
+                  format: 'wav'
+                });
+              } else {
+                appendLog('GROQ', `⚡ Enviando audio (${voiceDurationMs}ms) a Groq Whisper...`, 'audio');
+                result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
+                  audioBase64: wavBase64,
+                  apiKey,
+                  language: sourceLangSelect.value.substring(0, 2),
+                  prompt: 'Conversación fluida en vivo en español. Transcribir oraciones completas con puntuación adecuada.',
+                  format: 'wav'
+                });
+              }
+
+              const sttElapsed = (result && result.elapsedMs) || (Date.now() - sttStart);
 
               if (result && result.text && result.text.trim()) {
                 const recognizedText = result.text.trim();
                 if (!isWhisperHallucination(recognizedText)) {
-                  appendLog('VOICE', `Reconocido (Groq): "${recognizedText}"`, 'audio');
+                  const modelTag = (result && result.model) ? result.model : (engine === 'gemini_35_transcribe' ? 'Gemini 3.5' : 'Groq');
+                  appendLog('VOICE', `Reconocido (${modelTag}) en ${sttElapsed}ms: "${recognizedText}"`, 'audio');
                   previewOrig.textContent = `🎙️ ${recognizedText}`;
 
+                  const transStart = Date.now();
                   const translation = await ipcRenderer.invoke('TRANSLATE_TEXT', {
                     text: recognizedText,
                     sourceLang: sourceLangSelect.value,
                     targetLang: targetLangSelect.value
                   });
 
-                    if (translation && translation.translated && translation.translated.trim()) {
-                      const translatedText = translation.translated.trim();
-                      const isTargetSpanish = (translation.targetLang === 'es');
+                  const transElapsed = (translation && translation.elapsedMs) || (Date.now() - transStart);
 
-                      sessionTranslationHistory.push({
-                        time: new Date().toLocaleTimeString(),
-                        original: translation.original,
-                        translated: translatedText,
-                        from: isTargetSpanish ? 'EN' : 'ES',
-                        to: isTargetSpanish ? 'ES' : 'EN'
-                      });
+                  if (translation && translation.translated && translation.translated.trim()) {
+                    const translatedText = translation.translated.trim();
+                    const isTargetSpanish = (translation.targetLang === 'es');
 
-                      appendLog('TRANSLATE', `Traducido (${isTargetSpanish ? 'Inglés ➔ Español' : 'Español ➔ Inglés'}): "${translatedText}"`, 'translate');
-                      previewTrans.textContent = `✨ ${translatedText}`;
+                    sessionTranslationHistory.push({
+                      time: new Date().toLocaleTimeString(),
+                      original: translation.original,
+                      translated: translatedText,
+                      from: isTargetSpanish ? 'EN' : 'ES',
+                      to: isTargetSpanish ? 'ES' : 'EN'
+                    });
+
+                    appendLog('TRANSLATE', `Traducido en ${transElapsed}ms (${isTargetSpanish ? 'Inglés ➔ Español' : 'Español ➔ Inglés'}): "${translatedText}"`, 'translate');
+                    previewTrans.textContent = `✨ ${translatedText}`;
 
                     ipcRenderer.send('DISPLAY_SUBTITLE', {
                       originalText: translation.original,
@@ -1584,20 +1738,24 @@ Generado automáticamente por ViBeTranslate Desktop
                       isFinal: true
                     });
 
+                    let ttsElapsed = 0;
                     if (isTargetSpanish) {
-                      // Si la traducción es a español, reproducir por los altavoces locales
-                      speakSpanishToUser(translatedText);
+                      const ttsRes = await speakSpanishToUser(translatedText);
+                      ttsElapsed = (ttsRes && ttsRes.elapsedMs) || 0;
                     } else {
-                      // Si la traducción es a inglés, inyectar en Cable Virtual para Google Meet
-                      playAudioToVirtualCableAndSpeakers(translatedText, 'en');
+                      const ttsRes = await playAudioToVirtualCableAndSpeakers(translatedText, 'en');
+                      ttsElapsed = (ttsRes && ttsRes.elapsedMs) || 0;
                     }
+
+                    const totalPipelineMs = Date.now() - userSpeechStart;
+                    appendLog('LATENCIA', `⏱️ Total: ${(totalPipelineMs / 1000).toFixed(2)}s ➔ [Voz: ${voiceDurationMs}ms] [STT: ${sttElapsed}ms] [Trad: ${transElapsed}ms] [TTS: ${ttsElapsed}ms]`, 'control');
                   }
                 }
               }
             } catch (err) {
-              console.warn('[Groq Unified] Error:', err);
+              console.warn('[Unified Audio Process] Error:', err);
             } finally {
-              isTranscribingGroq = false;
+              isTranscribingBlock = false;
             }
           }
         }
@@ -1668,15 +1826,15 @@ Generado automáticamente por ViBeTranslate Desktop
 
   function stopHwLiveMicTest() {
     if (hwScriptProc) {
-      try { hwScriptProc.disconnect(); } catch (e) {}
+      try { hwScriptProc.disconnect(); } catch (e) { }
       hwScriptProc = null;
     }
     if (hwAudioCtx && hwAudioCtx.state !== 'closed') {
-      try { hwAudioCtx.close(); } catch (e) {}
+      try { hwAudioCtx.close(); } catch (e) { }
       hwAudioCtx = null;
     }
     if (hwMicStream) {
-      try { hwMicStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      try { hwMicStream.getTracks().forEach(t => t.stop()); } catch (e) { }
       hwMicStream = null;
     }
     const bar = document.getElementById('hw-meter-bar');
@@ -1687,7 +1845,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
   async function runHardwareValidation() {
     appendLog('HARDWARE', 'Iniciando diagnóstico profundo de hardware...');
-    
+
     const verdictTitle = document.getElementById('hw-verdict-title');
     const verdictDesc = document.getElementById('hw-verdict-desc');
     const verdictBadge = document.getElementById('hw-verdict-badge');
@@ -1705,7 +1863,7 @@ Generado automáticamente por ViBeTranslate Desktop
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const tempCtx = new AudioCtx();
       const sampleRate = tempCtx.sampleRate || 48000;
-      try { tempCtx.close(); } catch (e) {}
+      try { tempCtx.close(); } catch (e) { }
 
       // WebGL check
       let webglName = 'Aceleración GPU Activa';
@@ -1719,7 +1877,7 @@ Generado automáticamente por ViBeTranslate Desktop
             webglName = raw.replace(/(ANGLE|Direct3D|vs_\d+_\d+|ps_\d+_\d+)/g, '').trim() || 'GPU Compatible';
           }
         }
-      } catch (e) {}
+      } catch (e) { }
 
       // Rellenar CPU
       const cpuModelEl = document.getElementById('hw-cpu-model');
@@ -2079,15 +2237,15 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
     clearInterval(cloneRecordTimerInterval);
 
     if (cloneScriptProc) {
-      try { cloneScriptProc.disconnect(); } catch (e) {}
+      try { cloneScriptProc.disconnect(); } catch (e) { }
       cloneScriptProc = null;
     }
     if (cloneAudioCtx && cloneAudioCtx.state !== 'closed') {
-      try { cloneAudioCtx.close(); } catch (e) {}
+      try { cloneAudioCtx.close(); } catch (e) { }
       cloneAudioCtx = null;
     }
     if (cloneMediaStream) {
-      try { cloneMediaStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      try { cloneMediaStream.getTracks().forEach(t => t.stop()); } catch (e) { }
       cloneMediaStream = null;
     }
 
@@ -2262,7 +2420,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
           if (trainingBadgeStep) trainingBadgeStep.textContent = 'Error';
           if (trainingStatusTitle) trainingStatusTitle.textContent = 'Error al crear modelo';
           if (trainingStatusDesc) trainingStatusDesc.textContent = result?.error || 'Verifica tu conexión y API Key.';
-          
+
           btnSubmitVoiceClone.classList.remove('btn-loading');
           btnSubmitVoiceClone.innerHTML = '<span>✨ Reintentar Entrenamiento</span>';
           btnSubmitVoiceClone.disabled = false;

@@ -35,6 +35,7 @@
         <span class="dot-cyan"></span>
         <span>🖥️ Validador de Hardware</span>
       </button>
+      <button type="button" class="btn-icon-round" id="btn-toggle-overlay-header" title="Encender / Apagar Recuadro Flotante (Ctrl+Shift+T)">📺</button>
       <button type="button" class="btn-icon-round" id="btn-theme-toggle" title="Cambiar Tema">🌙</button>
       <button type="button" class="btn-icon-round" id="btn-pip-toggle" title="Modo Ventana">🗗</button>
       <button type="button" class="btn-icon-round" id="btn-export-all" title="Exportar">📤</button>
@@ -61,10 +62,21 @@
     <div class="toggle-card">
       <div class="toggle-text">
         <span class="toggle-title">Traducción Simultánea</span>
-        <span class="toggle-sub">Procesamiento continuo y enrutamiento en tiempo real</span>
+        <span class="toggle-sub">Audio hacia Google Meet</span>
       </div>
       <label class="switch">
         <input type="checkbox" id="toggle-active">
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="toggle-card" id="card-toggle-overlay">
+      <div class="toggle-text">
+        <span class="toggle-title">📺 Recuadro Flotante</span>
+        <span class="toggle-sub">Subtítulos <kbd class="kbd-pill">Ctrl+Shift+T</kbd></span>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="toggle-overlay" checked>
         <span class="slider"></span>
       </label>
     </div>
@@ -205,6 +217,7 @@
         <div class="form-group">
           <label for="stt-engine">Motor de Transcripción de Voz (STT)</label>
           <select id="stt-engine">
+            <option value="gemini_35_transcribe" selected>✨ Google Gemini 3.5 Transcribe (Live STT Inteligente)</option>
             <option value="whisper_groq">Groq Whisper AI (Ultra Baja Latencia ~300ms)</option>
             <option value="gemini_live">Gemini Live (Audio-to-Audio Ultra-Fluido)</option>
             <option value="webspeech">Web Speech API (Nativo Gratis)</option>
@@ -227,10 +240,14 @@
         <!-- Gemini API Key & Voice (Hidden unless Gemini is active) -->
         <div class="form-group" id="gemini-key-group" style="display: none;">
           <div class="label-row">
-            <label for="gemini-key">Gemini API Key</label>
+            <label for="gemini-key">Gemini API Key <span class="required-pill">Google AI Studio</span></label>
             <a href="#" id="link-get-gemini-key" class="btn-api-get-link" title="Obtener API Key en Google AI Studio">✨ Obtener API Key de Gemini</a>
           </div>
           <input type="text" id="gemini-key" placeholder="AIzaSy..." value="">
+          <div class="field-hint-row">
+            <span>Obtén tu clave de Gemini 3.5 en: </span>
+            <a href="#" id="link-get-gemini-key-bottom" class="link-aff-url">https://aistudio.google.com/app/apikey</a>
+          </div>
         </div>
 
         <div class="form-group" id="gemini-voice-group" style="display: none;">

@@ -122,6 +122,11 @@
       color: white;
     }
 
+    .btn-action.btn-close:hover {
+      background: rgba(239, 68, 68, 0.5) !important;
+      color: #fee2e2 !important;
+    }
+
     /* Subtitle Content Area */
     .subtitle-area {
       flex: 1;
@@ -168,9 +173,10 @@
       </div>
 
       <div class="controls-no-drag">
-        <button type="button" class="btn-action" id="btn-font-dec">A-</button>
-        <button type="button" class="btn-action" id="btn-font-inc">A+</button>
-        <button type="button" class="btn-action" id="btn-minimize">_</button>
+        <button type="button" class="btn-action" id="btn-font-dec" title="Reducir tamaño de letra">A-</button>
+        <button type="button" class="btn-action" id="btn-font-inc" title="Aumentar tamaño de letra">A+</button>
+        <button type="button" class="btn-action" id="btn-minimize" title="Minimizar">_</button>
+        <button type="button" class="btn-action btn-close" id="btn-close-overlay" title="Apagar / Ocultar Recuadro Flotante (Ctrl+Shift+T)">✕</button>
       </div>
     </div>
 
