@@ -1,13 +1,93 @@
 {
-  "name": "meet-translate-desktop",
+  "name": "vibetranslate-desktop",
+  "productName": "ViBeTranslate Pro Studio",
   "version": "1.0.0",
   "description": "Aplicación de Escritorio Nativa para Traducción Simultánea en Tiempo Real para Teams, Zoom y Meet",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "nodemon --watch main.js --watch index.js --watch overlay.js --watch index.html --watch overlay.html --watch styles.css --ext js,html,css --ignore node_modules/ --ignore logs/ --exec electron .",
+    "dev": "nodemon --watch main.js --watch index.js --watch overlay.js --watch index.html --watch overlay.html --watch styles.css --ext js,html,css --ignore node_modules/ --ignore logs/ --ignore dist/ --exec electron .",
     "watch": "npm run dev",
-    "build": "electron-builder"
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:all": "electron-builder --win --mac"
+  },
+  "build": {
+    "appId": "com.vibetranslate.studio",
+    "productName": "ViBeTranslate Pro Studio",
+    "copyright": "Copyright © 2026 ViBeTranslate AI Team",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!logs/**/*",
+      "!dist/**/*",
+      "!test-*.js",
+      "!*.md"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-Setup-${version}-${os}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "ViBeTranslate Pro Studio"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "${productName} ${version}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   },
   "keywords": [
     "electron",
@@ -18,11 +98,12 @@
     "gemini-live",
     "whisper"
   ],
-  "author": "MeetTranslate AI Team",
+  "author": "ViBeTranslate AI Team",
   "license": "MIT",
   "devDependencies": {
     "@electron/get": "^5.1.0",
     "electron": "^31.7.7",
+    "electron-builder": "^26.15.3",
     "extract-zip": "^2.0.1",
     "nodemon": "^3.1.14"
   },

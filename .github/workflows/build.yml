@@ -1,0 +1,47 @@
+name: Build ViBeTranslate Desktop Multiplatform
+
+on:
+  push:
+    branches: [ '**' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: electron_app/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: electron_app
+        run: npm ci
+
+      - name: Build Windows Packages
+        if: runner.os == 'Windows'
+        working-directory: electron_app
+        run: npm run build:win
+
+      - name: Build macOS Packages
+        if: runner.os == 'macOS'
+        working-directory: electron_app
+        run: npm run build:mac
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ViBeTranslate-${{ runner.os }}-Build
+          path: |
+            electron_app/dist/*.exe
+            electron_app/dist/*.dmg
+            electron_app/dist/*.zip
