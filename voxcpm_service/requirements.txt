@@ -1,0 +1,19 @@
+# requirements-voxcpm.txt
+# Dependencias necesarias para ejecutar el servidor VoxCPM ultrarrápido
+
+torch>=2.2.0
+torchaudio>=2.2.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+websockets>=12.0
+numpy>=1.24.0
+scipy>=1.11.0
+soundfile>=0.12.1
+pydantic>=2.0.0
+requests>=2.31.0
+tqdm>=4.66.0
+transformers>=4.40.0
+accelerate>=0.28.0
+
+# VoxCPM package de OpenBMB
+voxcpm>=0.1.0
