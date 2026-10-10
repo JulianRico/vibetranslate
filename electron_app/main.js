@@ -4,7 +4,7 @@
  * Soportado para: Microsoft Teams Desktop, Zoom App y Google Meet
  */
 
-const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer, session, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, globalShortcut, screen, shell, desktopCapturer, session, dialog, utilityProcess } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -13,6 +13,8 @@ const { applyTechnicalGlossary, DEFAULT_GLOSSARY } = require('./glossary');
 const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
 const { FishAudioService } = require('./fish-audio-service');
+const { createModelStore } = require('./local-ai/model-store');
+const { createLocalAiClient } = require('./local-ai/client');
 
 // Inicializar logs en disco
 defaultLogger.clear();
@@ -40,6 +42,22 @@ if (!gotSingleInstanceLock) {
 // ── Rutas de Configuración Persistente ──────────────────────────────
 const userDataPath = app.getPath('userData');
 const settingsFilePath = path.join(userDataPath, 'settings.json');
+
+// ── Motor Local (transcripción y traducción en el equipo, sin red) ──
+const modelStore = createModelStore({
+  dir: process.env.VIBE_MODELS_DIR || path.join(userDataPath, 'models')
+});
+
+const localAi = createLocalAiClient({
+  fork: (workerPath) => utilityProcess.fork(workerPath, [], { serviceName: 'ViBeTranslate Motor Local' }),
+  workerPath: path.join(__dirname, 'local-ai', 'worker.js'),
+  onEvent: (msg) => {
+    if (msg.type === 'error') defaultLogger.warn('LOCAL-AI', msg.message);
+    if (controlWindow && !controlWindow.isDestroyed()) {
+      controlWindow.webContents.send('LOCAL_AI_EVENT', msg);
+    }
+  }
+});
 
 const DEFAULT_SETTINGS = {
   geminiApiKey: '',
@@ -230,6 +248,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  localAi.stop();
   defaultLogger.info('SYSTEM', 'Cerrando aplicación y liberando atajos de teclado...');
   globalShortcut.unregisterAll();
 });
@@ -389,11 +408,11 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
       const resAlt = await translateWithGoogleDict(sanitizedText, detected, altTl);
       const totalElapsed = Date.now() - startTime;
       defaultLogger.success('TRANSLATE', `Auto-traducción bidireccional (Google) (${detected} ➔ ${altTl}) en ${totalElapsed}ms: "${resAlt.translated}"`);
-      return { original: correctedText, translated: resAlt.translated, detectedLang: detected, targetLang: altTl, elapsedMs: totalElapsed };
+      return { original: correctedText, translated: resAlt.translated, detectedLang: detected, targetLang: altTl, elapsedMs: totalElapsed, engine: 'google' };
     }
 
     defaultLogger.success('TRANSLATE', `Traducción completada (Google) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGoogle.translated}"`);
-    return { original: correctedText, translated: resGoogle.translated, detectedLang: detected, targetLang: tlParam, elapsedMs: elapsed };
+    return { original: correctedText, translated: resGoogle.translated, detectedLang: detected, targetLang: tlParam, elapsedMs: elapsed, engine: 'google' };
   } catch (errGoogle) {
     defaultLogger.warn('TRANSLATE', `Aviso en Google Translate (${errGoogle.message}). Probando fallback Groq AI...`);
   }
@@ -404,7 +423,7 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
       const resGroq = await translateWithGroqLLM(sanitizedText, slParam, tlParam, groqKey);
       const elapsed = Date.now() - startTime;
       defaultLogger.success('TRANSLATE', `Traducción completada (Groq AI) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGroq.translated}"`);
-      return { original: correctedText, translated: resGroq.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed };
+      return { original: correctedText, translated: resGroq.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed, engine: 'groq' };
     } catch (errGroq) {
       defaultLogger.warn('TRANSLATE', `Aviso en Groq LLM (${errGroq.message}). Probando fallback MyMemory...`);
     }
@@ -415,13 +434,13 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
     const resMyMem = await translateWithMyMemory(sanitizedText, slParam, tlParam);
     const elapsed = Date.now() - startTime;
     defaultLogger.success('TRANSLATE', `Traducción completada (MyMemory) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resMyMem.translated}"`);
-    return { original: correctedText, translated: resMyMem.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed };
+    return { original: correctedText, translated: resMyMem.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed, engine: 'mymemory' };
   } catch (errMyMem) {
     defaultLogger.error('TRANSLATE', `Fallo en todos los motores de traducción (${errMyMem.message}). Retornando texto original.`);
   }
 
   const elapsed = Date.now() - startTime;
-  return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed };
+  return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam, elapsedMs: elapsed, engine: 'none' };
 });
 
 ipcMain.handle('TRANSCRIBE_GROQ', async (event, { audioBase64, apiKey, language, format = 'wav', prompt }) => {
@@ -592,6 +611,46 @@ Output ONLY the final transcribed text without quotes, notes, markdown or explan
   const elapsed = Date.now() - startTime;
   defaultLogger.error('GEMINI', `No se pudo obtener transcripción con Gemini 3.5 tras ${elapsed}ms.`);
   return { text: '', elapsedMs: elapsed };
+});
+
+// ── Handlers IPC para el Motor Local ────────────────────────────────
+ipcMain.handle('LOCAL_AI_STATUS', async () => modelStore.status());
+
+ipcMain.handle('LOCAL_AI_PREPARE', async (event, { vadThreshold = 0.5 } = {}) => {
+  try {
+    const pending = modelStore.status();
+    if (!pending.ready) {
+      defaultLogger.info('LOCAL-AI', `Descargando modelos (${(pending.missingBytes / 1e6).toFixed(0)} MB)...`);
+      await modelStore.ensure((progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('LOCAL_AI_EVENT', { type: 'progress', ...progress });
+      });
+    }
+    const ready = await localAi.start({ paths: modelStore.paths(), vadThreshold });
+    defaultLogger.success('LOCAL-AI', `Motor local listo en ${ready.loadMs}ms.`);
+    return { ok: true, loadMs: ready.loadMs };
+  } catch (err) {
+    defaultLogger.error('LOCAL-AI', `No se pudo preparar el motor local: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.on('LOCAL_AI_AUDIO', (event, { stream, lang, samples }) => {
+  localAi.send({ type: 'audio', stream, lang, samples });
+});
+
+ipcMain.handle('LOCAL_AI_TRANSLATE', async (event, { id, target }) => {
+  try {
+    const result = await localAi.translate(id, target);
+    defaultLogger.success('TRANSLATE', `Traducción completada (Motor local) en ${result.ms}ms: "${result.text}"`);
+    return { ok: true, translated: result.text, elapsedMs: result.ms };
+  } catch (err) {
+    defaultLogger.warn('TRANSLATE', `Aviso en traducción local: ${err.message}`);
+    return { ok: false, error: err.message };
+  }
+});
+
+ipcMain.on('LOCAL_AI_STOP', () => {
+  localAi.stop();
 });
 
 // ── Handlers IPC para Fish Audio AI (Clonación de Voz y TTS) ────────
