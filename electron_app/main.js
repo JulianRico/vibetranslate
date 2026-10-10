@@ -87,6 +87,7 @@ const DEFAULT_SETTINGS = {
   subtitleBgColor: '#000000',
   showOverlay: true,
   translateIncoming: true,
+  incomingVoice: false,
   autoStartListening: false
 };
 
@@ -149,9 +150,9 @@ function createOverlayWindow() {
 
   overlayWindow = new BrowserWindow({
     width: 760,
-    height: 160,
+    height: 220,
     x: Math.round((screenWidth - 760) / 2),
-    y: screenHeight - 200,
+    y: screenHeight - 260,
     frame: false,
     transparent: true,
     alwaysOnTop: true,

@@ -30,7 +30,12 @@ function killTree(child) {
   else child.kill('SIGKILL');
 }
 
-function runApp({ phraseId, sourceLang, targetLang, translationMode }) {
+/** Reproduce un WAV por la salida de audio predeterminada del equipo, como lo haría la app de la reunión. */
+function playThroughSpeakers(file) {
+  spawnSync('powershell', ['-NoProfile', '-Command', `(New-Object System.Media.SoundPlayer '${file}').PlaySync()`]);
+}
+
+function runApp({ phraseId, sourceLang, targetLang, translationMode, settings = {}, when = null, expectSubtitles = 1, only = null }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vibe-e2e-'));
   fs.writeFileSync(path.join(dir, 'settings.json'), JSON.stringify({
     sttEngine: 'local',
@@ -42,17 +47,22 @@ function runApp({ phraseId, sourceLang, targetLang, translationMode }) {
     translateIncoming: false,
     localMonitor: false,
     showOverlay: false,
-    active: false
+    active: false,
+    ...settings
   }));
 
   const env = { ...process.env, VIBE_MODELS_DIR: modelsDir };
   delete env.ELECTRON_RUN_AS_NODE;
 
+  // Con micrófono simulado Chromium simula TODA la captura, también el audio del sistema:
+  // el escenario de la reunión (phraseId null) usa los dispositivos reales.
+  const fakeMic = phraseId
+    ? ['--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${micFile(dir, phraseId)}%noloop`]
+    : [];
   const child = spawn(ELECTRON, [
     `--user-data-dir=${dir}`,
-    '--use-fake-device-for-media-stream',
+    ...fakeMic,
     '--use-fake-ui-for-media-stream',
-    `--use-file-for-fake-audio-capture=${micFile(dir, phraseId)}%noloop`,
     path.join(__dirname, 'harness-main.js')
   ], { cwd: APP_DIR, env });
 
@@ -80,12 +90,16 @@ function runApp({ phraseId, sourceLang, targetLang, translationMode }) {
         const msg = JSON.parse(line.slice(4));
         if (msg.type === 'log') {
           logs.push(`[${msg.category}] ${msg.message}`);
+          if (when && !when.fired && msg.message.includes(when.log)) {
+            when.fired = true;
+            when.run();
+          }
           if (msg.message.includes('idioma de origen fijo')) return finish(new Error(msg.message));
         }
-        if (msg.type === 'subtitle' && msg.isFinal) {
+        if (msg.type === 'subtitle' && msg.isFinal && (!only || msg.direction === only)) {
           subtitles.push(msg);
           clearTimeout(settle);
-          settle = setTimeout(() => finish(), 3000); // esperar por si la frase llega en dos segmentos
+          if (subtitles.length >= expectSubtitles) settle = setTimeout(() => finish(), 3000); // esperar por si la frase llega en dos segmentos
         }
       }
     });
@@ -134,4 +148,36 @@ test('con origen Auto el motor local no arranca y lo explica', { skip: skipReaso
     runApp({ phraseId: 'es1', sourceLang: 'auto', targetLang: 'en', translationMode: 'local' }),
     /idioma de origen fijo/
   );
+});
+
+// Esta prueba SUENA: reproduce dos frases en inglés por los altavoces o auriculares del equipo para simular la reunión.
+const speakersSkip = skipReason || (process.platform !== 'win32' ? 'solo Windows' : false)
+  || (process.env.VIBE_E2E_SPEAKERS === '1' ? false : 'reproduce audio por los altavoces: actívala con VIBE_E2E_SPEAKERS=1');
+
+test('reunión con varias intervenciones seguidas: se subtitulan todas, en orden y sin voz', { skip: speakersSkip, timeout: 150000 }, async () => {
+  const [first, second] = [phrases.en[2], phrases.en[3]];
+  const audioDir = path.join(__dirname, '..', 'fixtures', 'audio');
+  const { subtitles, logs } = await runApp({
+    phraseId: null,
+    sourceLang: 'es-ES',
+    targetLang: 'en',
+    translationMode: 'local',
+    settings: { translateIncoming: true, incomingVoice: false },
+    expectSubtitles: 2,
+    only: 'incoming', // el micrófono real puede oír la sala: aquí solo cuenta lo que llega de la reunión
+    when: {
+      log: 'Traducción bidireccional del receptor',
+      run: () => setTimeout(() => {
+        playThroughSpeakers(path.join(audioDir, `${first.id}.wav`));
+        playThroughSpeakers(path.join(audioDir, `${second.id}.wav`));
+      }, 1500)
+    }
+  });
+  for (const s of subtitles) console.log(`  ${s.originalText} ➔ "${s.translatedText}"`);
+  assert.equal(subtitles.length, 2, 'deben llegar las dos intervenciones');
+  assert.ok(subtitles.every((s) => s.direction === 'incoming'));
+  assert.ok(hasKeywords(subtitles[0].translatedText, first.keywordsEs), subtitles[0].translatedText);
+  assert.ok(hasKeywords(subtitles[1].translatedText, second.keywordsEs), subtitles[1].translatedText);
+  assert.ok(wordErrorRate(first.text, subtitles[0].originalText.replace('Receptor: ', '')) <= 0.2, subtitles[0].originalText);
+  assert.ok(!logs.some((l) => l.startsWith('[TTS]')), 'en modo solo subtítulos no debe sonar ninguna voz');
 });

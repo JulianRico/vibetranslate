@@ -159,6 +159,11 @@
           </label>
 
           <label class="checkbox-card">
+            <input type="checkbox" id="incoming-voice-toggle">
+            <span class="checkbox-label">Leer en voz alta la traducción de la reunión (desmarcado: solo subtítulos, sin pausas al escuchar)</span>
+          </label>
+
+          <label class="checkbox-card">
             <input type="checkbox" id="three-toggle" checked>
             <span class="checkbox-label">🌿 Renderizado y Animación 3D (Desmarcar para Modo Eco / 0% GPU)</span>
           </label>
@@ -218,6 +223,11 @@
           <span class="preview-text orig-text" id="preview-orig">🎙️ ¡Mamá!</span>
           <span class="preview-badge traduccion">TRADUCCIÓN</span>
           <span class="preview-text trans-text" id="preview-trans">✨ Mother!</span>
+        </div>
+
+        <!-- Historial de la conversación -->
+        <div class="conversation-log" id="conversation-log" aria-live="polite">
+          <div class="conversation-empty" id="conversation-empty">La conversación aparecerá aquí, frase por frase.</div>
         </div>
       </section>
 

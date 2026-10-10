@@ -7,6 +7,7 @@ const { ipcRenderer } = require('electron');
 document.addEventListener('DOMContentLoaded', () => {
   const elOriginal = document.getElementById('sub-original');
   const elTranslated = document.getElementById('sub-translated');
+  const elHistory = document.getElementById('sub-history');
   const langBadge = document.getElementById('lang-pair');
   const overlayCard = document.getElementById('overlay-card');
 
@@ -17,6 +18,20 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentFontSize = 18;
   let isMinimized = false;
 
+  const HISTORY_LINES = 2;
+  const previousLines = [];
+  let currentLine = null; // { icon, text } de la frase que se está mostrando
+
+  function renderHistory() {
+    if (!elHistory) return;
+    elHistory.replaceChildren(...previousLines.map((line) => {
+      const el = document.createElement('div');
+      el.className = 'sub-history-line';
+      el.textContent = `${line.icon} ${line.text}`;
+      return el;
+    }));
+  }
+
   // ── Escuchar mensajes desde el Proceso Principal ──────────────────
   ipcRenderer.on('DISPLAY_SUBTITLE', (event, payload) => {
     const { originalText, translatedText, direction } = payload;
@@ -26,6 +41,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (elTranslated && translatedText) {
+      // La frase que estaba en pantalla pasa al historial en vez de desaparecer
+      if (currentLine) {
+        previousLines.push(currentLine);
+        while (previousLines.length > HISTORY_LINES) previousLines.shift();
+        renderHistory();
+      }
+      currentLine = { icon: direction === 'incoming' ? '👤' : '🎙️', text: translatedText };
       elTranslated.textContent = translatedText;
     }
   });
@@ -77,9 +99,11 @@ document.addEventListener('DOMContentLoaded', () => {
     isMinimized = !isMinimized;
     if (isMinimized) {
       elOriginal.style.display = 'none';
+      if (elHistory) elHistory.style.display = 'none';
       btnMinimize.textContent = '▢';
     } else {
       elOriginal.style.display = 'block';
+      if (elHistory) elHistory.style.display = 'flex';
       btnMinimize.textContent = '_';
     }
   });

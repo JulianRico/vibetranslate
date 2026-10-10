@@ -2592,3 +2592,63 @@ body.pip-mode .stage-box {
     animation: none !important;
   }
 }
+
+/* ── Historial de la conversación ─────────────────────────────────── */
+.conversation-log {
+  margin-top: 12px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--glass-card-border);
+  background: var(--glass-card-bg);
+}
+
+.conversation-empty {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  text-align: center;
+  padding: 10px 0;
+}
+
+.conversation-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 3px solid var(--apple-blue);
+}
+
+.conversation-row.incoming {
+  border-left-color: var(--apple-green);
+}
+
+.conv-meta {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-tertiary);
+}
+
+.conv-translated {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.conv-original {
+  font-size: 12px;
+  font-style: italic;
+  line-height: 1.3;
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+body.pip-mode .conversation-log {
+  max-height: 120px;
+}

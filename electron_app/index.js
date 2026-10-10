@@ -7,6 +7,7 @@ const { ipcRenderer } = require('electron');
 const GeminiLiveClient = require('./gemini-live-client');
 const { floatTo16BitPCM, arrayBufferToBase64, base64ToArrayBuffer, encodeWAV, isWhisperHallucination } = require('./audio-utils');
 const { createOutputQueue } = require('./output-queue');
+const { createConversationLog } = require('./conversation-log');
 const { resolvePair } = require('./local-ai/languages');
 const { thresholdFromNoiseGate } = require('./local-ai/segmenter');
 const { createTranslateRouter } = require('./local-ai/translate-route');
@@ -248,6 +249,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const virtualCableSelect = document.getElementById('virtual-cable-select');
   const noiseGateSelect = document.getElementById('noise-gate-select');
   const localAiGroup = document.getElementById('local-ai-group');
+  const incomingVoiceToggle = document.getElementById('incoming-voice-toggle');
+  const conversationLogEl = document.getElementById('conversation-log');
+  const conversationEmptyEl = document.getElementById('conversation-empty');
   const translationModeSelect = document.getElementById('translation-mode');
   const localAiStatus = document.getElementById('local-ai-status');
 
@@ -445,7 +449,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 3. Exportar Historial de Transcripciones y Reporte
   const logHistoryArray = [];
-  const sessionTranslationHistory = [];
+  const conversationLog = createConversationLog();
 
   if (btnExportAll) {
     btnExportAll.addEventListener('click', async () => {
@@ -462,9 +466,9 @@ Idioma Origen: ${sourceLangSelect?.value || 'es'}
 Idioma Destino: ${targetLangSelect?.value || 'en'}
 Driver VB-Cable: ${isVbCableDriverDetected ? 'CALIBRADO Y ACTIVO 🟢' : 'NO DETECTADO ⚠️'}
 
---- HISTORIAL DE TRADUCCIÓN SIMULTÁNEA (${sessionTranslationHistory.length} frases registradas) ---
-${sessionTranslationHistory.length > 0
-          ? sessionTranslationHistory.map((item, idx) => `[${item.time}] [${item.from} ➔ ${item.to}]\n  Original:   ${item.original}\n  Traducción: ${item.translated}`).join('\n\n')
+--- HISTORIAL DE TRADUCCIÓN SIMULTÁNEA (${conversationLog.size()} frases registradas) ---
+${conversationLog.size() > 0
+          ? conversationLog.toText()
           : 'No se han registrado frases en esta sesión todavía.'}
 
 --- REGISTRO DE EVENTOS Y TERMINAL DE LOGS (Últimos 40 eventos) ---
@@ -930,6 +934,15 @@ Generado automáticamente por ViBeTranslate Desktop
     });
   }
 
+  if (incomingVoiceToggle) {
+    incomingVoiceToggle.addEventListener('change', () => {
+      appendLog('CONTROL', incomingVoiceToggle.checked
+        ? 'La traducción de la reunión se leerá en voz alta (la app deja de escuchar mientras habla).'
+        : 'La reunión se muestra solo con subtítulos: escucha continua, sin pausas.');
+      saveCurrentSettings();
+    });
+  }
+
   if (ttsEngineSelect) {
     ttsEngineSelect.addEventListener('change', () => {
       const isFish = ttsEngineSelect.value === 'fish_audio';
@@ -1085,6 +1098,7 @@ Generado automáticamente por ViBeTranslate Desktop
     targetLangSelect.value = s.targetLang || 'en';
     sttEngineSelect.value = s.sttEngine || 'gemini_35_transcribe';
     if (translationModeSelect) translationModeSelect.value = s.translationMode || 'auto';
+    if (incomingVoiceToggle) incomingVoiceToggle.checked = !!s.incomingVoice;
     geminiKeyInput.value = s.geminiApiKey || '';
     geminiVoiceSelect.value = s.geminiVoice || 'Puck';
     groqKeyInput.value = s.groqApiKey || '';
@@ -1139,6 +1153,7 @@ Generado automáticamente por ViBeTranslate Desktop
       targetLang: targetLangSelect.value,
       sttEngine: sttEngineSelect.value,
       translationMode: translationModeSelect ? translationModeSelect.value : 'auto',
+      incomingVoice: incomingVoiceToggle ? incomingVoiceToggle.checked : false,
       ttsEngine: ttsEngineSelect ? ttsEngineSelect.value : 'fish_audio',
       geminiApiKey: geminiKeyInput.value.trim(),
       geminiVoice: geminiVoiceSelect.value,
@@ -1348,6 +1363,33 @@ Generado automáticamente por ViBeTranslate Desktop
   const slowDetector = createSlowDetector();
   let pipelineSession = 0; // cambia en cada arranque y parada: lo que quedó de una sesión anterior se descarta
 
+  const MAX_CONVERSATION_ROWS = 200;
+
+  /** Añade la frase al historial y la pinta al final de la lista, sin mover la vista si el usuario está releyendo arriba. */
+  function recordConversation({ direction, from, to, original, translated }) {
+    const entry = conversationLog.add({ direction, from, to, original, translated });
+    if (!entry || !conversationLogEl) return;
+    if (conversationEmptyEl) conversationEmptyEl.remove();
+
+    const atBottom = conversationLogEl.scrollHeight - conversationLogEl.scrollTop - conversationLogEl.clientHeight < 40;
+    const row = document.createElement('div');
+    row.className = `conversation-row ${entry.direction}`;
+    const meta = document.createElement('span');
+    meta.className = 'conv-meta';
+    meta.textContent = `${entry.time} · ${entry.speaker} · ${entry.from} ➔ ${entry.to}`;
+    const translatedEl = document.createElement('span');
+    translatedEl.className = 'conv-translated';
+    translatedEl.textContent = entry.translated;
+    const originalEl = document.createElement('span');
+    originalEl.className = 'conv-original';
+    originalEl.textContent = entry.original;
+    row.append(meta, translatedEl, originalEl);
+    conversationLogEl.appendChild(row);
+
+    while (conversationLogEl.children.length > MAX_CONVERSATION_ROWS) conversationLogEl.firstElementChild.remove();
+    if (atBottom) conversationLogEl.scrollTop = conversationLogEl.scrollHeight;
+  }
+
   /** Frases cuya voz aún no ha terminado de salir: síntesis pendientes más audio en cola del cable virtual. */
   function pendingSpeech() {
     const cable = (virtualCablePlayer && virtualCablePlayer.audioQueue) ? virtualCablePlayer.audioQueue.length : 0;
@@ -1392,12 +1434,12 @@ Generado automáticamente por ViBeTranslate Desktop
     const translatedText = translation.translated.trim();
     const isTargetSpanish = (translation.targetLang === 'es');
 
-    sessionTranslationHistory.push({
-      time: new Date().toLocaleTimeString(),
+    recordConversation({
+      direction: 'outgoing',
+      from: isTargetSpanish ? 'en' : 'es',
+      to: isTargetSpanish ? 'es' : 'en',
       original: translation.original,
-      translated: translatedText,
-      from: isTargetSpanish ? 'EN' : 'ES',
-      to: isTargetSpanish ? 'ES' : 'EN'
+      translated: translatedText
     });
 
     appendLog('TRANSLATE', `Traducido en ${transElapsed}ms [${translation.engine || 'nube'}] (${isTargetSpanish ? 'Inglés ➔ Español' : 'Español ➔ Inglés'}): "${translatedText}"`, 'translate');
@@ -1444,6 +1486,7 @@ Generado automáticamente por ViBeTranslate Desktop
     }
 
     appendLog('RECEPTOR', `✨ Traducido a Español en ${transElapsed}ms [${translation.engine || 'nube'}]: "${translatedText}"`, 'translate');
+    recordConversation({ direction: 'incoming', from: 'en', to: 'es', original: text, translated: translatedText });
     previewOrig.textContent = `👤 Receptor (Inglés): ${text}`;
     previewTrans.textContent = `✨ Español: ${translatedText}`;
 
@@ -1454,7 +1497,8 @@ Generado automáticamente por ViBeTranslate Desktop
       isFinal: true
     });
 
-    if (silent) return; // frase cerrada al detener: solo subtítulo
+    // Por defecto la reunión va solo con subtítulos: sin voz no hay pausas al escuchar ni frases perdidas
+    if (silent || !(incomingVoiceToggle && incomingVoiceToggle.checked)) return;
     speakOrSkip(
       () => speakSpanishToUser(translatedText),
       (ttsElapsed) => {
