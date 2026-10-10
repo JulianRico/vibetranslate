@@ -1,0 +1,164 @@
+# Motor local de transcripción, aislamiento del hablante y francés — Diseño
+
+Fecha: 2026-10-10 · Aplicación: `electron_app/` (ViBeTranslate Pro Studio) · Rama: `integracion-IA-local-gemini-nano`
+
+## 1. Objetivo
+
+Que la traducción simultánea de `electron_app` responda antes, funcione sin red ni claves, ignore el ruido y las voces ajenas, y admita francés además de inglés y español.
+
+Éxito significa:
+
+- La transcripción y la traducción funcionan con la red desconectada.
+- El tiempo desde que el usuario termina una frase hasta que aparece el subtítulo traducido baja de forma medible frente a la línea base (sección 3).
+- Con ruido de fondo o una segunda persona hablando, solo se transcribe al usuario registrado.
+- EN, ES y FR funcionan como idioma de origen y de destino.
+- Hay pruebas automáticas con audios generados que verifican cada par de idiomas de punta a punta.
+
+Fuera de alcance: las claves escritas en `main.js` (se trata después, por decisión del usuario), la síntesis de voz local, la extensión de Chrome de la raíz del repositorio y el modo `gemini_live`.
+
+## 2. Por qué no Gemini Nano
+
+La petición original era integrar Gemini Nano como en `interview-assistant/`. Se probó y no es viable:
+
+- `interview-assistant` transcribe con Web Speech en modo local y traduce con la Translator API de Chrome. Nano solo genera sugerencias y su código anota 6–19 s por respuesta.
+- Electron 31.7.7 (Chromium 126, el que usa la app): `Translator`, `LanguageModel` y `SpeechRecognition.available` no existen.
+- Electron 44.7.0 (Chromium 152): existen, pero `Translator.availability` y `create` no responden, `SpeechRecognition.available({processLocally:true})` devuelve `unavailable`, `install` devuelve `false` y `LanguageModel.prompt` contesta «On-device model is not available in Chromium, this API is just echoing back the input».
+
+Los modelos los entrega Google Chrome con servicios propios que Electron no incluye. Se sustituye por modelos ONNX empaquetados con la app.
+
+## 3. Mediciones que respaldan el diseño
+
+Equipo: Intel i7-8550U, 8 hilos, 15 GB de RAM, sin GPU dedicada. Audios de 10–11 s generados con voces de Windows.
+
+| Etapa | Nube (de `logs/desktop_app.log`) | Local medido |
+|---|---|---|
+| Transcripción EN | 370–890 ms por bloque | Moonshine base int8: 428 ms para 10,3 s, texto exacto |
+| Transcripción ES | igual | Whisper base int8: 1789 ms para 11,6 s, texto exacto |
+| Traducción | 100–1234 ms | Opus-MT q8: 175–702 ms por frase |
+| Carga de modelo | — | 0,9–1,5 s cada uno, una vez por sesión |
+
+Hallazgos:
+
+- Los totales registrados van de 2 a 9 s aunque las etapas sumen 2–3 s. La diferencia viene de `startUnifiedAudioPipeline`: `isTranscribingBlock` sigue activo mientras se espera (`await`) la síntesis de voz, y el bloqueo de eco descarta el micrófono durante la reproducción. Lo que el usuario dice en ese intervalo se retrasa o se pierde.
+- El modelo de streaming `zipformer-en-20M` (RTF 0,03) perdió el comienzo de la frase y entrega texto en mayúsculas sin puntuación. Se descarta.
+- Opus-MT traduce peor que Google: «application» → «demande» (FR), «joining» → «unirnos» (ES). Queda como respaldo sin red.
+
+## 4. Arquitectura
+
+Todo el cómputo local corre en un **proceso utilitario** de Electron (`utilityProcess`), para no bloquear la interfaz ni el proceso principal. El renderer sigue capturando el micrófono y envía PCM de 16 kHz en tramas; recibe eventos de texto.
+
+```
+Renderer (index.js)                    Proceso utilitario (local-ai/worker.js)
+  micrófono 16 kHz ── tramas PCM ──▶  filtro de ruido → detección de voz → verificación de hablante
+                                             │ segmento de voz aceptado
+                                             ▼
+                                       transcripción (Moonshine | Whisper)
+  subtítulo, traducción ◀── texto ───       │
+        │                                    ▼
+        └─ TRANSLATE_TEXT (main.js): Google → Opus-MT local → Groq → MyMemory
+```
+
+### Unidades
+
+Carpeta nueva `electron_app/local-ai/`. Cada unidad tiene una sola responsabilidad y se prueba sola.
+
+| Archivo | Hace | Depende de |
+|---|---|---|
+| `languages.js` | Registro único de idiomas (EN, ES, FR): código, nombre, modelo de transcripción, pares de traducción, voz. Sustituye las comparaciones `=== 'es' ? 'en' : 'es'` repartidas por `main.js` e `index.js`. | nada |
+| `model-store.js` | Ubica, descarga con progreso y verifica (tamaño y SHA-256) los modelos en `userData/models/`. | `https`, `fs` |
+| `segmenter.js` | Recibe tramas, aplica filtro de ruido y detección de voz Silero, emite segmentos de voz. Corta por pausa (≥ 350 ms) o a los 6 s. | `sherpa-onnx-node` |
+| `speaker-gate.js` | Registra la voz del usuario y decide si un segmento es suyo comparando huellas de voz. Sin registro, deja pasar todo. | `sherpa-onnx-node` |
+| `transcriber.js` | Transcribe un segmento con el modelo del idioma. Carga perezosa, un modelo en memoria por idioma activo. | `sherpa-onnx-node`, `languages.js` |
+| `local-translator.js` | Traduce texto con Opus-MT para un par. Pares sin modelo directo se rechazan con error claro. | `@huggingface/transformers` |
+| `worker.js` | Punto de entrada del proceso utilitario: une las unidades y habla por mensajes. | las anteriores |
+| `client.js` | Lado principal: lanza el proceso, lo reinicia si muere, expone promesas y eventos. | `electron` |
+
+### Modelos
+
+| Uso | Modelo | Tamaño aprox. |
+|---|---|---|
+| Detección de voz | Silero VAD | 0,6 MB |
+| Filtro de ruido | GTCRN (sherpa `OnlineSpeechDenoiser`) | < 1 MB |
+| Huella de voz | 3D-Speaker ERes2Net base (sherpa `SpeakerEmbeddingExtractor`) | ~ 40 MB |
+| Transcripción EN | Moonshine base int8 | ~ 250 MB |
+| Transcripción ES y FR | Whisper base int8 multilingüe | ~ 160 MB |
+| Traducción | Opus-MT q8, seis pares (en↔es, en↔fr, es↔fr) | ~ 110 MB cada uno |
+
+Los modelos no van dentro del instalador. Se descargan la primera vez que se elige el motor local, solo los del par de idiomas activo, con barra de progreso. Los binarios nativos (`sherpa-onnx-node`, `onnxruntime-node`) sí se empaquetan y se declaran en `asarUnpack`.
+
+### Contrato de mensajes (renderer ↔ principal ↔ utilitario)
+
+| Canal IPC | Dirección | Carga |
+|---|---|---|
+| `LOCAL_AI_PREPARE` | renderer → principal | `{ sourceLang, targetLang }` → `{ ready, missing[] }` |
+| `LOCAL_AI_PROGRESS` | principal → renderer | `{ model, loaded, total }` |
+| `LOCAL_AI_START` / `LOCAL_AI_STOP` | renderer → principal | `{ sourceLang, speakerGate: boolean }` |
+| `LOCAL_AI_AUDIO` | renderer → principal | `Float32Array` de 16 kHz (tramas de 100 ms) |
+| `LOCAL_AI_SEGMENT` | principal → renderer | `{ text, lang, durationMs, sttMs, speakerScore, accepted }` |
+| `LOCAL_AI_VAD` | principal → renderer | `{ speaking, noise }` para el indicador |
+| `LOCAL_AI_ENROLL` | renderer → principal | `{ samples }` → `{ ok, seconds }` |
+| `LOCAL_AI_ERROR` | principal → renderer | `{ stage, message, fatal }` |
+
+## 5. Cambios en el código existente
+
+- **`index.html` / `index.js`**: opción `local` en `#stt-engine` («Motor local (sin conexión, privado)»); opción francés en `#source-lang` y `#target-lang`; interruptor «Solo mi voz» y botón «Registrar mi voz» en la tarjeta de sensibilidad del micrófono; panel de descarga de modelos.
+- **Canalización en `index.js`**: la traducción y la voz dejan de ejecutarse dentro de `onaudioprocess`. Cada texto reconocido entra en una **cola de salida** que traduce, muestra el subtítulo y sintetiza en orden. Así `isTranscribingBlock` solo cubre la transcripción y el micrófono sigue escuchando mientras suena la voz. El bloqueo de eco se mantiene para el altavoz local y se desactiva cuando la salida va solo al cable virtual. Aplica a todos los motores por bloques, no solo al local.
+- **`main.js` `TRANSLATE_TEXT`**: usa `languages.js` para resolver origen y destino con tres idiomas; inserta Opus-MT como segundo nivel. Si no hay red (fallo de Google en < 3,5 s o `navigator.onLine` falso enviado por el renderer), va directo al local.
+- **`gemini-live-client.js`, `audio-utils.js`**: sin cambios funcionales. A `isWhisperHallucination` se le añaden los patrones franceses equivalentes («merci», «sous-titres réalisés par…»).
+- **`package.json`**: Electron 31 se mantiene (la actualización no aporta nada a este trabajo). Dependencias nuevas: `sherpa-onnx-node`, `@huggingface/transformers`. `asarUnpack` para los binarios nativos; `npm test` con el ejecutor de Node.
+
+## 6. Aislamiento del hablante
+
+Tres capas, de barata a cara:
+
+1. **Filtro de ruido** (GTCRN) sobre cada trama, antes de la detección de voz.
+2. **Detección de voz neuronal** (Silero) en lugar del umbral de volumen actual. El selector de sensibilidad existente pasa a controlar el umbral de probabilidad de Silero.
+3. **Verificación de hablante**: el usuario graba 10 s; se guarda su huella en `userData/voiceprint.json`. Cada segmento de ≥ 1 s se compara por similitud de coseno; por debajo del umbral se descarta y se registra como «voz ajena filtrada». Los segmentos de menos de 1 s heredan la decisión del segmento anterior si llegó hace menos de 2 s; si no, pasan.
+
+El umbral inicial se fija con las pruebas de la sección 8 y se expone como ajuste avanzado. Esto no separa dos voces que hablan a la vez: descarta segmentos dominados por otra voz. Se dice así en la interfaz.
+
+## 7. Errores
+
+| Situación | Comportamiento |
+|---|---|
+| Falta un modelo | El motor local no arranca; se ofrece descargar. No hay cambio silencioso a la nube. |
+| Descarga interrumpida o suma incorrecta | Se borra el parcial y se reintenta al pulsar; mensaje con el modelo afectado. |
+| El proceso utilitario muere | `client.js` lo reinicia una vez y recarga modelos; si muere otra vez en 30 s, detiene la canalización y muestra el error. |
+| Transcripción vacía o alucinación | Se descarta con el filtro existente. |
+| Par de traducción local inexistente | Error claro; se usan los niveles de nube si hay red. |
+| Sin huella registrada y «Solo mi voz» activo | El interruptor se desactiva y se pide registrar la voz. |
+| Equipo lento (transcripción > duración del audio) | Aviso en el registro y sugerencia de pasar a un motor en la nube. |
+
+## 8. Pruebas
+
+Ejecutor: `node --test`, como en `interview-assistant`. Los audios se generan con un guion (`test/fixtures/generate-audio.js`): voces de Windows para EN y ES, y `OfflineTts` de sherpa con voces Piper para FR y para una segunda voz en cada idioma. Los modelos se descargan una vez a una caché local; las pruebas que los necesitan se omiten con mensaje si no están.
+
+| Nivel | Qué verifica |
+|---|---|
+| Unidad | `languages.js` (resolución de pares, modo automático con tres idiomas), `model-store.js` (suma, reanudación, parcial corrupto), cola de salida (orden, no bloquea la entrada), `speaker-gate.js` con huellas simuladas, `client.js` (reinicio). |
+| Transcripción | 5 frases por idioma (EN, ES, FR). Tasa de error de palabras ≤ 10 % sobre texto normalizado. |
+| Traducción | Los seis pares, 5 frases cada uno. Se comprueba que las palabras clave esperadas aparecen en la salida, no la frase exacta. |
+| Ruido | Cada frase mezclada con ruido rosa y de cafetería a 10 dB y 5 dB de relación señal/ruido. Tasa de error ≤ 20 % a 10 dB; en silencio con ruido solo, cero segmentos emitidos. |
+| Hablante | Audio alternando la voz registrada y una segunda voz. ≥ 90 % de segmentos propios aceptados y ≥ 90 % de ajenos rechazados. |
+| Punta a punta | Se lanza la app Electron real con un micrófono simulado (`--use-file-for-fake-audio-capture`) y se lee el subtítulo final para EN→ES, ES→EN, EN→FR y FR→ES, con red y con la traducción en nube desactivada. |
+| Latencia | Guion que mide fin de voz → subtítulo traducido para el motor local y lo compara con la línea base de la sección 3. Informa cifras; no falla por umbral. |
+
+Si un criterio numérico no se alcanza, se informa el valor obtenido y se ajusta el modelo o el umbral antes de dar la fase por cerrada; no se relaja el criterio en silencio.
+
+## 9. Orden de entrega
+
+1. `languages.js` y cola de salida (mejora inmediata para los motores actuales).
+2. `model-store.js`, proceso utilitario, segmentador y transcripción local EN y ES.
+3. Traducción local como respaldo.
+4. Filtro de ruido y verificación de hablante con registro de voz.
+5. Francés: interfaz, transcripción, pares de traducción, voz.
+6. Pruebas de punta a punta, medición de latencia y empaquetado (`asarUnpack`, verificación de `npm run build:win`).
+
+Cada fase termina con sus pruebas en verde.
+
+## 10. Riesgos
+
+- **Peso**: `onnxruntime-node` ocupa 288 MB sin comprimir por plataforma. Si el instalador crece demasiado, la traducción local pasa a sherpa/CTranslate2 o se ofrece como descarga opcional.
+- **Voz de salida en francés**: Fish Audio y Google TTS admiten francés; se verifica en la fase 5. La voz clonada puede sonar con acento.
+- **macOS**: los binarios nativos existen para x64 y arm64, pero aquí solo se puede probar Windows. La compilación para Mac queda sin verificar.
+- **Verificación de hablante con frases cortas**: las huellas son poco fiables por debajo de 1 s; por eso la regla de herencia de la sección 6.
