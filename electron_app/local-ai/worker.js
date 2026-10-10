@@ -11,6 +11,10 @@ const post = (msg) => process.parentPort.postMessage(msg);
 process.parentPort.on('message', (event) => {
   const msg = event.data;
   try {
+    if (msg.type === 'ping') {
+      post({ type: 'pong' });
+      return;
+    }
     if (msg.type === 'init') {
       const started = Date.now();
       engine = createEngine({ sherpa, paths: msg.paths, vadThreshold: msg.vadThreshold, idBase: msg.idBase, post });

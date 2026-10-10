@@ -46,7 +46,8 @@ const settingsFilePath = path.join(userDataPath, 'settings.json');
 
 // ── Motor Local (transcripción y traducción en el equipo, sin red) ──
 const modelStore = createModelStore({
-  dir: process.env.VIBE_MODELS_DIR || path.join(userDataPath, 'models')
+  // La variable de entorno solo vale en desarrollo y pruebas: la app instalada usa siempre su carpeta de datos
+  dir: (!app.isPackaged && process.env.VIBE_MODELS_DIR) || path.join(userDataPath, 'models')
 });
 
 const localAi = createLocalAiClient({
@@ -656,6 +657,14 @@ ipcMain.handle('LOCAL_AI_TRANSLATE', async (event, { id, target }) => {
     defaultLogger.warn('TRANSLATE', `Aviso en traducción local: ${err.message}`);
     return { ok: false, error: err.message };
   }
+});
+
+ipcMain.on('LOCAL_AI_FLUSH', (event, { stream } = {}) => {
+  localAi.send({ type: 'flush', stream });
+});
+
+ipcMain.on('LOCAL_AI_CONFIG', (event, { stream, vadThreshold }) => {
+  localAi.configure({ stream, vadThreshold });
 });
 
 ipcMain.on('LOCAL_AI_STOP', () => {

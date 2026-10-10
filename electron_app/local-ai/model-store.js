@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const CANARY = 'https://huggingface.co/csukuangfj/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8/resolve/main/';
+// Revisión fijada: una rama puede cambiar de contenido y entonces ninguna instalación pasaría la verificación
+const CANARY = 'https://huggingface.co/csukuangfj/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8/resolve/9077164e0d3dd1d5353743e89ceaa1d3a770838c/';
 
 const MODEL_FILES = [
   {
@@ -53,8 +54,7 @@ function hashFile(file) {
 
 function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs = STALL_MS }) {
   const fileFor = (f) => path.join(dir, f.file);
-  let inFlight = null;
-  let partCounter = 0;
+  let inFlight = null; // una sola descarga a la vez: es lo que permite un parcial con nombre fijo y reanudable
 
   function isPresent(f) {
     try {
@@ -83,16 +83,23 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs
 
   async function download(f, onChunk) {
     const target = fileFor(f);
-    // Nombre único: dos escritores nunca comparten parcial, ni siquiera entre procesos
-    const part = `${target}.${process.pid}.${++partCounter}.part`;
+    const part = `${target}.part`;
     const abort = new AbortController();
     let handle = null;
+    let keepPart = true; // un parcial sano se conserva para reanudar; uno que no verifica se borra
     try {
-      const res = await fetchImpl(f.url, { signal: abort.signal });
+      let have = 0;
+      try { have = fs.statSync(part).size; } catch { /* no hay parcial */ }
+      if (have >= f.size) have = 0; // no puede ser un parcial válido: se empieza de cero
+      const headers = have > 0 ? { Range: `bytes=${have}-` } : {};
+      const res = await fetchImpl(f.url, { signal: abort.signal, headers });
       if (!res.ok || !res.body) throw new Error(`No se pudo descargar ${f.file} (HTTP ${res.status})`);
-      handle = await fs.promises.open(part, 'w');
+      const resumed = have > 0 && res.status === 206;
+      if (!resumed) have = 0; // el servidor lo envía entero
+      handle = await fs.promises.open(part, resumed ? 'a' : 'w');
       const iterator = res.body[Symbol.asyncIterator]();
-      let loaded = 0;
+      let loaded = have;
+      if (have > 0) onChunk(have, loaded);
       for (;;) {
         const { done, value } = await nextChunk(iterator, f);
         if (done) break;
@@ -106,13 +113,14 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs
       // Se verifica el archivo tal como quedó en disco, no los bytes que llegaron por la red
       const onDisk = fs.statSync(part).size;
       if (onDisk !== f.size || (await hashFile(part)) !== f.sha256) {
+        keepPart = false;
         throw new Error(`Descarga corrupta de ${f.file}: no coincide el tamaño o la suma de verificación`);
       }
       fs.renameSync(part, target);
     } catch (err) {
       abort.abort();
       if (handle) await handle.close().catch(() => {});
-      fs.rmSync(part, { force: true });
+      if (!keepPart) fs.rmSync(part, { force: true });
       throw err;
     }
   }

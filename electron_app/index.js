@@ -10,6 +10,7 @@ const { createOutputQueue } = require('./output-queue');
 const { resolvePair } = require('./local-ai/languages');
 const { thresholdFromNoiseGate } = require('./local-ai/segmenter');
 const { createTranslateRouter } = require('./local-ai/translate-route');
+const { createSlowDetector } = require('./local-ai/slow-detector');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
 class PcmStreamPlayer {
@@ -998,6 +999,9 @@ Generado automáticamente por ViBeTranslate Desktop
   noiseGateSelect.addEventListener('change', () => {
     updateThresholdLine();
     appendLog('VAD', `Umbral de filtro de ruido actualizado a: ${currentNoiseThreshold}`);
+    if (isPipelineRunning && localPair) {
+      ipcRenderer.send('LOCAL_AI_CONFIG', { stream: 'mic', vadThreshold: thresholdFromNoiseGate(noiseGateSelect.value) });
+    }
     saveCurrentSettings();
   });
 
@@ -1036,6 +1040,15 @@ Generado automáticamente por ViBeTranslate Desktop
       }
     }
   });
+
+  /** El motor local no puede seguir: el interruptor vuelve a apagado y así queda guardado. */
+  function turnOffAfterLocalFailure() {
+    toggleActive.checked = false;
+    isLiveToggleActive = false;
+    updateStatusBadge(false);
+    stopTranslationPipeline();
+    saveCurrentSettings();
+  }
 
   async function refreshLocalAiStatus() {
     if (!localAiStatus) return;
@@ -1253,7 +1266,7 @@ Generado automáticamente por ViBeTranslate Desktop
         appendLog('LOCAL-AI', '⚠️ El motor local necesita un idioma de origen fijo (Español o Inglés), no Auto.', 'warn');
         previewOrig.textContent = '⚠️ Elige Español o Inglés como idioma de origen.';
         previewTrans.textContent = 'El motor local no detecta el idioma automáticamente.';
-        stopTranslationPipeline();
+        turnOffAfterLocalFailure();
         return;
       }
       previewOrig.textContent = '⏳ Preparando el motor local...';
@@ -1266,12 +1279,13 @@ Generado automáticamente por ViBeTranslate Desktop
         appendLog('LOCAL-AI', `No se pudo iniciar el motor local: ${prepared.error}`, 'error');
         previewOrig.textContent = '⚠️ No se pudo iniciar el motor local.';
         previewTrans.textContent = prepared.error;
-        stopTranslationPipeline();
+        turnOffAfterLocalFailure();
         return;
       }
       appendLog('LOCAL-AI', `🟢 Motor local listo en ${prepared.loadMs}ms (${localPair.source.toUpperCase()} ➔ ${localPair.target.toUpperCase()}).`, 'gemini');
       previewOrig.textContent = '🎙️ Escuchando tu voz (motor local)...';
       refreshLocalAiStatus();
+      slowDetector.reset();
       await startUnifiedAudioPipeline('local', null);
       await startIncomingAudioPipeline(null, 'local');
     }
@@ -1331,6 +1345,7 @@ Generado automáticamente por ViBeTranslate Desktop
   });
   const MAX_TTS_BACKLOG = 2;
   let localPair = null;
+  const slowDetector = createSlowDetector();
   let pipelineSession = 0; // cambia en cada arranque y parada: lo que quedó de una sesión anterior se descarta
 
   /** Frases cuya voz aún no ha terminado de salir: síntesis pendientes más audio en cola del cable virtual. */
@@ -1359,7 +1374,7 @@ Generado automáticamente por ViBeTranslate Desktop
     getMode: () => (translationModeSelect ? translationModeSelect.value : 'auto')
   });
 
-  async function deliverOutgoing({ recognizedText, sttElapsed, voiceDurationMs, userSpeechStart, segmentId = null, pair = null }) {
+  async function deliverOutgoing({ recognizedText, sttElapsed, voiceDurationMs, userSpeechStart, segmentId = null, pair = null, silent = false }) {
     const transStart = Date.now();
     const translation = await translateText({
       text: recognizedText,
@@ -1395,6 +1410,7 @@ Generado automáticamente por ViBeTranslate Desktop
       isFinal: true
     });
 
+    if (silent) return; // frase cerrada al detener: solo subtítulo
     speakOrSkip(
       () => (isTargetSpanish ? speakSpanishToUser(translatedText) : playAudioToVirtualCableAndSpeakers(translatedText, 'en')),
       (ttsElapsed) => {
@@ -1404,7 +1420,7 @@ Generado automáticamente por ViBeTranslate Desktop
     );
   }
 
-  async function deliverIncoming({ text, sttElapsed, voiceDurationMs, speechStartTime, segmentId = null }) {
+  async function deliverIncoming({ text, sttElapsed, voiceDurationMs, speechStartTime, segmentId = null, silent = false }) {
     const transStart = Date.now();
     const translation = await translateText({
       text,
@@ -1438,6 +1454,7 @@ Generado automáticamente por ViBeTranslate Desktop
       isFinal: true
     });
 
+    if (silent) return; // frase cerrada al detener: solo subtítulo
     speakOrSkip(
       () => speakSpanishToUser(translatedText),
       (ttsElapsed) => {
@@ -1459,14 +1476,12 @@ Generado automáticamente por ViBeTranslate Desktop
       appendLog('LOCAL-AI', msg.message, msg.fatal ? 'error' : 'warn');
       if (msg.fatal && isPipelineRunning) {
         previewOrig.textContent = `⚠️ ${msg.message}`;
-        toggleActive.checked = false;
-        isLiveToggleActive = false;
-        updateStatusBadge(false);
-        stopTranslationPipeline();
+        turnOffAfterLocalFailure();
       }
       return;
     }
-    if (!isPipelineRunning) return;
+    // Tras detener solo se acepta la frase que estaba en curso (llega marcada como tardía)
+    if (!isPipelineRunning && !(msg.type === 'segment' && msg.late)) return;
 
     if (msg.type === 'vad') {
       if (msg.stream === 'incoming') ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: msg.speaking });
@@ -1475,19 +1490,24 @@ Generado automáticamente por ViBeTranslate Desktop
 
     if (msg.type === 'segment') {
       const startedAt = Date.now() - msg.durationMs - msg.sttMs;
-      const pair = localPair; // el par vigente al oír la frase, no el que haya cuando le toque en la cola
+      // El par vigente al oír la frase, no el que haya cuando le toque en la cola; tras detener se deduce del idioma oído
+      const pair = localPair || resolvePair(msg.lang, 'auto');
+      const silent = !!msg.late;
+      if (slowDetector.observe(msg)) {
+        appendLog('LOCAL-AI', '⚠️ Este equipo transcribe más lento de lo que hablas y el retraso se irá acumulando. Prueba un motor en la nube.', 'warn');
+      }
       if (msg.stream === 'mic') {
         appendLog('VOICE', `Reconocido (Motor local) en ${msg.sttMs}ms: "${msg.text}"`, 'audio');
         previewOrig.textContent = `🎙️ ${msg.text}`;
         outputQueue.push(() => deliverOutgoing({
           recognizedText: msg.text, sttElapsed: msg.sttMs, voiceDurationMs: msg.durationMs,
-          userSpeechStart: startedAt, segmentId: msg.id, pair
+          userSpeechStart: startedAt, segmentId: msg.id, pair, silent
         }));
       } else {
         appendLog('RECEPTOR', `Inglés (Motor local) en ${msg.sttMs}ms: "${msg.text}"`, 'audio');
         outputQueue.push(() => deliverIncoming({
           text: msg.text, sttElapsed: msg.sttMs, voiceDurationMs: msg.durationMs,
-          speechStartTime: startedAt, segmentId: msg.id
+          speechStartTime: startedAt, segmentId: msg.id, silent
         }));
       }
     }
@@ -1543,6 +1563,7 @@ Generado automáticamente por ViBeTranslate Desktop
       let incomingSamplesBuffer = [];
       let incomingSpeechHold = 0;
       let isTranscribingIncoming = false;
+      let incomingEchoBlocked = false;
 
       incomingScriptProcessor.onaudioprocess = async (e) => {
         if (!isPipelineRunning) return;
@@ -1551,7 +1572,14 @@ Generado automáticamente por ViBeTranslate Desktop
 
         if (engineType === 'local') {
           // La voz en español que reproduce la app entra por el audio del sistema: oírla crearía un bucle
-          if (isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 450)) return;
+          if (isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 450)) {
+            if (!incomingEchoBlocked) {
+              incomingEchoBlocked = true;
+              ipcRenderer.send('LOCAL_AI_FLUSH', { stream: 'incoming' });
+            }
+            return;
+          }
+          incomingEchoBlocked = false;
           ipcRenderer.send('LOCAL_AI_AUDIO', {
             stream: 'incoming',
             lang: 'en',
@@ -1764,6 +1792,7 @@ Generado automáticamente por ViBeTranslate Desktop
       let speechSamplesBuffer = [];
       let continuousSpeechFrames = 0;
       let isTranscribingBlock = false;
+      let micEchoBlocked = false;
 
       scriptProcessor.onaudioprocess = async (audioProcessingEvent) => {
         if (!isPipelineRunning) return;
@@ -1771,6 +1800,10 @@ Generado automáticamente por ViBeTranslate Desktop
         // 0. Bloqueo de Eco Acústico (Si el altavoz está reproduciendo audio, ignorar el micrófono)
         const isCurrentlyPlayingAudio = isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 450);
         if (isCurrentlyPlayingAudio) {
+          if (engine === 'local' && !micEchoBlocked) {
+            micEchoBlocked = true;
+            ipcRenderer.send('LOCAL_AI_FLUSH', { stream: 'mic' });
+          }
           speechHoldFrames = 0;
           speechSamplesBuffer = [];
           continuousSpeechFrames = 0;
@@ -1782,6 +1815,8 @@ Generado automáticamente por ViBeTranslate Desktop
           if (vuValText) vuValText.textContent = '0%';
           return;
         }
+
+        micEchoBlocked = false;
 
         const inputBuffer = audioProcessingEvent.inputBuffer;
         const inputData = inputBuffer.getChannelData(0);

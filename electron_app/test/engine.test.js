@@ -114,3 +114,60 @@ test('los identificadores empiezan en la base indicada, para no repetirse entre 
   engine.handle({ type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(2048) });
   assert.equal(posted[0].id, 2000001);
 });
+
+/** Motor cuyos segmentadores se pueden inspeccionar: cuántos se crearon, con qué umbral y qué devuelve cada flush. */
+function inspectable({ vadThreshold } = {}) {
+  const posted = [];
+  const created = [];
+  const engine = createEngine({
+    sherpa: {}, paths: {}, post: (m) => posted.push(m), vadThreshold,
+    makeSegmenter: ({ threshold }) => {
+      const segmenter = { threshold, flushed: 0, push: () => [], flush: () => { segmenter.flushed++; return [seg(700)]; }, isSpeaking: () => false };
+      created.push(segmenter);
+      return segmenter;
+    },
+    makeTranscriber: () => ({ transcribe: (samples, lang) => ({ text: `frase en ${lang}`, ms: 1 }), translate: () => ({ text: 't', ms: 1 }) })
+  });
+  const audio = (stream, lang) => engine.handle({ type: 'audio', stream, lang, samples: new Float32Array(2048) });
+  return { engine, posted, created, audio };
+}
+
+test('flush sin indicar flujo cierra la frase en curso de todos, cada uno en su idioma', () => {
+  const t = inspectable();
+  t.audio('mic', 'es');
+  t.audio('incoming', 'en');
+  t.engine.handle({ type: 'flush' });
+  assert.deepEqual(t.posted.map((m) => [m.stream, m.text]), [['mic', 'frase en es'], ['incoming', 'frase en en']]);
+});
+
+test('flush de un flujo que no ha recibido audio no hace nada', () => {
+  const t = inspectable();
+  t.engine.handle({ type: 'flush', stream: 'mic' });
+  assert.deepEqual(t.posted, []);
+  assert.equal(t.created.length, 0);
+});
+
+test('tras un flush el flujo empieza limpio: el audio siguiente no se pega a la frase cerrada', () => {
+  const t = inspectable();
+  t.audio('mic', 'es');
+  t.engine.handle({ type: 'flush', stream: 'mic' });
+  t.audio('mic', 'es');
+  assert.equal(t.created.length, 2);
+});
+
+test('la sensibilidad del micrófono no se aplica al audio del receptor', () => {
+  const t = inspectable({ vadThreshold: 0.75 });
+  t.audio('mic', 'es');
+  t.audio('incoming', 'en');
+  assert.deepEqual(t.created.map((s) => s.threshold), [0.75, 0.5]);
+});
+
+test('config cambia la sensibilidad en plena sesión, cerrando antes la frase en curso', () => {
+  const t = inspectable({ vadThreshold: 0.5 });
+  t.audio('mic', 'es');
+  t.engine.handle({ type: 'config', stream: 'mic', vadThreshold: 0.35 });
+  assert.equal(t.created[0].flushed, 1);
+  assert.equal(t.posted.filter((m) => m.type === 'segment').length, 1);
+  t.audio('mic', 'es');
+  assert.deepEqual(t.created.map((s) => s.threshold), [0.5, 0.35]);
+});

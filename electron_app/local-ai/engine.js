@@ -8,6 +8,7 @@ const { createTranscriber } = require('./transcriber');
 const MIN_SEGMENT_SAMPLES = 6400; // 400 ms: por debajo el modelo inventa palabras
 const KEEP_SEGMENTS = 8; // audio que se conserva para poder traducir en local después
 const HAS_WORDS = /[\p{L}\p{N}]/u;
+const DEFAULT_THRESHOLD = 0.5;
 
 function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber }) {
   const transcriber = makeTranscriber({ sherpa, paths });
@@ -15,14 +16,19 @@ function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, mak
   const kept = new Map();
   let nextId = idBase;
 
-  function streamFor(name) {
+  const thresholds = { mic: vadThreshold }; // la sensibilidad que elige el usuario es la de su micrófono
+
+  function streamFor(name, lang) {
     if (!streams.has(name)) {
       streams.set(name, {
-        segmenter: makeSegmenter({ sherpa, modelPath: paths.vad, threshold: vadThreshold }),
-        speaking: false
+        segmenter: makeSegmenter({ sherpa, modelPath: paths.vad, threshold: thresholds[name] ?? DEFAULT_THRESHOLD }),
+        speaking: false,
+        lang
       });
     }
-    return streams.get(name);
+    const state = streams.get(name);
+    if (lang) state.lang = lang;
+    return state;
   }
 
   function publish(stream, lang, segments) {
@@ -37,10 +43,19 @@ function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, mak
     }
   }
 
+  /** Cierra la frase en curso de un flujo y lo deja limpio: el audio siguiente no se pega a lo ya cerrado. */
+  function close(name) {
+    const state = streams.get(name);
+    if (!state) return;
+    streams.delete(name);
+    if (state.speaking) post({ type: 'vad', stream: name, speaking: false });
+    publish(name, state.lang, state.segmenter.flush());
+  }
+
   return {
     handle(msg) {
       if (msg.type === 'audio') {
-        const state = streamFor(msg.stream);
+        const state = streamFor(msg.stream, msg.lang);
         const segments = state.segmenter.push(msg.samples);
         const speaking = state.segmenter.isSpeaking();
         if (speaking !== state.speaking) {
@@ -49,7 +64,11 @@ function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, mak
         }
         publish(msg.stream, msg.lang, segments);
       } else if (msg.type === 'flush') {
-        publish(msg.stream, msg.lang, streamFor(msg.stream).segmenter.flush());
+        const names = msg.stream ? [msg.stream] : [...streams.keys()];
+        for (const name of names) close(name);
+      } else if (msg.type === 'config') {
+        close(msg.stream);
+        thresholds[msg.stream] = msg.vadThreshold;
       } else if (msg.type === 'translate') {
         const segment = kept.get(msg.id);
         if (!segment) {
