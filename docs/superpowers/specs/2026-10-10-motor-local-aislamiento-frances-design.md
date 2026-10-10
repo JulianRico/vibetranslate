@@ -164,3 +164,23 @@ Cada fase termina con sus pruebas en verde.
 - **Voz de salida en francés**: Fish Audio y Google TTS admiten francés; se verifica en la fase 5. La voz clonada puede sonar con acento.
 - **macOS**: los binarios nativos existen para x64 y arm64, pero aquí solo se puede probar Windows. La compilación para Mac queda sin verificar.
 - **Verificación de hablante con frases cortas**: las huellas son poco fiables por debajo de 1 s; por eso la regla de herencia de la sección 6.
+
+## 11. Revisión tras pruebas (2026-10-10)
+
+Las pruebas hechas antes de planificar cambian varias decisiones de las secciones 4 a 8. Donde esta sección contradice a las anteriores, manda esta.
+
+| Decisión original | Resultado medido | Decisión nueva |
+|---|---|---|
+| Moonshine (EN) + Whisper base (ES) | Whisper base falla en frases cortas en español («Puede enverme el informe») y tarda 536 ms en 3 s de audio. Moonshine v2 da error de ejecución en `sherpa-onnx-node` 1.13.8. | **Un solo modelo: NeMo Canary 180M flash int8** (207 MB, EN/ES/FR/DE). Frase de 3 s en ~400 ms, texto exacto con puntuación en EN y ES, estable con ruido a 5 dB. |
+| Opus-MT con `@huggingface/transformers` | Añade 288 MB de `onnxruntime-node` y seis modelos de ~110 MB. | **Canary traduce directamente del audio** (EN↔ES en ~410–500 ms por frase). Cambiar de dirección cuesta 0,1 ms (`setConfig`). No se añade `@huggingface/transformers`. Calidad parecida a Opus-MT: sirve como respaldo sin red («application» → «solicitud»). |
+| Filtro de ruido GTCRN antes de transcribir | No mejora la transcripción y a veces la empeora («before Friday» → «for four Friday»); cuesta un 13 % del tiempo real. | **Se elimina.** La robustez al ruido la dan Silero y el propio modelo. Verificado: 5 s de solo ruido → cero segmentos. |
+| Verificación de hablante con huella de voz | Con `wespeaker CAM++` las puntuaciones agrupan por sesión de grabación, no por persona (misma persona 0,28; personas distintas 0,90). Por debajo de 2 s no distingue. | **Aplazada** a una investigación propia con grabaciones reales del usuario. «Aislar al hablante» queda, por ahora, en: detección de voz neuronal + duración mínima de 400 ms + bloqueo de eco existente. No filtra a otra persona que hable cerca. |
+| Traducción local sobre texto | — | La traducción local necesita el audio: el proceso utilitario conserva los últimos 8 segmentos y traduce el que se le pida por identificador. |
+| Sin detección de voz, el modelo no inventa texto | Sobre ruido puro Canary devuelve «Que no sé»; sobre 200 ms devuelve «sí». | La detección de voz es obligatoria delante del modelo y se descartan segmentos de menos de 400 ms. |
+| `sherpa-onnx-node` dentro de Electron | Electron rechaza los búferes externos («External buffers are not allowed»). | Toda llamada que devuelva muestras pasa `false` en `enableExternalBuffer`. Verificado en el Node de Electron 31. |
+
+Memoria del proceso con el modelo cargado: ~420 MB. Descarga inicial: 208 MB (Canary 207 MB + Silero 0,6 MB), desde archivos sueltos (sin descomprimir nada).
+
+Canales IPC definitivos: `LOCAL_AI_STATUS`, `LOCAL_AI_PREPARE`, `LOCAL_AI_AUDIO`, `LOCAL_AI_TRANSLATE`, `LOCAL_AI_STOP` (renderer → principal) y un único `LOCAL_AI_EVENT` (principal → renderer) con `type`: `progress`, `segment`, `vad`, `error`. Desaparecen `LOCAL_AI_ENROLL` y `speaker-gate.js`, `local-translator.js`.
+
+El motor local exige idioma de origen fijo (no «Auto»). Las pruebas de ruido usan solo ruido rosa generado; no hay grabación de cafetería.
