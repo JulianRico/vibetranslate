@@ -1,0 +1,16 @@
+{
+  "es": [
+    { "id": "es1", "text": "¿Puedes enviarme el informe antes del viernes?", "keywordsEn": ["report", "friday"] },
+    { "id": "es2", "text": "Buenos días a todos, gracias por unirse a la reunión de hoy.", "keywordsEn": ["morning", "meeting", "today"] },
+    { "id": "es3", "text": "Necesitamos revisar el presupuesto trimestral.", "keywordsEn": ["budget"] },
+    { "id": "es4", "text": "El cliente quiere una demostración la próxima semana.", "keywordsEn": ["week"] },
+    { "id": "es5", "text": "Creo que deberíamos posponer el lanzamiento hasta el próximo mes.", "keywordsEn": ["month"] }
+  ],
+  "en": [
+    { "id": "en1", "text": "Can you send me the report before Friday?", "keywordsEs": ["informe", "viernes"] },
+    { "id": "en2", "text": "Good morning everyone, thank you for joining the meeting today.", "keywordsEs": ["reunión", "hoy"] },
+    { "id": "en3", "text": "We need to review the quarterly budget.", "keywordsEs": ["presupuesto"] },
+    { "id": "en4", "text": "The customer wants a demonstration next week.", "keywordsEs": ["cliente", "semana"] },
+    { "id": "en5", "text": "I think we should postpone the launch until next month.", "keywordsEs": ["mes"] }
+  ]
+}
