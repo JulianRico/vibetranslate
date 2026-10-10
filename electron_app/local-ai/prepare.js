@@ -8,12 +8,12 @@ function createPrepare({ store, client, onProgress = () => {} }) {
   let epoch = 0; // cambia con cada parada: una preparación anterior a la parada no debe arrancar nada
 
   return {
-    async prepare({ vadThreshold = 0.5 } = {}) {
+    async prepare({ vadThreshold = 0.5, captureAudio = false } = {}) {
       const mine = epoch;
       try {
         if (!store.status().ready) await store.ensure(onProgress);
         if (mine !== epoch) return { ok: false, cancelled: true };
-        const ready = await client.start({ paths: store.paths(), vadThreshold });
+        const ready = await client.start({ paths: store.paths(), vadThreshold, captureAudio });
         return { ok: true, loadMs: ready.loadMs };
       } catch (err) {
         if (mine !== epoch) return { ok: false, cancelled: true };

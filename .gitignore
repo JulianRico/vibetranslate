@@ -11,6 +11,7 @@ Thumbs.db
 node_modules/
 electron_app/node_modules/
 electron_app/.models/
+electron_app/test-sessions/
 
 # Build Outputs
 dist/

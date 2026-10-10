@@ -252,6 +252,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   const incomingVoiceToggle = document.getElementById('incoming-voice-toggle');
   const conversationLogEl = document.getElementById('conversation-log');
   const conversationEmptyEl = document.getElementById('conversation-empty');
+  const labToggleBtn = document.getElementById('lab-toggle-btn');
+  const labToggleText = document.getElementById('lab-toggle-text');
+  const labSaveAudio = document.getElementById('lab-save-audio');
+  const labMuteVoice = document.getElementById('lab-mute-voice');
+  const labStatus = document.getElementById('lab-status');
+  const labNote = document.getElementById('lab-note');
+  const labFlagBtn = document.getElementById('lab-flag-btn');
+  const labOpenBtn = document.getElementById('lab-open-btn');
+  const labSummary = document.getElementById('lab-summary');
   const translationModeSelect = document.getElementById('translation-mode');
   const localAiStatus = document.getElementById('local-ai-status');
 
@@ -1363,6 +1372,100 @@ Generado automáticamente por ViBeTranslate Desktop
   const slowDetector = createSlowDetector();
   let pipelineSession = 0; // cambia en cada arranque y parada: lo que quedó de una sesión anterior se descarta
 
+  // ── Laboratorio de pruebas: sesión grabada con trazas ──────────────
+  let labActive = false;
+  let labDir = null;
+  let labPhrases = 0;
+  let cloudSegmentSeq = 0;
+
+  /** Envía un evento a la traza de la sesión de prueba (no hace nada si no hay sesión). */
+  function trace(type, data) {
+    if (labActive) ipcRenderer.send('TRACE_EVENT', { type, data });
+  }
+
+  function describeSummary(summary) {
+    const names = { mic: 'Tu micrófono', incoming: 'Reunión' };
+    const lines = [];
+    for (const [name, s] of Object.entries(summary.streams)) {
+      lines.push(`${names[name] || name}: ${s.phrases} frases, ${(s.audioMs / 1000).toFixed(1)} s de voz`);
+      lines.push(`  Transcripción: media ${s.stt.avg} ms (máx. ${s.stt.max} ms)`);
+      lines.push(`  Traducción: media ${s.translate.avg} ms (máx. ${s.translate.max} ms)`);
+      lines.push(`  Fin de voz ➔ subtítulo: media ${s.endToEnd.avg} ms (máx. ${s.endToEnd.max} ms)`);
+      if (s.untranslated > 0) lines.push(`  Sin traducir: ${s.untranslated}`);
+    }
+    if (lines.length === 0) lines.push('No se oyó ninguna frase.');
+    lines.push(`Errores: ${summary.errors} · Frases marcadas: ${summary.flags.length} · Audios guardados: ${summary.audioFiles}`);
+    return lines.join('\n');
+  }
+
+  async function startLabSession() {
+    const started = await ipcRenderer.invoke('TRACE_START', {
+      saveAudio: labSaveAudio ? labSaveAudio.checked : true,
+      meta: {
+        motorSTT: sttEngineSelect.value,
+        traduccion: translationModeSelect ? translationModeSelect.value : 'auto',
+        idiomaOrigen: sourceLangSelect.value,
+        idiomaDestino: targetLangSelect.value,
+        traducirReunion: translateIncomingToggle ? translateIncomingToggle.checked : false,
+        sensibilidad: noiseGateSelect.value,
+        microfono: micInputSelect.selectedOptions[0] ? micInputSelect.selectedOptions[0].textContent : 'predeterminado'
+      }
+    });
+    labActive = true;
+    labDir = started.dir;
+    labPhrases = 0;
+    labToggleText.textContent = '⏹ Terminar sesión y generar informe';
+    labToggleBtn.classList.add('recording');
+    labStatus.textContent = 'Grabando… activa la traducción y habla.';
+    labNote.disabled = false;
+    labFlagBtn.disabled = false;
+    labSummary.style.display = 'none';
+    appendLog('LAB', `🧪 Sesión de prueba iniciada: ${labDir}`, 'control');
+  }
+
+  async function stopLabSession() {
+    labActive = false;
+    const result = await ipcRenderer.invoke('TRACE_STOP');
+    labToggleText.textContent = '⏺ Iniciar sesión de prueba';
+    labToggleBtn.classList.remove('recording');
+    labNote.disabled = true;
+    labFlagBtn.disabled = true;
+    if (!result) {
+      labStatus.textContent = 'Sin sesión en curso.';
+      return;
+    }
+    labStatus.textContent = `Informe guardado en ${result.dir}`;
+    labSummary.textContent = describeSummary(result.summary);
+    labSummary.style.display = 'block';
+    appendLog('LAB', `🧪 Sesión de prueba terminada. Informe: ${result.dir}`, 'control');
+  }
+
+  if (labToggleBtn) {
+    labToggleBtn.addEventListener('click', async () => {
+      labToggleBtn.disabled = true;
+      try {
+        if (labActive) await stopLabSession(); else await startLabSession();
+      } catch (err) {
+        labStatus.textContent = `No se pudo cambiar la sesión de prueba: ${err.message}`;
+      } finally {
+        labToggleBtn.disabled = false;
+      }
+    });
+  }
+
+  if (labFlagBtn) {
+    labFlagBtn.addEventListener('click', async () => {
+      const flagged = await ipcRenderer.invoke('TRACE_FLAG', labNote.value.trim());
+      if (!flagged) return;
+      labStatus.textContent = flagged.text ? `🚩 Marcada: «${flagged.text}»` : '🚩 Nota guardada (aún no se había oído ninguna frase).';
+      labNote.value = '';
+    });
+  }
+
+  if (labOpenBtn) {
+    labOpenBtn.addEventListener('click', () => ipcRenderer.send('TRACE_OPEN', labDir));
+  }
+
   const MAX_CONVERSATION_ROWS = 200;
 
   /** Añade la frase al historial y la pinta al final de la lista, sin mover la vista si el usuario está releyendo arriba. */
@@ -1397,14 +1500,21 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   function speakOrSkip(speak, onDone) {
+    if (labActive && labMuteVoice && labMuteVoice.checked) {
+      trace('tts', { muted: true });
+      onDone(0);
+      return;
+    }
     const waiting = pendingSpeech();
     if (waiting >= MAX_TTS_BACKLOG) {
       appendLog('TTS', `⏭️ Voz omitida (${waiting} frases por sonar): se muestra solo el subtítulo.`, 'warn');
+      trace('tts', { skipped: true, waiting });
       onDone(0);
       return;
     }
     ttsQueue.push(async () => {
       const ttsRes = await speak();
+      trace('tts', { ms: (ttsRes && ttsRes.elapsedMs) || 0 });
       onDone((ttsRes && ttsRes.elapsedMs) || 0);
     });
   }
@@ -1416,6 +1526,29 @@ Generado automáticamente por ViBeTranslate Desktop
     getMode: () => (translationModeSelect ? translationModeSelect.value : 'auto')
   });
 
+  /** Traza de una frase ya traducida (o no): con motores en la nube también se registra la frase oída. */
+  function traceTranslation({ stream, lang, segmentId, text, sttElapsed, voiceDurationMs, speechStart, translation, transElapsed }) {
+    if (!labActive) return;
+    let id = segmentId;
+    if (id === null) {
+      id = `nube-${++cloudSegmentSeq}`;
+      trace('segment', { id, stream, lang, text, durationMs: voiceDurationMs, sttMs: sttElapsed });
+    }
+    const translated = (translation && translation.translated ? translation.translated.trim() : '');
+    trace('translation', {
+      segmentId: id,
+      stream,
+      engine: (translation && translation.engine) || 'nube',
+      translateMs: transElapsed,
+      endToEndMs: translated ? Math.max(0, Date.now() - (speechStart + voiceDurationMs)) : 0,
+      original: text,
+      translated,
+      error: (translation && translation.error) || null
+    });
+    labPhrases++;
+    if (labStatus) labStatus.textContent = `Grabando… ${labPhrases} frases · última: transcripción ${sttElapsed} ms, traducción ${transElapsed} ms`;
+  }
+
   async function deliverOutgoing({ recognizedText, sttElapsed, voiceDurationMs, userSpeechStart, segmentId = null, pair = null, silent = false }) {
     const transStart = Date.now();
     const translation = await translateText({
@@ -1426,6 +1559,10 @@ Generado automáticamente por ViBeTranslate Desktop
       pair
     });
     const transElapsed = (translation && translation.elapsedMs) || (Date.now() - transStart);
+    traceTranslation({
+      stream: 'mic', lang: (pair && pair.source) || sourceLangSelect.value.substring(0, 2), segmentId, text: recognizedText,
+      sttElapsed, voiceDurationMs, speechStart: userSpeechStart, translation, transElapsed
+    });
     if (!translation || !translation.translated || !translation.translated.trim()) {
       if (translation && translation.error) appendLog('TRANSLATE', `⚠️ Sin traducción para "${recognizedText}": ${translation.error}`, 'warn');
       return;
@@ -1472,6 +1609,10 @@ Generado automáticamente por ViBeTranslate Desktop
       pair: segmentId === null ? null : { source: 'en', target: 'es' }
     });
     const transElapsed = (translation && translation.elapsedMs) || (Date.now() - transStart);
+    traceTranslation({
+      stream: 'incoming', lang: 'en', segmentId, text,
+      sttElapsed, voiceDurationMs, speechStart: speechStartTime, translation, transElapsed
+    });
     if (!translation || !translation.translated || !translation.translated.trim()) {
       if (translation && translation.error) appendLog('RECEPTOR', `⚠️ Sin traducción para "${text}": ${translation.error}`, 'warn');
       return;

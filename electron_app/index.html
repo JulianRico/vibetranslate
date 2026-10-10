@@ -231,6 +231,52 @@
         </div>
       </section>
 
+      <!-- Panel: LABORATORIO DE PRUEBAS -->
+      <section class="card" id="lab-card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon">🧪</span> LABORATORIO DE PRUEBAS
+          </div>
+          <div class="card-header-actions">
+            <button type="button" class="btn-pill-action" id="lab-open-btn">
+              <span>📂 Abrir sesiones</span>
+            </button>
+          </div>
+        </div>
+
+        <p class="lab-help">
+          Graba una sesión para ver dónde mejorar: cada frase queda con su audio, lo que se entendió, la traducción y los tiempos.
+          Habla por tu micrófono y, para simular la reunión, reproduce un vídeo de YouTube en inglés (con «Traducción bidireccional» activada).
+        </p>
+
+        <div class="lab-options">
+          <label class="checkbox-card">
+            <input type="checkbox" id="lab-save-audio" checked>
+            <span class="checkbox-label">Guardar el audio de cada frase (solo Motor Local)</span>
+          </label>
+          <label class="checkbox-card">
+            <input type="checkbox" id="lab-mute-voice" checked>
+            <span class="checkbox-label">Sin voz sintetizada durante la prueba (solo texto)</span>
+          </label>
+        </div>
+
+        <div class="lab-actions">
+          <button type="button" class="btn-pill-action lab-main-btn" id="lab-toggle-btn">
+            <span id="lab-toggle-text">⏺ Iniciar sesión de prueba</span>
+          </button>
+          <span class="lab-status" id="lab-status">Sin sesión en curso.</span>
+        </div>
+
+        <div class="lab-flag-row">
+          <input type="text" id="lab-note" class="lab-note" placeholder="¿Qué falló en la última frase? (opcional)" disabled>
+          <button type="button" class="btn-pill-action" id="lab-flag-btn" disabled>
+            <span>🚩 Marcar la última frase</span>
+          </button>
+        </div>
+
+        <pre class="lab-summary" id="lab-summary" style="display: none;"></pre>
+      </section>
+
       <!-- Panel 4: REGISTRO DE EVENTOS Y DIAGNÓSTICO -->
       <section class="card">
         <div class="card-header">

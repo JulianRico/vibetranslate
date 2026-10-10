@@ -17,7 +17,7 @@ process.parentPort.on('message', (event) => {
     }
     if (msg.type === 'init') {
       const started = Date.now();
-      engine = createEngine({ sherpa, paths: msg.paths, vadThreshold: msg.vadThreshold, idBase: msg.idBase, post });
+      engine = createEngine({ sherpa, paths: msg.paths, vadThreshold: msg.vadThreshold, idBase: msg.idBase, captureAudio: msg.captureAudio, post });
       post({ type: 'ready', loadMs: Date.now() - started });
       return;
     }

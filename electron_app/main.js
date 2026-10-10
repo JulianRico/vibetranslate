@@ -16,6 +16,7 @@ const { FishAudioService } = require('./fish-audio-service');
 const { createModelStore } = require('./local-ai/model-store');
 const { createLocalAiClient } = require('./local-ai/client');
 const { createPrepare } = require('./local-ai/prepare');
+const { createTraceRecorder } = require('./local-ai/trace-recorder');
 
 // Inicializar logs en disco
 defaultLogger.clear();
@@ -55,11 +56,19 @@ const localAi = createLocalAiClient({
   workerPath: path.join(__dirname, 'local-ai', 'worker.js'),
   onEvent: (msg) => {
     if (msg.type === 'error') defaultLogger.warn('LOCAL-AI', msg.message);
+    // Sesión de prueba: se guarda el audio de la frase y la traza; el audio no se reenvía a la interfaz
+    const { type, samples, ...data } = msg;
+    if (type === 'segment' && samples) traceRecorder.saveAudio({ id: msg.id, stream: msg.stream, samples });
+    if (type === 'segment' || type === 'vad' || type === 'error') traceRecorder.record(type, data);
     if (controlWindow && !controlWindow.isDestroyed()) {
-      controlWindow.webContents.send('LOCAL_AI_EVENT', msg);
+      controlWindow.webContents.send('LOCAL_AI_EVENT', { type, ...data });
     }
   }
 });
+
+// ── Laboratorio de pruebas: sesiones grabadas con audio, textos y tiempos ──
+const traceSessionsDir = app.isPackaged ? path.join(userDataPath, 'test-sessions') : path.join(__dirname, 'test-sessions');
+const traceRecorder = createTraceRecorder({ baseDir: traceSessionsDir });
 
 const DEFAULT_SETTINGS = {
   geminiApiKey: '',
@@ -251,6 +260,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  traceRecorder.stop(); // una sesión de prueba abierta se cierra con su informe
   localAi.stop();
   defaultLogger.info('SYSTEM', 'Cerrando aplicación y liberando atajos de teclado...');
   globalShortcut.unregisterAll();
@@ -639,7 +649,7 @@ ipcMain.handle('LOCAL_AI_PREPARE', async (event, { vadThreshold = 0.5 } = {}) =>
   if (!pending.ready) {
     defaultLogger.info('LOCAL-AI', `Descargando modelos (${(pending.missingBytes / 1e6).toFixed(0)} MB)...`);
   }
-  const result = await localPrepare.prepare({ vadThreshold });
+  const result = await localPrepare.prepare({ vadThreshold, captureAudio: traceRecorder.savesAudio() });
   if (result.ok) defaultLogger.success('LOCAL-AI', `Motor local listo en ${result.loadMs}ms.`);
   else if (!result.cancelled) defaultLogger.error('LOCAL-AI', `No se pudo preparar el motor local: ${result.error}`);
   return result;
@@ -670,6 +680,46 @@ ipcMain.on('LOCAL_AI_CONFIG', (event, { stream, vadThreshold }) => {
 
 ipcMain.on('LOCAL_AI_STOP', () => {
   localPrepare.cancel();
+});
+
+// ── Handlers IPC para el Laboratorio de pruebas ─────────────────────
+ipcMain.handle('TRACE_START', async (event, { meta = {}, saveAudio = true } = {}) => {
+  const os = require('os');
+  const started = traceRecorder.start({
+    saveAudio,
+    meta: {
+      ...meta,
+      procesador: os.cpus()[0] ? os.cpus()[0].model : 'desconocido',
+      nucleos: os.cpus().length,
+      memoriaGB: (os.totalmem() / (1024 ** 3)).toFixed(1),
+      version: app.getVersion()
+    }
+  });
+  localAi.send({ type: 'capture', enabled: saveAudio });
+  defaultLogger.info('LAB', `Sesión de prueba iniciada: ${started.dir}`);
+  return started;
+});
+
+ipcMain.handle('TRACE_STOP', async () => {
+  localAi.send({ type: 'capture', enabled: false });
+  const result = traceRecorder.stop();
+  if (result) defaultLogger.info('LAB', `Sesión de prueba terminada: ${result.dir}`);
+  return result;
+});
+
+ipcMain.on('TRACE_EVENT', (event, { type, data } = {}) => {
+  if (typeof type === 'string') traceRecorder.record(type, data || {});
+});
+
+ipcMain.handle('TRACE_FLAG', async (event, note) => traceRecorder.flag(String(note || '').slice(0, 500)));
+
+ipcMain.on('TRACE_OPEN', (event, dir) => {
+  // Solo se abren carpetas de sesiones, no rutas arbitrarias
+  const resolved = path.resolve(String(dir || traceSessionsDir));
+  if (resolved === traceSessionsDir || resolved.startsWith(traceSessionsDir + path.sep)) {
+    fs.mkdirSync(traceSessionsDir, { recursive: true });
+    shell.openPath(resolved);
+  }
 });
 
 // ── Handlers IPC para Fish Audio AI (Clonación de Voz y TTS) ────────
@@ -795,6 +845,7 @@ ipcMain.on('OPEN_DEVTOOLS', () => {
 
 ipcMain.on('LOG_CLIENT_EVENT', (event, { category, message, type }) => {
   defaultLogger.log(category, message);
+  traceRecorder.record('log', { category, message });
 });
 
 ipcMain.on('OPEN_EXTERNAL_URL', (event, url) => {

@@ -30,7 +30,7 @@ function setup({ ready = true, ensureError = null, startError = null } = {}) {
 test('con los modelos presentes arranca el motor sin descargar', async () => {
   const t = setup();
   assert.deepEqual(await t.session.prepare({ vadThreshold: 0.6 }), { ok: true, loadMs: 1400 });
-  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.6 }]]);
+  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.6, captureAudio: false }]]);
 });
 
 test('si faltan modelos los descarga, informa el progreso y luego arranca', async () => {
@@ -69,4 +69,10 @@ test('un fallo de descarga o de arranque se devuelve como error, no como excepci
 
   const start = setup({ startError: new Error('modelo ilegible') });
   assert.deepEqual(await start.session.prepare(), { ok: false, error: 'modelo ilegible' });
+});
+
+test('si hay una sesión de prueba grabando audio, el motor arranca con la captura activada', async () => {
+  const t = setup();
+  await t.session.prepare({ vadThreshold: 0.5, captureAudio: true });
+  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.5, captureAudio: true }]]);
 });

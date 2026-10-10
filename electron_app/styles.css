@@ -2652,3 +2652,66 @@ body.pip-mode .stage-box {
 body.pip-mode .conversation-log {
   max-height: 120px;
 }
+
+/* ── Laboratorio de pruebas ───────────────────────────────────────── */
+.lab-help {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.lab-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.lab-actions,
+.lab-flag-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.lab-main-btn.recording {
+  background: var(--apple-red);
+  color: #fff;
+}
+
+.lab-status {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.lab-note {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  border-radius: var(--radius-md);
+}
+
+.lab-note:disabled {
+  opacity: 0.55;
+}
+
+.lab-summary {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+  background: var(--glass-card-bg);
+  border: 1px solid var(--glass-card-border);
+  border-radius: var(--radius-lg);
+}

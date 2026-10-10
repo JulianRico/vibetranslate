@@ -32,7 +32,8 @@
       "!*.md",
       "!test/**/*",
       "!scripts/**/*",
-      "!.models/**/*"
+      "!.models/**/*",
+      "!test-sessions/**/*"
     ],
     "asarUnpack": [
       "node_modules/sherpa-onnx-node/**",

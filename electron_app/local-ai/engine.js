@@ -10,11 +10,12 @@ const KEEP_SEGMENTS = 8; // audio que se conserva para poder traducir en local d
 const HAS_WORDS = /[\p{L}\p{N}]/u;
 const DEFAULT_THRESHOLD = 0.5;
 
-function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber }) {
+function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, captureAudio = false, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber }) {
   const transcriber = makeTranscriber({ sherpa, paths });
   const streams = new Map();
   const kept = new Map();
   let nextId = idBase;
+  let capture = captureAudio; // sesión de prueba: cada frase viaja con su audio para guardarlo
 
   const thresholds = { mic: vadThreshold }; // la sensibilidad que elige el usuario es la de su micrófono
 
@@ -39,7 +40,9 @@ function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, mak
       const id = nextId++;
       kept.set(id, { samples: segment.samples, lang });
       if (kept.size > KEEP_SEGMENTS) kept.delete(kept.keys().next().value);
-      post({ type: 'segment', id, stream, lang, text, durationMs: Math.round(segment.samples.length / 16), sttMs: ms });
+      const message = { type: 'segment', id, stream, lang, text, durationMs: Math.round(segment.samples.length / 16), sttMs: ms };
+      if (capture) message.samples = segment.samples;
+      post(message);
     }
   }
 
@@ -66,6 +69,8 @@ function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, mak
       } else if (msg.type === 'flush') {
         const names = msg.stream ? [msg.stream] : [...streams.keys()];
         for (const name of names) close(name);
+      } else if (msg.type === 'capture') {
+        capture = !!msg.enabled;
       } else if (msg.type === 'config') {
         close(msg.stream);
         thresholds[msg.stream] = msg.vadThreshold;

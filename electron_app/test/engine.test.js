@@ -171,3 +171,24 @@ test('config cambia la sensibilidad en plena sesión, cerrando antes la frase en
   t.audio('mic', 'es');
   assert.deepEqual(t.created.map((s) => s.threshold), [0.5, 0.35]);
 });
+
+test('con la captura activada cada frase lleva su audio, para guardarlo en la sesión de prueba', () => {
+  const posted = [];
+  const make = (captureAudio) => createEngine({
+    sherpa: {}, paths: {}, post: (m) => posted.push(m), captureAudio,
+    makeSegmenter: () => ({ push: () => [seg(900)], flush: () => [], isSpeaking: () => false }),
+    makeTranscriber: () => ({ transcribe: () => ({ text: 'Hola.', ms: 1 }), translate: () => ({ text: 'Hi.', ms: 1 }) })
+  });
+  const audio = { type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(2048) };
+
+  make(true).handle(audio);
+  assert.equal(posted[0].samples.length, 900 * 16);
+
+  const off = make(false);
+  off.handle(audio);
+  assert.equal(posted[1].samples, undefined, 'sin sesión de prueba el audio no viaja entre procesos');
+
+  off.handle({ type: 'capture', enabled: true }); // se puede activar con el motor en marcha
+  off.handle(audio);
+  assert.equal(posted[2].samples.length, 900 * 16);
+});
