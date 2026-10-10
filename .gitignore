@@ -10,6 +10,7 @@ Thumbs.db
 # Dependencies
 node_modules/
 electron_app/node_modules/
+electron_app/.models/
 
 # Build Outputs
 dist/
