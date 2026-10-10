@@ -5,9 +5,21 @@
 const fs = require('fs');
 const path = require('path');
 
+/**
+ * Empaquetada, la app vive dentro de app.asar (solo lectura): los registros van a la carpeta de datos del usuario.
+ */
+function resolveLogsDir(baseDir = __dirname, getUserDataDir = () => require('electron').app.getPath('userData')) {
+  if (!baseDir.includes('app.asar')) return path.join(baseDir, 'logs');
+  try {
+    return path.join(getUserDataDir(), 'logs');
+  } catch {
+    return path.join(require('os').tmpdir(), 'vibetranslate-logs');
+  }
+}
+
 class DesktopLogger {
   constructor(logFileName = 'desktop_app.log') {
-    this.logsDir = path.join(__dirname, 'logs');
+    this.logsDir = resolveLogsDir();
     if (!fs.existsSync(this.logsDir)) {
       fs.mkdirSync(this.logsDir, { recursive: true });
     }
@@ -57,5 +69,5 @@ class DesktopLogger {
 const defaultLogger = new DesktopLogger();
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { defaultLogger, DesktopLogger };
+  module.exports = { defaultLogger, DesktopLogger, resolveLogsDir };
 }

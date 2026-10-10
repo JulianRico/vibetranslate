@@ -34,6 +34,13 @@
       "!scripts/**/*",
       "!.models/**/*"
     ],
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-node/**",
+      "node_modules/sherpa-onnx-win-x64/**",
+      "node_modules/sherpa-onnx-darwin-x64/**",
+      "node_modules/sherpa-onnx-darwin-arm64/**",
+      "local-ai/**"
+    ],
     "win": {
       "target": [
         {
