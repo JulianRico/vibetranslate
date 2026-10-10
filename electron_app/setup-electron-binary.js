@@ -4,8 +4,10 @@ const path = require('path');
 const fs = require('fs');
 
 async function main() {
-  console.log('[Electron Downloader] Obteniendo la ruta del zip de Electron v31.7.7...');
-  const zipPath = await download('31.7.7', {
+  // La versión es la que npm instaló según package.json, no una fija
+  const version = require('./node_modules/electron/package.json').version;
+  console.log(`[Electron Downloader] Obteniendo la ruta del zip de Electron v${version}...`);
+  const zipPath = await download(version, {
     platform: 'win32',
     arch: 'x64'
   });

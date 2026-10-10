@@ -8,6 +8,7 @@ const GeminiLiveClient = require('./gemini-live-client');
 const { floatTo16BitPCM, arrayBufferToBase64, base64ToArrayBuffer, encodeWAV, isWhisperHallucination } = require('./audio-utils');
 const { createOutputQueue } = require('./output-queue');
 const { createConversationLog } = require('./conversation-log');
+const { createLevelCompensator } = require('./level-compensator');
 const { resolvePair } = require('./local-ai/languages');
 const { thresholdFromNoiseGate } = require('./local-ai/segmenter');
 const { createTranslateRouter } = require('./local-ai/translate-route');
@@ -250,6 +251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const noiseGateSelect = document.getElementById('noise-gate-select');
   const localAiGroup = document.getElementById('local-ai-group');
   const incomingVoiceToggle = document.getElementById('incoming-voice-toggle');
+  const duckLevelSelect = document.getElementById('duck-level');
   const conversationLogEl = document.getElementById('conversation-log');
   const conversationEmptyEl = document.getElementById('conversation-empty');
   const labToggleBtn = document.getElementById('lab-toggle-btn');
@@ -575,6 +577,8 @@ Generado automáticamente por ViBeTranslate Desktop
   let incomingMediaStream = null;
   let incomingAudioContext = null;
   let incomingScriptProcessor = null;
+  let incomingExcludesOwnAudio = false; // la captura de la reunión no incluye el sonido de esta app
+  let incomingLevel = createLevelCompensator({ maxGain: 1 }); // compensa la atenuación: la captura recibe a los demás programas ya bajados
 
   function populateSpanishVoices() {
     if (!spanishVoiceSelect || !window.speechSynthesis) return;
@@ -649,7 +653,7 @@ Generado automáticamente por ViBeTranslate Desktop
     }, delayMs);
   }
 
-  async function speakSpanishToUser(text) {
+  async function speakSpanishToUser(text, { inProcessOnly = false } = {}) {
     if (!text || !text.trim()) return { success: false, elapsedMs: 0 };
 
     const startTtsTime = Date.now();
@@ -659,12 +663,27 @@ Generado automáticamente por ViBeTranslate Desktop
     appendLog('TTS', `🔊 Voz en español: "${text}" (${Math.round(vol * 100)}%)`, 'audio');
 
     // Intentar primero con Google TTS natural (MP3 de alta fidelidad)
-    if (selectedVoice === 'google_tts' || selectedVoice === 'auto') {
+    // inProcessOnly: la voz debe sonar desde esta app (un elemento de audio). La voz del sistema (Web Speech)
+    // la reproduce Windows por su cuenta y entraría en la captura de la reunión, creando un bucle.
+    if (selectedVoice === 'google_tts' || selectedVoice === 'auto' || inProcessOnly) {
       try {
         const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text.trim())}&tl=es&client=tw-ob`;
         const audio = new Audio(url);
         audio.volume = vol;
+        audio.playbackRate = 1.15; // algo más rápido que el habla normal, para no quedarse atrás
         markAppSpeakingStart();
+        if (inProcessOnly) {
+          // Se espera a que termine de sonar: así las frases no se pisan y se sabe cuánta voz hay pendiente
+          const finished = new Promise((resolve) => {
+            const limit = setTimeout(() => resolve(false), 20000);
+            audio.onended = () => { clearTimeout(limit); resolve(true); };
+            audio.onerror = () => { clearTimeout(limit); resolve(false); };
+          });
+          await audio.play();
+          const played = await finished;
+          markAppSpeakingEnd(played ? 450 : 0);
+          return { success: played, elapsedMs: Date.now() - startTtsTime };
+        }
         audio.onended = () => markAppSpeakingEnd(450);
         audio.onerror = () => {
           fallbackWebSpeech(text, vol, selectedVoice);
@@ -674,7 +693,13 @@ Generado automáticamente por ViBeTranslate Desktop
         return { success: true, elapsedMs: elapsed };
       } catch (e) {
         console.warn('[TTS Google] Intentando fallback Web Speech:', e);
+        if (inProcessOnly) markAppSpeakingEnd(0);
       }
+    }
+
+    if (inProcessOnly) {
+      appendLog('TTS', '⚠️ No se pudo obtener la voz en línea: esta frase queda solo como subtítulo.', 'warn');
+      return { success: false, elapsedMs: Date.now() - startTtsTime };
     }
 
     fallbackWebSpeech(text, vol, selectedVoice);
@@ -946,9 +971,17 @@ Generado automáticamente por ViBeTranslate Desktop
   if (incomingVoiceToggle) {
     incomingVoiceToggle.addEventListener('change', () => {
       appendLog('CONTROL', incomingVoiceToggle.checked
-        ? 'La traducción de la reunión se leerá en voz alta (la app deja de escuchar mientras habla).'
-        : 'La reunión se muestra solo con subtítulos: escucha continua, sin pausas.');
+        ? 'La traducción de la reunión se leerá en voz alta, con el original atenuado.'
+        : 'La reunión se muestra solo con subtítulos.');
       saveCurrentSettings();
+      updateDucking();
+    });
+  }
+
+  if (duckLevelSelect) {
+    duckLevelSelect.addEventListener('change', () => {
+      saveCurrentSettings();
+      updateDucking();
     });
   }
 
@@ -1108,6 +1141,7 @@ Generado automáticamente por ViBeTranslate Desktop
     sttEngineSelect.value = s.sttEngine || 'gemini_35_transcribe';
     if (translationModeSelect) translationModeSelect.value = s.translationMode || 'auto';
     if (incomingVoiceToggle) incomingVoiceToggle.checked = !!s.incomingVoice;
+    if (duckLevelSelect) duckLevelSelect.value = String(s.duckLevel || 0.05);
     geminiKeyInput.value = s.geminiApiKey || '';
     geminiVoiceSelect.value = s.geminiVoice || 'Puck';
     groqKeyInput.value = s.groqApiKey || '';
@@ -1163,6 +1197,7 @@ Generado automáticamente por ViBeTranslate Desktop
       sttEngine: sttEngineSelect.value,
       translationMode: translationModeSelect ? translationModeSelect.value : 'auto',
       incomingVoice: incomingVoiceToggle ? incomingVoiceToggle.checked : false,
+      duckLevel: duckLevelSelect ? parseFloat(duckLevelSelect.value) || 0.05 : 0.05,
       ttsEngine: ttsEngineSelect ? ttsEngineSelect.value : 'fish_audio',
       geminiApiKey: geminiKeyInput.value.trim(),
       geminiVoice: geminiVoiceSelect.value,
@@ -1342,6 +1377,7 @@ Generado automáticamente por ViBeTranslate Desktop
       audioContext = null;
     }
     stopIncomingCapture();
+    updateDucking();
     if (geminiLiveClient) {
       geminiLiveClient.disconnect();
       geminiLiveClient = null;
@@ -1517,8 +1553,8 @@ Generado automáticamente por ViBeTranslate Desktop
     return ttsQueue.size() + cable;
   }
 
-  function speakOrSkip(speak, onDone) {
-    if (labActive && labMuteVoice && labMuteVoice.checked) {
+  function speakOrSkip(speak, onDone, { meeting = false } = {}) {
+    if (!meeting && labActive && labMuteVoice && labMuteVoice.checked) {
       trace('tts', { muted: true });
       onDone(0);
       return;
@@ -1674,13 +1710,18 @@ Generado automáticamente por ViBeTranslate Desktop
 
     // Por defecto la reunión va solo con subtítulos: sin voz no hay pausas al escuchar ni frases perdidas
     if (silent || !(incomingVoiceToggle && incomingVoiceToggle.checked)) return;
-    speakOrSkip(
-      () => speakSpanishToUser(translatedText),
+    const speak = () => speakOrSkip(
+      () => speakSpanishToUser(translatedText, { inProcessOnly: incomingExcludesOwnAudio }),
       (ttsElapsed) => {
         const totalChainMs = Date.now() - speechStartTime;
         appendLog('LATENCIA', `⏱️ Total Receptor: ${(totalChainMs / 1000).toFixed(2)}s ➔ [Voz: ${voiceDurationMs}ms] [STT: ${sttElapsed}ms] [Trad: ${transElapsed}ms] [TTS: ${ttsElapsed}ms]`, 'control');
-      }
+      },
+      { meeting: true }
     );
+    // Con traducción directa aún no se sabe qué se oyó: la voz espera a confirmarlo (un ruido no se lee en voz alta)
+    const awaitingText = segmentId !== null ? pendingOriginals.get(segmentId) : null;
+    if (awaitingText) awaitingText.speak = speak;
+    else speak();
   }
 
   ipcRenderer.on('LOCAL_AI_EVENT', (event, msg) => {
@@ -1710,7 +1751,15 @@ Generado automáticamente por ViBeTranslate Desktop
       if (msg.text) appendLog(label, `Oído (Motor local) en ${msg.sttMs}ms: "${msg.text}"`, 'audio');
       if (!pending) return;
       pendingOriginals.delete(msg.id);
-      if (!msg.text) return;
+      const heardWords = /[\p{L}\p{N}]{2,}/u.test(msg.text || '');
+      if (pending.speak) {
+        if (heardWords) pending.speak();
+        else appendLog('TTS', '⏭️ Voz omitida: no se oyó una frase clara.', 'warn');
+      }
+      if (!heardWords) {
+        pending.originalEl.textContent = '(sonido sin palabras claras)';
+        return;
+      }
       conversationLog.setOriginal(pending.n, msg.text);
       pending.originalEl.textContent = msg.text;
       ipcRenderer.send('DISPLAY_SUBTITLE', {
@@ -1773,6 +1822,7 @@ Generado automáticamente por ViBeTranslate Desktop
   });
 
   function stopIncomingCapture() {
+    incomingExcludesOwnAudio = false;
     if (incomingMediaStream) {
       incomingMediaStream.getTracks().forEach(t => t.stop());
       incomingMediaStream = null;
@@ -1781,6 +1831,34 @@ Generado automáticamente por ViBeTranslate Desktop
       try { incomingAudioContext.close(); } catch (e) { }
       incomingAudioContext = null;
     }
+  }
+
+  /**
+   * Mientras se lee la traducción en voz alta, los demás programas (la reunión, el vídeo) suenan bajito.
+   * Solo si la captura excluye el sonido de esta app: si no, la voz traducida se colaría en lo que se transcribe.
+   */
+  let duckingRequest = 0;
+  async function updateDucking() {
+    const request = ++duckingRequest;
+    const level = duckLevelSelect ? parseFloat(duckLevelSelect.value) : 0.05;
+    const wanted = isPipelineRunning && isIncomingListening() && incomingExcludesOwnAudio
+      && incomingVoiceToggle && incomingVoiceToggle.checked && level > 0 && level < 1;
+    if (!wanted) {
+      incomingLevel = createLevelCompensator({ maxGain: 1 });
+      try { await ipcRenderer.invoke('AUDIO_UNDUCK'); } catch (e) { /* proceso principal sin este canal */ }
+      return;
+    }
+    let result = { active: false, level: 1 };
+    try {
+      result = await ipcRenderer.invoke('AUDIO_DUCK', { level });
+    } catch (e) {
+      console.warn('[Ducking] No disponible:', e);
+    }
+    if (request !== duckingRequest) return; // llegó otra orden mientras tanto
+    incomingLevel = createLevelCompensator({ maxGain: result.active ? 1 / result.level : 1 });
+    appendLog('AUDIO', result.active
+      ? `🔉 El audio original suena al ${Math.round(result.level * 100)} % mientras se lee la traducción.`
+      : '⚠️ No se pudo bajar el volumen del audio original (solo disponible en Windows).', result.active ? 'audio' : 'warn');
   }
 
   /** Arranca la escucha de la reunión con el motor que esté en uso (lo mismo que hace el arranque general). */
@@ -1809,6 +1887,7 @@ Generado automáticamente por ViBeTranslate Desktop
         if (!isIncomingListening()) await startIncomingForCurrentEngine();
       } else {
         stopIncomingCapture();
+        updateDucking();
         ipcRenderer.send('LOCAL_AI_FLUSH', { stream: 'incoming' });
         appendLog('AUDIO', 'Traducción del receptor DETENIDA: ya no se escucha el audio de la reunión.', 'audio');
       }
@@ -1839,20 +1918,43 @@ Generado automáticamente por ViBeTranslate Desktop
         appendLog('AUDIO', 'No se detectó fuente de audio de pantalla/escritorio.', 'warn');
         return;
       }
-      incomingMediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId
-          }
-        },
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId
-          }
+      // Preferido: el audio del equipo SIN el sonido de esta app, para poder leer la traducción en voz alta
+      // sin que la app se oiga a sí misma. Si esta versión de Electron no lo admite, se usa la captura completa.
+      incomingMediaStream = null;
+      incomingExcludesOwnAudio = false;
+      try {
+        const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: { restrictOwnAudio: true } });
+        const audioTrack = display.getAudioTracks()[0];
+        if (audioTrack && audioTrack.getSettings().restrictOwnAudio === true) {
+          display.getVideoTracks().forEach(t => t.stop()); // solo interesa el audio
+          incomingMediaStream = display;
+          incomingExcludesOwnAudio = true;
+        } else {
+          display.getTracks().forEach(t => t.stop());
         }
-      });
+      } catch (e) {
+        console.warn('[Incoming] Captura sin audio propio no disponible:', e);
+      }
+
+      if (!incomingMediaStream) {
+        incomingMediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
+          },
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId
+            }
+          }
+        });
+      }
+      appendLog('AUDIO', incomingExcludesOwnAudio
+        ? 'Captura de la reunión sin el sonido de esta app: la traducción puede leerse en voz alta sin pausas.'
+        : 'Captura de la reunión con todo el audio del equipo (incluye el de esta app).', 'audio');
 
       // Mantener activo el stream completo para que Chromium no desactive el loopback de audio del sistema
 
@@ -1873,11 +1975,12 @@ Generado automáticamente por ViBeTranslate Desktop
       incomingScriptProcessor.onaudioprocess = async (e) => {
         if (!isPipelineRunning) return;
 
-        const inputData = e.inputBuffer.getChannelData(0);
+        // Los demás programas están atenuados y así llegan a la captura: se devuelve su nivel antes de transcribir
+        const inputData = incomingLevel.process(e.inputBuffer.getChannelData(0));
 
         if (engineType === 'local') {
-          // La voz en español que reproduce la app entra por el audio del sistema: oírla crearía un bucle
-          if (isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 450)) {
+          // Si la captura incluye el sonido de esta app, la voz en español entraría y crearía un bucle: se pausa
+          if (!incomingExcludesOwnAudio && (isAppSpeaking || (Date.now() - lastAppSpeakingEndTime < 450))) {
             if (!incomingEchoBlocked) {
               incomingEchoBlocked = true;
               ipcRenderer.send('LOCAL_AI_FLUSH', { stream: 'incoming' });
@@ -2009,6 +2112,7 @@ Generado automáticamente por ViBeTranslate Desktop
       incomingSource.connect(incomingScriptProcessor);
       appendLog('AUDIO', 'Traducción bidireccional del receptor (Inglés ➔ Español) ACTIVADA 🎧', 'audio');
       refreshLabInputs();
+      updateDucking();
 
     } catch (err) {
       appendLog('AUDIO', `Aviso de captura de audio del receptor: ${err.message}`, 'warn');

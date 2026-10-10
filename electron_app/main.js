@@ -17,6 +17,7 @@ const { createModelStore } = require('./local-ai/model-store');
 const { createLocalAiClient } = require('./local-ai/client');
 const { createPrepare } = require('./local-ai/prepare');
 const { createTraceRecorder } = require('./local-ai/trace-recorder');
+const { createAudioDucker } = require('./audio-ducker');
 
 // Inicializar logs en disco
 defaultLogger.clear();
@@ -100,6 +101,7 @@ const DEFAULT_SETTINGS = {
   showOverlay: true,
   translateIncoming: true,
   incomingVoice: false,
+  duckLevel: 0.05,
   autoStartListening: false
 };
 
@@ -264,6 +266,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   traceRecorder.stop(); // una sesión de prueba abierta se cierra con su informe
+  audioDucker.dispose(); // devuelve su volumen a los demás programas
   localAi.stop();
   defaultLogger.info('SYSTEM', 'Cerrando aplicación y liberando atajos de teclado...');
   globalShortcut.unregisterAll();
@@ -683,6 +686,31 @@ ipcMain.on('LOCAL_AI_CONFIG', (event, { stream, vadThreshold }) => {
 
 ipcMain.on('LOCAL_AI_STOP', () => {
   localPrepare.cancel();
+});
+
+// ── Atenuación del audio original mientras se lee la traducción ─────
+const audioDucker = createAudioDucker({
+  spawn: require('child_process').spawn,
+  // PowerShell no puede ejecutar un guion desde dentro del asar
+  scriptPath: path.join(__dirname, 'audio-ducker.ps1').replace('app.asar', 'app.asar.unpacked'),
+  keepProcessName: path.basename(process.execPath, '.exe')
+});
+
+// Un cierre a la fuerza anterior pudo dejar a los demás programas atenuados: se restauran al arrancar
+audioDucker.recover(fs.existsSync(path.join(require('os').tmpdir(), 'vibetranslate-ducker-state.txt')))
+  .then((recovered) => { if (recovered) defaultLogger.info('AUDIO', 'Se restauró el volumen de los programas que quedaron atenuados.'); });
+
+ipcMain.handle('AUDIO_DUCK', async (event, { level } = {}) => {
+  const result = await audioDucker.duck(Number(level));
+  defaultLogger.info('AUDIO', result.active
+    ? `Los demás programas suenan al ${Math.round(result.level * 100)} % mientras se lee la traducción.`
+    : 'No se pudo atenuar el audio de los demás programas.');
+  return result;
+});
+
+ipcMain.handle('AUDIO_UNDUCK', async () => {
+  await audioDucker.restore();
+  return true;
 });
 
 // ── Handlers IPC para el Laboratorio de pruebas ─────────────────────

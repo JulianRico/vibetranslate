@@ -19,6 +19,17 @@ app.on('web-contents-created', (event, contents) => {
 
 require(path.join(__dirname, '..', '..', 'main.js'));
 
+// La prueba pide el cierre creando un archivo: así la app se despide bien (p. ej. restaura volúmenes)
+if (process.env.VIBE_E2E_QUIT_FILE) {
+  const fs = require('fs');
+  const watcher = setInterval(() => {
+    if (fs.existsSync(process.env.VIBE_E2E_QUIT_FILE)) {
+      clearInterval(watcher);
+      app.quit();
+    }
+  }, 250);
+}
+
 // La interfaz registra el interruptor al final de una inicialización asíncrona (dispositivos, voces de Fish Audio),
 // así que un clic temprano se pierde: se reintenta hasta que la app confirma la activación.
 let activated = false;

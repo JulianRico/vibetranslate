@@ -293,3 +293,33 @@ test('sin pedirlo no hay texto provisional, y al cerrar una frase la cuenta vuel
   t.audio({ target: 'es', partial: true }); // provisional de la siguiente, sin esperar a "1,5 s más que antes"
   assert.equal(t.posted.filter((m) => m.type === 'partial').length, 2);
 });
+
+test('una traducción directa que es claramente un invento del modelo no se publica como subtítulo', () => {
+  for (const junk of ['(en inglés)', '- No.', '10000000000000000000000000', '(apa)', '(Música)']) {
+    const t = advanced({ segments: [[start(2000)]], translations: [junk] });
+    t.audio({ target: 'es' });
+    const out = t.posted.filter((m) => m.type === 'segment');
+    assert.equal(out.length, 1);
+    assert.equal(out[0].translated, undefined, `"${junk}" no debe mostrarse`);
+    assert.equal(out[0].text, 'oído en en'); // queda lo que se oyó, para que la interfaz decida
+  }
+});
+
+test('una traducción corta legítima sí se publica', () => {
+  for (const fine of ['No.', 'No, gracias.', 'Son 15.', 'Sí (creo).']) {
+    const t = advanced({ segments: [[start(2000)]], translations: [fine] });
+    t.audio({ target: 'es' });
+    assert.equal(t.posted.filter((m) => m.type === 'segment')[0].translated, fine);
+  }
+});
+
+test('pedir la traducción de una frase cuyo resultado es un invento devuelve error, no el invento', () => {
+  const t = advanced({ segments: [[start(2000)]], translations: ['(en inglés)'] });
+  t.audio(); // sin destino: se transcribe y la interfaz pide la traducción después
+  const id = t.posted.find((m) => m.type === 'segment').id;
+  t.engine.handle({ type: 'translate', id, target: 'es' });
+  const answer = t.posted[t.posted.length - 1];
+  assert.equal(answer.type, 'translation');
+  assert.match(answer.error, /no fiable/);
+  assert.equal(answer.text, undefined);
+});

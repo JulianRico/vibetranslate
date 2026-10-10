@@ -14,6 +14,15 @@ const PARTIAL_MIN_SAMPLES = 24000; // texto provisional a partir de 1,5 s de fra
 const PARTIAL_STEP_SAMPLES = 24000; // y luego cada 1,5 s de audio nuevo
 const PARTIAL_MAX_LAG_MS = 600; // si el motor va con más retraso que esto, no hay tiempo para provisionales
 
+/**
+ * Salidas típicas del modelo cuando no entiende el audio (música, ruido, voces lejanas): una acotación
+ * entre paréntesis, un guion de diálogo con una sola palabra o una ristra de dígitos. Vistas en sesiones reales.
+ */
+function isInventedTranslation(text) {
+  const t = text.trim();
+  return /^\(.*\)$/.test(t) || /^[-–—]\s*\S+$/.test(t) || /^\d{8,}$/.test(t.replace(/\s/g, ''));
+}
+
 function createEngine({
   sherpa, paths, post, vadThreshold = 0.5, idBase = 1, captureAudio = false, now = Date.now,
   makeSegmenter = createSegmenter, makeTranscriber = createTranscriber, makeEchoDetector = createEchoDetector
@@ -78,7 +87,7 @@ function createEngine({
       // Traducción directa desde el audio: el subtítulo sale sin esperar a la transcripción
       if (state.target && state.target !== lang) {
         const direct = transcriber.translate(segment.samples, lang, state.target);
-        if (direct.text && HAS_WORDS.test(direct.text)) {
+        if (direct.text && HAS_WORDS.test(direct.text) && !isInventedTranslation(direct.text)) {
           const id = remember();
           post(withAudio({ type: 'segment', id, stream: name, lang, target: state.target, text: '', durationMs, sttMs: 0, translated: direct.text, translateMs: direct.ms }));
           const heard = transcriber.transcribe(segment.samples, lang);
@@ -150,6 +159,10 @@ function createEngine({
           return;
         }
         const { text, ms } = transcriber.translate(segment.samples, segment.lang, msg.target);
+        if (!text || !HAS_WORDS.test(text) || isInventedTranslation(text)) {
+          post({ type: 'translation', id: msg.id, error: 'Traducción no fiable para esta frase' });
+          return;
+        }
         post({ type: 'translation', id: msg.id, text, ms });
       } else if (msg.type === 'reset') {
         streams.clear();

@@ -39,7 +39,8 @@
       "node_modules/sherpa-onnx-node/**",
       "node_modules/sherpa-onnx-win-x64/**",
       "node_modules/sherpa-onnx-darwin-x64/**",
-      "node_modules/sherpa-onnx-darwin-arm64/**"
+      "node_modules/sherpa-onnx-darwin-arm64/**",
+      "audio-ducker.ps1"
     ],
     "win": {
       "target": [
@@ -116,7 +117,7 @@
   "license": "MIT",
   "devDependencies": {
     "@electron/get": "^5.1.0",
-    "electron": "^31.7.7",
+    "electron": "44.7.0",
     "electron-builder": "^26.15.3",
     "extract-zip": "^2.0.1",
     "nodemon": "^3.1.14"

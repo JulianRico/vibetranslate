@@ -160,8 +160,18 @@
 
           <label class="checkbox-card">
             <input type="checkbox" id="incoming-voice-toggle">
-            <span class="checkbox-label">Leer en voz alta la traducción de la reunión (desmarcado: solo subtítulos, sin pausas al escuchar)</span>
+            <span class="checkbox-label">Leer en voz alta la traducción de la reunión, bajando el volumen del original</span>
           </label>
+
+          <div class="form-group" id="duck-level-group">
+            <label for="duck-level">Volumen del audio original mientras suena la traducción</label>
+            <select id="duck-level">
+              <option value="0.05" selected>5 % (se nota que hablan, se entiende la traducción)</option>
+              <option value="0.1">10 %</option>
+              <option value="0.2">20 %</option>
+              <option value="1">100 % (sin bajar)</option>
+            </select>
+          </div>
 
           <label class="checkbox-card">
             <input type="checkbox" id="three-toggle" checked>
@@ -256,7 +266,7 @@
           </label>
           <label class="checkbox-card">
             <input type="checkbox" id="lab-mute-voice" checked>
-            <span class="checkbox-label">Sin voz sintetizada durante la prueba (solo texto)</span>
+            <span class="checkbox-label">Sin voz sintetizada para tu micrófono durante la prueba (la voz de la reunión no se ve afectada)</span>
           </label>
         </div>
 
