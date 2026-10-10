@@ -1324,6 +1324,7 @@ Generado automáticamente por ViBeTranslate Desktop
     pendingOriginals.clear();
     ipcRenderer.send('LOCAL_AI_STOP');
     appendLog('PIPELINE', 'Pipeline de voz detenido.');
+    refreshLabInputs();
 
     if (vadBadge) {
       vadBadge.className = 'vad-badge';
@@ -1340,14 +1341,7 @@ Generado automáticamente por ViBeTranslate Desktop
       try { audioContext.close(); } catch (e) { }
       audioContext = null;
     }
-    if (incomingMediaStream) {
-      incomingMediaStream.getTracks().forEach(t => t.stop());
-      incomingMediaStream = null;
-    }
-    if (incomingAudioContext) {
-      try { incomingAudioContext.close(); } catch (e) { }
-      incomingAudioContext = null;
-    }
+    stopIncomingCapture();
     if (geminiLiveClient) {
       geminiLiveClient.disconnect();
       geminiLiveClient = null;
@@ -1378,6 +1372,19 @@ Generado automáticamente por ViBeTranslate Desktop
   let labDir = null;
   let labPhrases = 0;
   let cloudSegmentSeq = 0;
+
+  /** Línea de estado del laboratorio: qué entradas se están grabando de verdad. */
+  function refreshLabInputs() {
+    if (!labActive || !labStatus) return;
+    if (!isPipelineRunning) {
+      labStatus.textContent = 'Grabando… falta activar la traducción con el interruptor de arriba.';
+      return;
+    }
+    const meeting = isIncomingListening()
+      ? 'reunión (audio del equipo) ✓'
+      : '⚠️ la reunión NO se está escuchando: marca «Traducción bidireccional»';
+    labStatus.textContent = `Grabando… micrófono ✓ · ${meeting}`;
+  }
 
   /** Envía un evento a la traza de la sesión de prueba (no hace nada si no hay sesión). */
   function trace(type, data) {
@@ -1418,7 +1425,7 @@ Generado automáticamente por ViBeTranslate Desktop
     labPhrases = 0;
     labToggleText.textContent = '⏹ Terminar sesión y generar informe';
     labToggleBtn.classList.add('recording');
-    labStatus.textContent = 'Grabando… activa la traducción y habla.';
+    refreshLabInputs();
     labNote.disabled = false;
     labFlagBtn.disabled = false;
     labSummary.style.display = 'none';
@@ -1557,7 +1564,10 @@ Generado automáticamente por ViBeTranslate Desktop
       error: (translation && translation.error) || null
     });
     labPhrases++;
-    if (labStatus) labStatus.textContent = `Grabando… ${labPhrases} frases · última: transcripción ${sttElapsed} ms, traducción ${transElapsed} ms`;
+    if (labStatus) {
+      const warning = isIncomingListening() ? '' : ' · ⚠️ la reunión NO se está escuchando';
+      labStatus.textContent = `Grabando… ${labPhrases} frases · última traducción ${transElapsed} ms${warning}`;
+    }
   }
 
   async function deliverOutgoing({ recognizedText, sttElapsed, voiceDurationMs, userSpeechStart, segmentId = null, pair = null, silent = false, preTranslated = null }) {
@@ -1762,10 +1772,56 @@ Generado automáticamente por ViBeTranslate Desktop
     }
   });
 
+  function stopIncomingCapture() {
+    if (incomingMediaStream) {
+      incomingMediaStream.getTracks().forEach(t => t.stop());
+      incomingMediaStream = null;
+    }
+    if (incomingAudioContext) {
+      try { incomingAudioContext.close(); } catch (e) { }
+      incomingAudioContext = null;
+    }
+  }
+
+  /** Arranca la escucha de la reunión con el motor que esté en uso (lo mismo que hace el arranque general). */
+  async function startIncomingForCurrentEngine() {
+    const engine = sttEngineSelect.value;
+    const groqKey = groqKeyInput.value.trim();
+    if (engine === 'local') {
+      await startIncomingAudioPipeline(null, 'local');
+    } else if (groqKey && groqKey.length > 5) {
+      await startIncomingAudioPipeline(groqKey);
+    } else {
+      appendLog('AUDIO', '⚠️ Para traducir la reunión con este motor hace falta la clave de Groq.', 'warn');
+    }
+  }
+
+  /** ¿Se está escuchando el audio de la reunión ahora mismo? */
+  function isIncomingListening() {
+    return !!incomingMediaStream;
+  }
+
+  // La casilla surte efecto al momento: antes solo se leía al activar la traducción
+  if (translateIncomingToggle) {
+    translateIncomingToggle.addEventListener('change', async () => {
+      if (!isPipelineRunning) return;
+      if (translateIncomingToggle.checked) {
+        if (!isIncomingListening()) await startIncomingForCurrentEngine();
+      } else {
+        stopIncomingCapture();
+        ipcRenderer.send('LOCAL_AI_FLUSH', { stream: 'incoming' });
+        appendLog('AUDIO', 'Traducción del receptor DETENIDA: ya no se escucha el audio de la reunión.', 'audio');
+      }
+      refreshLabInputs();
+    });
+  }
+
   // ── Pipeline para Traducir la Voz del Receptor (Reunión ➔ Español) ──
   async function startIncomingAudioPipeline(apiKey, engineType = 'groq') {
     if (!translateIncomingToggle || !translateIncomingToggle.checked) {
       appendLog('AUDIO', 'Traducción del receptor desactivada por configuración.');
+      if (labActive) appendLog('LAB', '⚠️ La reunión no se está escuchando: marca «Traducción bidireccional» para grabar el audio del equipo.', 'warn');
+      refreshLabInputs();
       return;
     }
 
@@ -1952,6 +2008,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
       incomingSource.connect(incomingScriptProcessor);
       appendLog('AUDIO', 'Traducción bidireccional del receptor (Inglés ➔ Español) ACTIVADA 🎧', 'audio');
+      refreshLabInputs();
 
     } catch (err) {
       appendLog('AUDIO', `Aviso de captura de audio del receptor: ${err.message}`, 'warn');

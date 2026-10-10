@@ -67,7 +67,10 @@ const localAi = createLocalAiClient({
 });
 
 // ── Laboratorio de pruebas: sesiones grabadas con audio, textos y tiempos ──
-const traceSessionsDir = app.isPackaged ? path.join(userDataPath, 'test-sessions') : path.join(__dirname, 'test-sessions');
+// En desarrollo las sesiones quedan junto al código; VIBE_SESSIONS_DIR las desvía (pruebas automáticas, para no mezclarlas con las del usuario)
+const traceSessionsDir = app.isPackaged
+  ? path.join(userDataPath, 'test-sessions')
+  : path.resolve(process.env.VIBE_SESSIONS_DIR || path.join(__dirname, 'test-sessions'));
 const traceRecorder = createTraceRecorder({ baseDir: traceSessionsDir });
 
 const DEFAULT_SETTINGS = {
