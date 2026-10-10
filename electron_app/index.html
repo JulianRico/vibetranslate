@@ -286,11 +286,22 @@
         <div class="form-group">
           <label for="stt-engine">Motor de Transcripción de Voz (STT)</label>
           <select id="stt-engine">
+            <option value="local">🔒 Motor Local (Sin conexión, privado, sin claves)</option>
             <option value="gemini_35_transcribe" selected>✨ Google Gemini 3.5 Transcribe (Live STT Inteligente)</option>
             <option value="whisper_groq">Groq Whisper AI (Ultra Baja Latencia ~300ms)</option>
             <option value="gemini_live">Gemini Live (Audio-to-Audio Ultra-Fluido)</option>
             <option value="webspeech">Web Speech API (Nativo Gratis)</option>
           </select>
+        </div>
+
+        <!-- Motor Local -->
+        <div class="form-group" id="local-ai-group" style="display: none;">
+          <label for="translation-mode">Traducción con el Motor Local</label>
+          <select id="translation-mode">
+            <option value="auto" selected>Nube si hay red, local si no (mejor calidad)</option>
+            <option value="local">Siempre local (nada sale del equipo)</option>
+          </select>
+          <span class="link-aff-url" id="local-ai-status">Comprobando modelos...</span>
         </div>
 
         <!-- Groq API Key -->
