@@ -1017,7 +1017,7 @@ Generado automáticamente por ViBeTranslate Desktop
   });
 
   // Control 2: Botón Inferior de Pruebas (Independiente)
-  btnTestMic.addEventListener('click', async () => {
+  btnTestMic?.addEventListener('click', async () => {
     isTestBtnActive = !isTestBtnActive;
 
     if (isTestBtnActive) {
