@@ -1,0 +1,13 @@
+{
+  "name": "interview-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Apoyo en vivo para entrevistas técnicas en inglés: transcribe, traduce y sugiere respuestas.",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/**/*.test.js\"",
+    "smoke:gemini": "node scripts/smoke-gemini.js"
+  },
+  "engines": { "node": ">=22" }
+}

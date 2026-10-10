@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ViBeTranslate Desktop - Studio Translation Console</title>
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
 
   <!-- Top App Header -->
@@ -13,8 +15,9 @@
     <div class="brand-group">
       <div class="brand-icon-circle">
         <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
-          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+          <path
+            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
         </svg>
       </div>
       <div class="brand-text-col">
@@ -25,7 +28,7 @@
         <span class="brand-subtitle">Simultaneous Audio Translation Workstation</span>
       </div>
     </div>
-    
+
     <div class="header-actions">
       <div class="live-badge" id="live-badge">
         <span class="status-dot"></span>
@@ -35,7 +38,8 @@
         <span class="dot-cyan"></span>
         <span>🖥️ Validador de Hardware</span>
       </button>
-      <button type="button" class="btn-icon-round" id="btn-toggle-overlay-header" title="Encender / Apagar Recuadro Flotante (Ctrl+Shift+T)">📺</button>
+      <button type="button" class="btn-icon-round" id="btn-toggle-overlay-header"
+        title="Encender / Apagar Recuadro Flotante (Ctrl+Shift+T)">📺</button>
       <button type="button" class="btn-icon-round" id="btn-theme-toggle" title="Cambiar Tema">🌙</button>
       <button type="button" class="btn-icon-round" id="btn-pip-toggle" title="Modo Ventana">🗗</button>
       <button type="button" class="btn-icon-round" id="btn-export-all" title="Exportar">📤</button>
@@ -84,7 +88,7 @@
 
   <!-- Main 2-Column Grid -->
   <main class="main-grid">
-    
+
     <!-- LEFT COLUMN -->
     <div class="grid-col left-col">
 
@@ -105,14 +109,16 @@
             <span class="banner-icon">🛡️</span> Driver VB-Audio Cable activo y calibrado
           </div>
           <div class="banner-desc">
-            En la videollamada selecciona <strong>CABLE Output</strong> como micrófono para enviar únicamente la traducción en inglés.
+            En la videollamada selecciona <strong>CABLE Output</strong> como micrófono para enviar únicamente la
+            traducción en inglés.
           </div>
         </div>
 
         <div class="alert-banner red-banner" id="driver-missing-banner" style="display: none;">
           <div class="banner-title">⚠️ Driver Virtual VB-CABLE Requerido</div>
           <div class="banner-desc">
-            Para enviar la traducción a Google Meet, Teams o Zoom y silenciar tu voz real, Windows necesita el driver VB-Audio Cable.
+            Para enviar la traducción a Google Meet, Teams o Zoom y silenciar tu voz real, Windows necesita el driver
+            VB-Audio Cable.
           </div>
           <div class="banner-actions">
             <button type="button" class="btn-download" id="btn-download-vbcable">📥 Descargar VB-CABLE</button>
@@ -157,32 +163,95 @@
             <span class="checkbox-label">🌿 Renderizado y Animación 3D (Desmarcar para Modo Eco / 0% GPU)</span>
           </label>
         </div>
+      </section>
+      <!-- Noise Gate & VU Meter -->
+      <div class="noise-gate-section">
+        <div class="label-row">
+          <label for="noise-gate-select">Filtro de Ruido Ambiental (Noise Gate / VAD)</label>
+          <span class="vad-badge" id="vad-badge">⚪ SILENCIO</span>
+        </div>
+        <select id="noise-gate-select">
+          <option value="0.008">Sensible (Espacio silencioso / Oficina privada)</option>
+          <option value="0.016" selected>Equilibrado (Recomendado - Filtra respiración y eco)</option>
+          <option value="0.030">Alto (Filtra teclado, clics y ruido de fondo moderado)</option>
+          <option value="0.055">Agresivo (Ambiente concurrido o con eco)</option>
+        </select>
 
-        <!-- Noise Gate & VU Meter -->
-        <div class="noise-gate-section">
-          <div class="label-row">
-            <label for="noise-gate-select">Filtro de Ruido Ambiental (Noise Gate / VAD)</label>
-            <span class="vad-badge" id="vad-badge">⚪ SILENCIO</span>
+        <div class="vu-container">
+          <div class="vu-label">
+            <span>Nivel de Entrada</span>
+            <span id="vu-val-text">0%</span>
           </div>
-          <select id="noise-gate-select">
-            <option value="0.008">Sensible (Espacio silencioso / Oficina privada)</option>
-            <option value="0.016" selected>Equilibrado (Recomendado - Filtra respiración y eco)</option>
-            <option value="0.030">Alto (Filtra teclado, clics y ruido de fondo moderado)</option>
-            <option value="0.055">Agresivo (Ambiente concurrido o con eco)</option>
-          </select>
-
-          <div class="vu-container">
-            <div class="vu-label">
-              <span>Nivel de Entrada</span>
-              <span id="vu-val-text">0%</span>
-            </div>
-            <div class="vu-track">
-              <div class="vu-bar" id="vu-bar"></div>
-              <div class="vu-threshold-line" id="vu-threshold-line" title="Umbral de Activación de Voz"></div>
-            </div>
+          <div class="vu-track">
+            <div class="vu-bar" id="vu-bar"></div>
+            <div class="vu-threshold-line" id="vu-threshold-line" title="Umbral de Activación de Voz"></div>
           </div>
         </div>
+      </div>
+      <!-- Panel 3: MONITOR Y PARTICIPANTES EN VIVO -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon icon-monitor">🖥️</span> MONITOR Y PARTICIPANTES EN VIVO
+          </div>
+          <div class="card-header-actions">
+            <button type="button" class="btn-pill-action" id="btn-toggle-3d">
+              <span>⚡ Activar 3D Studio</span>
+            </button>
+            <button type="button" class="btn-pill-action" id="btn-export-conv">
+              <span>📥 Exportar Conversación</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Dark 3D / Eco Mode Stage Box -->
+
+
+        <!-- Big Purple-Blue Vibrant Action Button -->
+        <!--  <button type="button" class="btn-vibrant-gradient" id="btn-test-mic">
+          <span>▶ Probar Transcripción y Traducción</span>
+        </button> -->
+
+        <!-- Subtitle / Preview pill row -->
+        <div class="preview-pills-row" id="preview-box">
+          <span class="preview-badge entrada">ENTRADA</span>
+          <span class="preview-text orig-text" id="preview-orig">🎙️ ¡Mamá!</span>
+          <span class="preview-badge traduccion">TRADUCCIÓN</span>
+          <span class="preview-text trans-text" id="preview-trans">✨ Mother!</span>
+        </div>
       </section>
+
+      <!-- Panel 4: REGISTRO DE EVENTOS Y DIAGNÓSTICO -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="title-icon icon-terminal">>_</span> REGISTRO DE EVENTOS Y DIAGNÓSTICO
+          </div>
+          <div class="card-header-actions">
+            <button type="button" class="btn-pill-action" id="btn-export-logs">
+              <span>📥 Exportar Logs</span>
+            </button>
+            <button type="button" class="btn-icon-btn" id="btn-clear-logs" title="Limpiar Consola">🗑️</button>
+            <button type="button" class="btn-icon-btn" id="btn-open-devtools"
+              title="Herramientas de Desarrollador">🛠️</button>
+          </div>
+        </div>
+
+        <!-- Dark Log Terminal -->
+        <div id="log-container" class="log-terminal">
+          <div class="log-entry system">[SISTEMA] Consola de diagnóstico lista para registrar eventos...</div>
+        </div>
+      </section>
+
+
+
+
+
+
+    </div>
+
+    <!-- RIGHT COLUMN -->
+    <div class="grid-col right-col">
 
       <!-- Panel 2: MOTORES DE TRANSCRIPCIÓN Y VOCES -->
       <section class="card">
@@ -228,9 +297,11 @@
         <div class="form-group" id="groq-key-group">
           <div class="label-row">
             <label for="groq-key">Groq API Key <span class="required-pill">Obligatorio</span></label>
-            <a href="#" id="link-get-groq-key" class="btn-api-get-link" title="Obtener API Key gratuita en Groq Console">⚡ Obtener API Key de Groq</a>
+            <a href="#" id="link-get-groq-key" class="btn-api-get-link"
+              title="Obtener API Key gratuita en Groq Console">⚡ Obtener API Key de Groq</a>
           </div>
-          <input type="text" id="groq-key" placeholder="gsk_..." value="gsk_dummy_replace_with_your_groq_api_key_000000000000">
+          <input type="text" id="groq-key" placeholder="gsk_..."
+            value="gsk_dummy_replace_with_your_groq_api_key_000000000000">
           <div class="field-hint-row">
             <span>Crea tu API Key gratuita para transcripción ultrarrápida en: </span>
             <a href="#" id="link-get-groq-key-bottom" class="link-aff-url">https://console.groq.com/keys</a>
@@ -241,7 +312,8 @@
         <div class="form-group" id="gemini-key-group" style="display: none;">
           <div class="label-row">
             <label for="gemini-key">Gemini API Key <span class="required-pill">Google AI Studio</span></label>
-            <a href="#" id="link-get-gemini-key" class="btn-api-get-link" title="Obtener API Key en Google AI Studio">✨ Obtener API Key de Gemini</a>
+            <a href="#" id="link-get-gemini-key" class="btn-api-get-link" title="Obtener API Key en Google AI Studio">✨
+              Obtener API Key de Gemini</a>
           </div>
           <input type="text" id="gemini-key" placeholder="AIzaSy..." value="">
           <div class="field-hint-row">
@@ -292,12 +364,14 @@
             <div class="label-row">
               <label for="fish-api-key">Fish Audio API Key <span class="required-pill">Obligatorio</span></label>
               <div class="label-actions-right">
-                <a href="#" id="link-get-fish-key" class="btn-api-get-link fish-aff-btn" title="Crear cuenta y obtener API Key en Fish Audio">🐟 Obtener API Key de Fish Audio</a>
+                <a href="#" id="link-get-fish-key" class="btn-api-get-link fish-aff-btn"
+                  title="Crear cuenta y obtener API Key en Fish Audio">🐟 Obtener API Key de Fish Audio</a>
                 <button type="button" class="btn-mini-link" id="btn-toggle-fish-key">👁️ Ver</button>
                 <button type="button" class="btn-mini-test" id="btn-verify-fish-key">✓ Validar</button>
               </div>
             </div>
-            <input type="password" id="fish-api-key" placeholder="sk-fish-..." value="00000000000000000000000000000000">
+            <input type="password" id="fish-api-key" placeholder="sk-fish-..."
+              value="00000000000000000000000000000000">
             <div class="field-hint-row">
               <span>Registra tu cuenta y obtén tu API Key obligatoria en: </span>
               <a href="#" id="link-get-fish-key-bottom" class="link-aff-url">https://fish.audio/?aff=SNSVEP4PGIIVI</a>
@@ -308,7 +382,8 @@
           <div class="form-group">
             <div class="label-row">
               <label for="fish-voice-select">Voz de Salida (Tu Voz Clonada)</label>
-              <button type="button" class="btn-mini-refresh" id="btn-refresh-fish-voices" title="Actualizar lista de voces">🔄</button>
+              <button type="button" class="btn-mini-refresh" id="btn-refresh-fish-voices"
+                title="Actualizar lista de voces">🔄</button>
             </div>
             <select id="fish-voice-select">
               <option value="0356fc9e08b646ed91607baa54a847c3" selected>🎙️ Mi Voz Principal (Clonada)</option>
@@ -320,7 +395,8 @@
           <!-- Manual Voice ID input if custom is chosen -->
           <div class="form-group" id="fish-custom-voice-group" style="display: none;">
             <label for="fish-voice-id-input">ID del Modelo de Voz de Fish Audio</label>
-            <input type="text" id="fish-voice-id-input" placeholder="Ej: d8a1340984ee4b63ad1ffae27a6a4339" value="0356fc9e08b646ed91607baa54a847c3">
+            <input type="text" id="fish-voice-id-input" placeholder="Ej: d8a1340984ee4b63ad1ffae27a6a4339"
+              value="0356fc9e08b646ed91607baa54a847c3">
           </div>
 
           <!-- Action Buttons: Clone Studio + Test Voice -->
@@ -384,107 +460,7 @@
           </div>
         </div>
       </section>
-    </div>
 
-    <!-- RIGHT COLUMN -->
-    <div class="grid-col right-col">
-
-      <!-- Panel 3: MONITOR Y PARTICIPANTES EN VIVO -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon icon-monitor">🖥️</span> MONITOR Y PARTICIPANTES EN VIVO
-          </div>
-          <div class="card-header-actions">
-            <button type="button" class="btn-pill-action" id="btn-toggle-3d">
-              <span>⚡ Activar 3D Studio</span>
-            </button>
-            <button type="button" class="btn-pill-action" id="btn-export-conv">
-              <span>📥 Exportar Conversación</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Dark 3D / Eco Mode Stage Box -->
-        <div class="stage-box">
-          <!-- Top Bar inside stage -->
-          <div class="stage-top-bar">
-            <div class="stage-pills-left">
-              <span class="stage-pill active">🎙️ Estudio</span>
-              <span class="stage-pill">👤 Host</span>
-              <span class="stage-pill">👥 Reunión</span>
-            </div>
-            <div class="stage-pills-right">
-              <span class="stage-pill eco-pill">🌿 Modo Eco</span>
-              <span class="stage-pill">👥 4 Participantes</span>
-              <span class="stage-pill add-pill">+ Añadir</span>
-            </div>
-          </div>
-
-          <!-- Center Stage Graphic -->
-          <div class="stage-center">
-            <div class="eco-icon-wrap">
-              <span class="eco-dollar-icon">$</span>
-            </div>
-            <div class="eco-title">Modo Eco de Alto Rendimiento Activo</div>
-            <div class="eco-desc">
-              Renderizado 3D WebGL suspendido para máxima autonomía y 0% consumo de GPU.
-            </div>
-
-            <div class="avatar-pills-row">
-              <div class="avatar-pill active">
-                <span>👤 Tú (Host)</span>
-              </div>
-              <div class="avatar-pill">
-                <span>👤 Receptor</span>
-              </div>
-              <div class="avatar-pill">
-                <span>⚡ Gemini Live</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Bottom bar inside stage -->
-          <div class="stage-bottom-bar">
-            <span class="stage-status-dot"></span>
-            <span class="stage-status-text">Escenario 3D Listo</span>
-          </div>
-        </div>
-
-        <!-- Big Purple-Blue Vibrant Action Button -->
-        <button type="button" class="btn-vibrant-gradient" id="btn-test-mic">
-          <span>▶ Probar Transcripción y Traducción</span>
-        </button>
-
-        <!-- Subtitle / Preview pill row -->
-        <div class="preview-pills-row" id="preview-box">
-          <span class="preview-badge entrada">ENTRADA</span>
-          <span class="preview-text orig-text" id="preview-orig">🎙️ ¡Mamá!</span>
-          <span class="preview-badge traduccion">TRADUCCIÓN</span>
-          <span class="preview-text trans-text" id="preview-trans">✨ Mother!</span>
-        </div>
-      </section>
-
-      <!-- Panel 4: REGISTRO DE EVENTOS Y DIAGNÓSTICO -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon icon-terminal">>_</span> REGISTRO DE EVENTOS Y DIAGNÓSTICO
-          </div>
-          <div class="card-header-actions">
-            <button type="button" class="btn-pill-action" id="btn-export-logs">
-              <span>📥 Exportar Logs</span>
-            </button>
-            <button type="button" class="btn-icon-btn" id="btn-clear-logs" title="Limpiar Consola">🗑️</button>
-            <button type="button" class="btn-icon-btn" id="btn-open-devtools" title="Herramientas de Desarrollador">🛠️</button>
-          </div>
-        </div>
-
-        <!-- Dark Log Terminal -->
-        <div id="log-container" class="log-terminal">
-          <div class="log-entry system">[SISTEMA] Consola de diagnóstico lista para registrar eventos...</div>
-        </div>
-      </section>
 
     </div>
   </main>
@@ -511,7 +487,8 @@
           </div>
           <div class="verdict-text-wrap">
             <h3 class="verdict-title" id="hw-verdict-title">Analizando sistema...</h3>
-            <p class="verdict-desc" id="hw-verdict-desc">Comprobando capacidades de hardware para traducción simultánea...</p>
+            <p class="verdict-desc" id="hw-verdict-desc">Comprobando capacidades de hardware para traducción
+              simultánea...</p>
           </div>
           <div class="verdict-badge" id="hw-verdict-badge">ANALIZANDO</div>
         </div>
@@ -672,14 +649,15 @@
           <span class="modal-icon">🎙️</span>
           <div>
             <h2 class="modal-title">Estudio de Clonación de Voz IA (Fish Audio)</h2>
-            <p class="modal-subtitle">Graba de 15 a 45 segundos para clonar tu timbre de voz exacto para tus videollamadas</p>
+            <p class="modal-subtitle">Graba de 15 a 45 segundos para clonar tu timbre de voz exacto para tus
+              videollamadas</p>
           </div>
         </div>
         <button type="button" class="btn-close-modal" id="btn-close-clone-modal" title="Cerrar">✕</button>
       </div>
 
       <div class="modal-body clone-studio-body">
-        
+
         <!-- Tarjeta de Recomendaciones y Buenas Prácticas -->
         <div class="clone-tips-card">
           <div class="tips-card-header">
@@ -735,7 +713,11 @@
             </div>
           </div>
           <div class="prompt-reading-text" id="prompt-reading-text">
-            "Hola, mi nombre es Julian. Esta es una prueba de calibración y clonación de voz en alta fidelidad. A lo largo del día participo en diferentes reuniones de trabajo, presentaciones ejecutivas y llamadas estratégicas con equipos de todo el mundo. Es fundamental mantener una comunicación fluida, clara y natural en cualquier idioma. Me aseguro de hablar con un ritmo constante, pausado y con una entonación amigable para que la inteligencia artificial capture exactamente el timbre y la calidez de mi voz real."
+            "Hola, mi nombre es Julian. Esta es una prueba de calibración y clonación de voz en alta fidelidad. A lo
+            largo del día participo en diferentes reuniones de trabajo, presentaciones ejecutivas y llamadas
+            estratégicas con equipos de todo el mundo. Es fundamental mantener una comunicación fluida, clara y natural
+            en cualquier idioma. Me aseguro de hablar con un ritmo constante, pausado y con una entonación amigable para
+            que la inteligencia artificial capture exactamente el timbre y la calidez de mi voz real."
           </div>
         </div>
 
@@ -801,7 +783,8 @@
 
           <div class="form-group full-width">
             <label for="clone-sample-transcript">Transcripción de la Muestra (Para máxima precisión fonética)</label>
-            <textarea id="clone-sample-transcript" rows="2">Hola, esta es una grabación de muestra de mi voz para la plataforma de traducción simultánea ViBeTranslate. Durante mis reuniones ejecutivas en Google Meet, Microsoft Teams y Zoom, la inteligencia artificial utilizará este modelo para que mis traducciones al inglés suenen exactamente con mi propio timbre, tono y naturalidad.</textarea>
+            <textarea id="clone-sample-transcript"
+              rows="2">Hola, esta es una grabación de muestra de mi voz para la plataforma de traducción simultánea ViBeTranslate. Durante mis reuniones ejecutivas en Google Meet, Microsoft Teams y Zoom, la inteligencia artificial utilizará este modelo para que mis traducciones al inglés suenen exactamente con mi propio timbre, tono y naturalidad.</textarea>
           </div>
         </div>
 
@@ -838,4 +821,5 @@
 
   <script src="index.js"></script>
 </body>
+
 </html>
