@@ -96,6 +96,12 @@ function runApp({ phraseId, sourceLang, targetLang, translationMode, settings = 
           }
           if (msg.message.includes('idioma de origen fijo')) return finish(new Error(msg.message));
         }
+        // Con traducción directa el texto oído llega después, como actualización de un subtítulo ya mostrado
+        if (msg.type === 'subtitle' && msg.update) {
+          const shown = subtitles.find((sub) => sub.segmentId === msg.segmentId);
+          if (shown) shown.originalText = msg.originalText;
+          continue;
+        }
         if (msg.type === 'subtitle' && msg.isFinal && (!only || msg.direction === only)) {
           subtitles.push(msg);
           clearTimeout(settle);

@@ -57,3 +57,12 @@ test('clear vacía el historial y reinicia la numeración', () => {
   assert.equal(log.size(), 0);
   assert.equal(log.add({ direction: 'outgoing', from: 'es', to: 'en', original: 'c', translated: 'd' }).n, 1);
 });
+
+test('el texto original puede llegar después de la traducción y se completa en su frase', () => {
+  const log = createConversationLog({ clock: fixedClock });
+  const entry = log.add({ direction: 'incoming', from: 'en', to: 'es', original: '', translated: 'Hola a todos.' });
+  assert.equal(log.setOriginal(entry.n, 'Hello everyone.'), true);
+  assert.equal(log.entries()[0].original, 'Hello everyone.');
+  assert.match(log.toText(), /Original:   Hello everyone\./);
+  assert.equal(log.setOriginal(99, 'x'), false);
+});

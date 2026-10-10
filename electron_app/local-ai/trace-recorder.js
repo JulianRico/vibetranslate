@@ -58,6 +58,7 @@ function summarize(session, endedAt) {
     meta: session.meta,
     streams,
     errors: session.events.filter((e) => e.type === 'error').length,
+    echoesDropped: session.events.filter((e) => e.type === 'echo').length,
     flags: session.events.filter((e) => e.type === 'flag').map(({ segmentId, stream, text, note }) => ({ segmentId, stream, text, note })),
     audioFiles: session.audioCount
   };
@@ -82,7 +83,8 @@ function formatReport(session, summary) {
     out.push('');
   }
   if (Object.keys(summary.streams).length === 0) out.push('No se oyó ninguna frase en esta sesión.', '');
-  out.push(`Errores registrados: ${summary.errors}`, `Audios guardados: ${summary.audioFiles}`, '');
+  out.push(`Errores registrados: ${summary.errors}`, `Audios guardados: ${summary.audioFiles}`);
+  out.push(`Frases del micrófono descartadas por ser eco de la reunión: ${summary.echoesDropped}`, '');
 
   const segments = session.events.filter((e) => e.type === 'segment');
   const translationFor = (id) => session.events.find((e) => e.type === 'translation' && e.segmentId === id);
@@ -133,6 +135,14 @@ function createTraceRecorder({ baseDir, now = Date.now }) {
     if (!session) return;
     const event = { t: now() - session.startedAt, type, ...data };
     session.events.push(event);
+    // Con traducción directa el texto oído llega después: se une a su frase para el resumen y el informe
+    if (type === 'segment-text') {
+      const segment = session.events.find((e) => e.type === 'segment' && e.id === data.id);
+      if (segment) {
+        segment.text = data.text;
+        segment.sttMs = data.sttMs;
+      }
+    }
     // Se escribe al momento: si la app se cierra a mitad, la traza queda en disco
     fs.appendFileSync(session.traceFile, JSON.stringify(event) + '\n', 'utf8');
   }

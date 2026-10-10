@@ -135,3 +135,20 @@ test('iniciar una sesión con otra en curso cierra la anterior con su informe', 
   assert.notEqual(first.dir, second.dir);
   assert.ok(fs.existsSync(path.join(first.dir, 'informe.md')));
 });
+
+test('con traducción directa el texto oído llega después y se une a su frase en el resumen y el informe', () => {
+  const t = setup();
+  const { dir } = t.recorder.start();
+  t.recorder.record('segment', { id: 5, stream: 'incoming', lang: 'en', text: '', durationMs: 3000, sttMs: 0, translated: 'Hola a todos.', translateMs: 400 });
+  t.recorder.record('translation', { segmentId: 5, stream: 'incoming', engine: 'local', translateMs: 400, endToEndMs: 900, original: '', translated: 'Hola a todos.' });
+  t.recorder.record('segment-text', { id: 5, stream: 'incoming', text: 'Hello everyone.', sttMs: 350 });
+  t.recorder.record('echo', { stream: 'mic', durationMs: 1000, score: 0.9 });
+  const flagged = t.recorder.flag('revisar');
+  assert.equal(flagged.text, 'Hello everyone.');
+  const { summary, report } = t.recorder.stop();
+  assert.equal(summary.streams.incoming.stt.avg, 350);
+  assert.equal(summary.echoesDropped, 1);
+  assert.match(report, /Oído: Hello everyone\./);
+  assert.match(report, /eco/i);
+  assert.ok(fs.existsSync(path.join(dir, 'informe.md')));
+});

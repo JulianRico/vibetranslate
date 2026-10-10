@@ -192,3 +192,104 @@ test('con la captura activada cada frase lleva su audio, para guardarlo en la se
   off.handle(audio);
   assert.equal(posted[2].samples.length, 900 * 16);
 });
+
+/** Motor con dobles configurables para las mejoras de latencia y eco. */
+function advanced({ segments = [], peeks = [], speaking = true, translations = null, echo = () => ({ echo: false, score: 0 }), clock = { now: 5000 } } = {}) {
+  const posted = [];
+  const calls = [];
+  const observed = [];
+  const engine = createEngine({
+    sherpa: {}, paths: {}, post: (m) => posted.push(m), now: () => clock.now,
+    makeSegmenter: () => ({
+      push: () => segments.shift() || [],
+      flush: () => [],
+      isSpeaking: () => speaking,
+      position: () => 100000,
+      peek: () => (peeks.length ? peeks.shift() : null)
+    }),
+    makeTranscriber: () => ({
+      transcribe: (samples, lang) => { calls.push('transcribe'); return { text: `oído en ${lang}`, ms: 300 }; },
+      translate: (samples, source, target) => { calls.push('translate'); return { text: translations ? translations.shift() : `traducido a ${target}`, ms: 400 }; }
+    }),
+    makeEchoDetector: () => ({ observeReference: (samples, at) => observed.push(at), check: echo })
+  });
+  const audio = (extra = {}) => engine.handle({ type: 'audio', stream: 'incoming', lang: 'en', samples: new Float32Array(2048), at: clock.now, ...extra });
+  return { engine, posted, calls, observed, audio, clock };
+}
+const start = (ms) => ({ samples: new Float32Array(ms * 16), start: 50000 });
+
+test('con destino indicado la frase se traduce primero: el subtítulo no espera a la transcripción', () => {
+  const t = advanced({ segments: [[start(3000)]] });
+  t.audio({ target: 'es' });
+  assert.deepEqual(t.calls, ['translate', 'transcribe']);
+  assert.deepEqual(t.posted.filter((m) => m.type !== 'vad'), [
+    { type: 'segment', id: 1, stream: 'incoming', lang: 'en', target: 'es', text: '', durationMs: 3000, sttMs: 0, translated: 'traducido a es', translateMs: 400 },
+    { type: 'segment-text', id: 1, stream: 'incoming', text: 'oído en en', sttMs: 300 }
+  ]);
+});
+
+test('si la traducción directa sale vacía se vuelve al camino normal: transcribir y que la interfaz decida', () => {
+  const t = advanced({ segments: [[start(3000)]], translations: ['  '] });
+  t.audio({ target: 'es' });
+  const out = t.posted.filter((m) => m.type !== 'vad');
+  assert.equal(out.length, 1);
+  assert.equal(out[0].text, 'oído en en');
+  assert.equal(out[0].translated, undefined);
+});
+
+test('sin destino (traducción en la nube) solo se transcribe', () => {
+  const t = advanced({ segments: [[start(3000)]] });
+  t.audio();
+  assert.deepEqual(t.calls, ['transcribe']);
+});
+
+test('una frase del micrófono que es eco de la reunión se descarta y se avisa', () => {
+  const checks = [];
+  const t = advanced({ segments: [[start(1000)]], echo: (samples, startAt) => { checks.push(startAt); return { echo: true, score: 0.9 }; } });
+  t.engine.handle({ type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(2048), at: 60000 });
+  assert.deepEqual(t.posted.filter((m) => m.type !== 'vad'), [{ type: 'echo', stream: 'mic', durationMs: 1000, score: 0.9 }]);
+  assert.deepEqual(t.calls, [], 'el eco no se transcribe ni se traduce');
+  // la frase empezó (100000 - 50000) muestras antes del final del último trozo: 3125 ms antes
+  assert.deepEqual(checks, [60000 - 3125]);
+});
+
+test('el audio de la reunión alimenta al detector de eco; el del micrófono no', () => {
+  const t = advanced();
+  t.audio({ at: 7000 });
+  t.engine.handle({ type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(2048), at: 7100 });
+  assert.deepEqual(t.observed, [7000]);
+});
+
+test('las frases de la reunión nunca se tratan como eco', () => {
+  const t = advanced({ segments: [[start(1000)]], echo: () => ({ echo: true, score: 1 }) });
+  t.audio();
+  assert.equal(t.posted.filter((m) => m.type === 'segment').length, 1);
+});
+
+test('mientras se sigue hablando se publica texto provisional cada 1,5 s de audio nuevo', () => {
+  const sizes = [1000, 1600, 2000, 3200, 3300].map((ms) => new Float32Array(ms * 16));
+  const t = advanced({ peeks: sizes });
+  for (let i = 0; i < 5; i++) t.audio({ target: 'es', partial: true });
+  const partials = t.posted.filter((m) => m.type === 'partial');
+  assert.deepEqual(partials.map((p) => p.durationMs), [1600, 3200]); // 1000 es poco; 2000 y 3300 no suman 1,5 s nuevos
+  assert.deepEqual(partials[0], { type: 'partial', stream: 'incoming', lang: 'en', text: 'traducido a es', translated: true, durationMs: 1600, ms: 400 });
+});
+
+test('si el motor va con retraso no gasta tiempo en texto provisional', () => {
+  const t = advanced({ peeks: [new Float32Array(32000)] });
+  t.clock.now = 9000;
+  t.audio({ target: 'es', partial: true, at: 8000 }); // este audio se capturó hace 1 s: hay cola
+  assert.deepEqual(t.posted.filter((m) => m.type === 'partial'), []);
+});
+
+test('sin pedirlo no hay texto provisional, y al cerrar una frase la cuenta vuelve a empezar', () => {
+  const quiet = advanced({ peeks: [new Float32Array(32000)] });
+  quiet.audio({ target: 'es' });
+  assert.deepEqual(quiet.posted.filter((m) => m.type === 'partial'), []);
+
+  const t = advanced({ segments: [[], [start(3000)], []], peeks: [new Float32Array(32000), new Float32Array(32000)] });
+  t.audio({ target: 'es', partial: true }); // provisional de la primera frase
+  t.audio({ target: 'es', partial: true }); // la frase se cierra
+  t.audio({ target: 'es', partial: true }); // provisional de la siguiente, sin esperar a "1,5 s más que antes"
+  assert.equal(t.posted.filter((m) => m.type === 'partial').length, 2);
+});

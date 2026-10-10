@@ -36,19 +36,29 @@ document.addEventListener('DOMContentLoaded', () => {
   ipcRenderer.on('DISPLAY_SUBTITLE', (event, payload) => {
     const { originalText, translatedText, direction } = payload;
 
-    if (elOriginal && originalText) {
-      elOriginal.textContent = (direction === 'incoming' ? '👤 ' : '🎙️ ') + originalText;
+    const icon = direction === 'incoming' ? '👤' : '🎙️';
+
+    // El texto oído puede llegar después de la traducción: solo se completa la línea superior
+    if (payload.update) {
+      if (elOriginal && originalText) elOriginal.textContent = `${icon} ${originalText}`;
+      return;
+    }
+
+    if (elOriginal) {
+      if (originalText) elOriginal.textContent = `${icon} ${originalText}`;
+      else if (translatedText) elOriginal.textContent = `${icon} …`;
     }
 
     if (elTranslated && translatedText) {
-      // La frase que estaba en pantalla pasa al historial en vez de desaparecer
-      if (currentLine) {
+      // La frase terminada que estaba en pantalla pasa al historial; un texto provisional simplemente se reemplaza
+      if (currentLine && !currentLine.provisional) {
         previousLines.push(currentLine);
         while (previousLines.length > HISTORY_LINES) previousLines.shift();
         renderHistory();
       }
-      currentLine = { icon: direction === 'incoming' ? '👤' : '🎙️', text: translatedText };
-      elTranslated.textContent = translatedText;
+      const provisional = payload.isFinal === false;
+      currentLine = { icon, text: translatedText, provisional };
+      elTranslated.textContent = provisional ? `${translatedText} …` : translatedText;
     }
   });
 

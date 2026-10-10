@@ -3,6 +3,8 @@
  */
 
 const WINDOW = 512;
+const MAX_SPEECH_SECONDS = 4; // a partir de aquí Silero corta en la siguiente micropausa (en la práctica, trozos de 4-6 s)
+const SPEECH_LOOKBACK = 8000; // la voz empezó algo antes de que el detector la confirme
 const PRE_ROLL = 1600; // 100 ms previos al inicio detectado: con 150 ms o más el modelo empeora cuando hay ruido de fondo
 const HISTORY = 16000 * 8; // cubre el segmento más largo (6 s) más su margen
 
@@ -24,7 +26,7 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
       minSilenceDuration: 0.35,
       minSpeechDuration: 0.4,
       windowSize: WINDOW,
-      maxSpeechDuration: 6
+      maxSpeechDuration: MAX_SPEECH_SECONDS
     },
     sampleRate: 16000,
     numThreads: 1,
@@ -38,6 +40,7 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
   const history = new Float32Array(HISTORY);
   let fed = 0; // muestras entregadas al detector desde el inicio del flujo
   let previousEnd = 0;
+  let speechStart = null; // dónde empezó la frase que se está diciendo ahora
 
   function remember(window) {
     history.copyWithin(0, window.length);
@@ -64,6 +67,7 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
       samples.set(preRoll);
       samples.set(speech, preRoll.length);
       previousEnd = front.start + speech.length;
+      speechStart = null; // si se sigue hablando, la frase siguiente empieza donde terminó esta
       segments.push({ samples, start: front.start - preRoll.length });
       vad.pop();
     }
@@ -80,6 +84,8 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
         const window = all.slice(i, i + WINDOW);
         remember(window);
         vad.acceptWaveform(window);
+        if (!vad.isDetected()) speechStart = null;
+        else if (speechStart === null) speechStart = Math.max(previousEnd, fed - SPEECH_LOOKBACK, 0);
       }
       rest = all.slice(i);
       return drain();
@@ -87,8 +93,16 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
     flush() {
       vad.flush();
       rest = new Float32Array(0);
-      return drain();
+      const segments = drain();
+      speechStart = null;
+      return segments;
     },
+    /** Audio de la frase que aún se está diciendo (null si no se está hablando). */
+    peek() {
+      return speechStart === null ? null : recall(speechStart, fed);
+    },
+    /** Muestras entregadas al detector: sitúa `start` de un segmento en el tiempo. */
+    position: () => fed,
     isSpeaking: () => vad.isDetected()
   };
 }

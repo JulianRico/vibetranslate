@@ -59,7 +59,7 @@ const localAi = createLocalAiClient({
     // Sesión de prueba: se guarda el audio de la frase y la traza; el audio no se reenvía a la interfaz
     const { type, samples, ...data } = msg;
     if (type === 'segment' && samples) traceRecorder.saveAudio({ id: msg.id, stream: msg.stream, samples });
-    if (type === 'segment' || type === 'vad' || type === 'error') traceRecorder.record(type, data);
+    if (['segment', 'segment-text', 'partial', 'echo', 'vad', 'error'].includes(type)) traceRecorder.record(type, data);
     if (controlWindow && !controlWindow.isDestroyed()) {
       controlWindow.webContents.send('LOCAL_AI_EVENT', { type, ...data });
     }
@@ -655,8 +655,8 @@ ipcMain.handle('LOCAL_AI_PREPARE', async (event, { vadThreshold = 0.5 } = {}) =>
   return result;
 });
 
-ipcMain.on('LOCAL_AI_AUDIO', (event, { stream, lang, samples }) => {
-  localAi.send({ type: 'audio', stream, lang, samples });
+ipcMain.on('LOCAL_AI_AUDIO', (event, { stream, lang, samples, target, at, partial }) => {
+  localAi.send({ type: 'audio', stream, lang, samples, target, at, partial });
 });
 
 ipcMain.handle('LOCAL_AI_TRANSLATE', async (event, { id, target }) => {

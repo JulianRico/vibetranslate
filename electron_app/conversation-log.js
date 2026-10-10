@@ -26,6 +26,13 @@ function createConversationLog({ max = 500, clock = () => new Date().toLocaleTim
       if (items.length > max) items = items.slice(items.length - max);
       return entry;
     },
+    /** Completa el texto original de una frase cuya traducción llegó primero. */
+    setOriginal(n, original) {
+      const entry = items.find((e) => e.n === n);
+      if (!entry) return false;
+      entry.original = String(original || '').trim();
+      return true;
+    },
     entries: () => items.slice(),
     tail: (n) => items.slice(-n),
     size: () => items.length,

@@ -77,3 +77,16 @@ test('el audio previo nunca repite el final de la frase anterior', { skip: skipR
     assert.ok(segments[i].start >= previousEnd, `el segmento ${i} empieza en ${segments[i].start}, antes de ${previousEnd}`);
   }
 });
+
+test('durante una frase se puede consultar el audio acumulado, para mostrar texto provisional', { skip: skipReason }, () => {
+  const sherpa = require('sherpa-onnx-node');
+  const segmenter = createSegmenter({ sherpa, modelPath: store.paths().vad });
+  const speech = audio('es2');
+  assert.equal(segmenter.peek(), null);
+  for (let i = 0; i < 40000; i += 2048) segmenter.push(speech.slice(i, i + 2048)); // 2,5 s de una frase de 4,3 s
+  const pending = segmenter.peek();
+  assert.ok(pending && pending.length >= 16000 * 1.5 && pending.length <= 40960, `acumulado: ${pending && pending.length}`);
+  assert.ok(segmenter.position() >= 39936 && segmenter.position() <= 40960);
+  segmenter.flush();
+  assert.equal(segmenter.peek(), null);
+});
