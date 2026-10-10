@@ -14,6 +14,8 @@ Que la traducción simultánea de `electron_app` responda antes, funcione sin re
 - EN, ES y FR funcionan como idioma de origen y de destino.
 - Hay pruebas automáticas con audios generados que verifican cada par de idiomas de punta a punta.
 
+**Alcance actual (decisión del usuario, 2026-10-10):** solo EN→ES y ES→EN. El francés (fase 5 de la sección 9, y todo lo marcado FR en este documento) queda aplazado hasta que ese par esté terminado y probado; `languages.js` se diseña para admitirlo sin reescribir nada, pero no se descargan modelos, ni se añaden opciones de interfaz ni pruebas de francés por ahora.
+
 Fuera de alcance: las claves escritas en `main.js` (se trata después, por decisión del usuario), la síntesis de voz local, la extensión de Chrome de la raíz del repositorio y el modo `gemini_live`.
 
 ## 2. Por qué no Gemini Nano
@@ -151,7 +153,7 @@ Si un criterio numérico no se alcanza, se informa el valor obtenido y se ajusta
 2. `model-store.js`, proceso utilitario, segmentador y transcripción local EN y ES.
 3. Traducción local como respaldo.
 4. Filtro de ruido y verificación de hablante con registro de voz.
-5. Francés: interfaz, transcripción, pares de traducción, voz.
+5. *(Aplazada)* Francés: interfaz, transcripción, pares de traducción, voz.
 6. Pruebas de punta a punta, medición de latencia y empaquetado (`asarUnpack`, verificación de `npm run build:win`).
 
 Cada fase termina con sus pruebas en verde.
