@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { modelsDir, skipReason } = require('../support/models');
 const { readWav, writeWav } = require('../support/wav');
 const { wordErrorRate, hasKeywords } = require('../support/text');
@@ -20,6 +20,12 @@ function micFile(dir, phraseId) {
   const file = path.join(dir, 'mic.wav');
   writeWav(file, samples);
   return file;
+}
+
+/** Cierra la app y sus procesos hijos: en Windows child.kill() deja huérfanos a los renderers. */
+function killTree(child) {
+  if (process.platform === 'win32') spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
+  else child.kill('SIGKILL');
 }
 
 function runApp({ phraseId, sourceLang, targetLang, translationMode }) {
@@ -57,7 +63,7 @@ function runApp({ phraseId, sourceLang, targetLang, translationMode }) {
     const finish = (error) => {
       clearTimeout(deadline);
       clearTimeout(settle);
-      child.kill();
+      killTree(child);
       if (error) reject(error); else resolve({ subtitles, logs });
     };
     const deadline = setTimeout(() => finish(new Error(`sin subtítulo en 90 s. Registro:\n${logs.slice(-25).join('\n')}`)), 90000);
