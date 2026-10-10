@@ -9,11 +9,11 @@ const MIN_SEGMENT_SAMPLES = 6400; // 400 ms: por debajo el modelo inventa palabr
 const KEEP_SEGMENTS = 8; // audio que se conserva para poder traducir en local después
 const HAS_WORDS = /[\p{L}\p{N}]/u;
 
-function createEngine({ sherpa, paths, post, vadThreshold = 0.5, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber }) {
+function createEngine({ sherpa, paths, post, vadThreshold = 0.5, idBase = 1, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber }) {
   const transcriber = makeTranscriber({ sherpa, paths });
   const streams = new Map();
   const kept = new Map();
-  let nextId = 1;
+  let nextId = idBase;
 
   function streamFor(name) {
     if (!streams.has(name)) {

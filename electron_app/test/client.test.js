@@ -28,7 +28,7 @@ test('start lanza el proceso, envía init y se resuelve cuando el motor está li
   const t = setup();
   const started = t.start();
   assert.equal(t.children[0].workerPath, '/app/worker.js');
-  assert.deepEqual(t.children[0].sent, [{ type: 'init', paths: { vad: 'v' }, vadThreshold: 0.5 }]);
+  assert.deepEqual(t.children[0].sent, [{ type: 'init', paths: { vad: 'v' }, vadThreshold: 0.5, idBase: 1000001 }]);
   t.children[0].emit('message', { type: 'ready', loadMs: 1400 });
   assert.deepEqual(await started, { loadMs: 1400 });
   assert.equal(t.client.isRunning(), true);
@@ -74,7 +74,8 @@ test('si el proceso muere se reinicia una vez con el mismo init y avisa sin ser 
   t.children[0].emit('exit', 1);
   await assert.rejects(pending, /se cerró/);
   assert.equal(t.children.length, 2);
-  assert.deepEqual(t.children[1].sent, [{ type: 'init', paths: { vad: 'v' }, vadThreshold: 0.5 }]);
+  // base distinta: una frase de antes del reinicio nunca coincide con un identificador nuevo
+  assert.deepEqual(t.children[1].sent, [{ type: 'init', paths: { vad: 'v' }, vadThreshold: 0.5, idBase: 2000001 }]);
   assert.deepEqual(t.events, [{ type: 'error', stage: 'worker', fatal: false, message: 'El motor local se cerró y se está reiniciando.' }]);
   assert.equal(t.client.isRunning(), true);
 });

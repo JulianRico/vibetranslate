@@ -103,3 +103,14 @@ test('thresholdFromNoiseGate traduce el selector de sensibilidad al umbral de Si
   assert.equal(thresholdFromNoiseGate('0.055'), 0.75);
   assert.equal(thresholdFromNoiseGate(undefined), 0.5);
 });
+
+test('los identificadores empiezan en la base indicada, para no repetirse entre reinicios del proceso', () => {
+  const posted = [];
+  const engine = createEngine({
+    sherpa: {}, paths: {}, post: (m) => posted.push(m), idBase: 2000001,
+    makeSegmenter: () => ({ push: () => [seg(900)], flush: () => [], isSpeaking: () => false }),
+    makeTranscriber: () => ({ transcribe: () => ({ text: 'Hola.', ms: 1 }), translate: () => ({ text: 'Hi.', ms: 1 }) })
+  });
+  engine.handle({ type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(2048) });
+  assert.equal(posted[0].id, 2000001);
+});

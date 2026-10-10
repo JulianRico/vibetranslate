@@ -48,3 +48,32 @@ test('habla larga y seguida se corta en segmentos de 7 s como máximo', { skip: 
   assert.ok(segments.length >= 2);
   for (const s of segments) assert.ok(s.samples.length <= 7 * 16000, `segmento de ${s.samples.length / 16000}s`);
 });
+
+test('el segmento empieza al menos 100 ms antes del primer sonido: sin ese margen se pierde la primera palabra', { skip: skipReason }, () => {
+  const speech = audio('es1');
+  const onsetInFile = speech.findIndex((v) => Math.abs(v) > 0.02);
+  for (const lead of [48000, 96111]) {
+    const samples = pinkNoise(lead + speech.length, 21).map((v) => v * 0.02);
+    for (let i = 0; i < speech.length; i++) samples[lead + i] += speech[i];
+    const [first] = run(samples);
+    const onset = lead + onsetInFile;
+    assert.ok(first.start <= onset - 1600, `el segmento empieza en ${first.start}, el primer sonido en ${onset}`);
+    assert.ok(first.start >= onset - 16000, `demasiado audio previo: empieza en ${first.start}`);
+    // lo que se entrega es exactamente el audio de la señal desde ese punto
+    for (const k of [0, 1000, 5000]) assert.ok(Math.abs(first.samples[k] - samples[first.start + k]) < 1e-6);
+  }
+});
+
+test('el audio previo nunca repite el final de la frase anterior', { skip: skipReason }, () => {
+  const a = audio('es3');
+  const b = audio('es4');
+  const joined = new Float32Array(a.length + b.length);
+  joined.set(a);
+  joined.set(b, a.length);
+  const segments = run(joined);
+  assert.ok(segments.length >= 2);
+  for (let i = 1; i < segments.length; i++) {
+    const previousEnd = segments[i - 1].start + segments[i - 1].samples.length;
+    assert.ok(segments[i].start >= previousEnd, `el segmento ${i} empieza en ${segments[i].start}, antes de ${previousEnd}`);
+  }
+});

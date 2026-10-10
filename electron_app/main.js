@@ -15,6 +15,7 @@ const { defaultLogger } = require('./logger');
 const { FishAudioService } = require('./fish-audio-service');
 const { createModelStore } = require('./local-ai/model-store');
 const { createLocalAiClient } = require('./local-ai/client');
+const { createPrepare } = require('./local-ai/prepare');
 
 // Inicializar logs en disco
 defaultLogger.clear();
@@ -374,7 +375,7 @@ async function translateWithMyMemory(text, sl, tl) {
   }
 }
 
-ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang }) => {
+ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang, googleOnly = false }) => {
   if (!text || !text.trim()) return { original: '', translated: '', detectedLang: 'es', targetLang: 'en' };
 
   const cleanText = text.trim();
@@ -414,6 +415,11 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang })
     defaultLogger.success('TRANSLATE', `Traducción completada (Google) (${slParam} ➔ ${tlParam}) en ${elapsed}ms: "${resGoogle.translated}"`);
     return { original: correctedText, translated: resGoogle.translated, detectedLang: detected, targetLang: tlParam, elapsedMs: elapsed, engine: 'google' };
   } catch (errGoogle) {
+    if (googleOnly) {
+      // El motor local traducirá esta frase: no se esperan los demás niveles de la nube
+      defaultLogger.warn('TRANSLATE', `Aviso en Google Translate (${errGoogle.message}). Se usará el motor local.`);
+      return { original: correctedText, translated: correctedText, detectedLang: slParam, targetLang: tlParam, elapsedMs: Date.now() - startTime, engine: 'none' };
+    }
     defaultLogger.warn('TRANSLATE', `Aviso en Google Translate (${errGoogle.message}). Probando fallback Groq AI...`);
   }
 
@@ -616,22 +622,25 @@ Output ONLY the final transcribed text without quotes, notes, markdown or explan
 // ── Handlers IPC para el Motor Local ────────────────────────────────
 ipcMain.handle('LOCAL_AI_STATUS', async () => modelStore.status());
 
-ipcMain.handle('LOCAL_AI_PREPARE', async (event, { vadThreshold = 0.5 } = {}) => {
-  try {
-    const pending = modelStore.status();
-    if (!pending.ready) {
-      defaultLogger.info('LOCAL-AI', `Descargando modelos (${(pending.missingBytes / 1e6).toFixed(0)} MB)...`);
-      await modelStore.ensure((progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send('LOCAL_AI_EVENT', { type: 'progress', ...progress });
-      });
+const localPrepare = createPrepare({
+  store: modelStore,
+  client: localAi,
+  onProgress: (progress) => {
+    if (controlWindow && !controlWindow.isDestroyed()) {
+      controlWindow.webContents.send('LOCAL_AI_EVENT', { type: 'progress', ...progress });
     }
-    const ready = await localAi.start({ paths: modelStore.paths(), vadThreshold });
-    defaultLogger.success('LOCAL-AI', `Motor local listo en ${ready.loadMs}ms.`);
-    return { ok: true, loadMs: ready.loadMs };
-  } catch (err) {
-    defaultLogger.error('LOCAL-AI', `No se pudo preparar el motor local: ${err.message}`);
-    return { ok: false, error: err.message };
   }
+});
+
+ipcMain.handle('LOCAL_AI_PREPARE', async (event, { vadThreshold = 0.5 } = {}) => {
+  const pending = modelStore.status();
+  if (!pending.ready) {
+    defaultLogger.info('LOCAL-AI', `Descargando modelos (${(pending.missingBytes / 1e6).toFixed(0)} MB)...`);
+  }
+  const result = await localPrepare.prepare({ vadThreshold });
+  if (result.ok) defaultLogger.success('LOCAL-AI', `Motor local listo en ${result.loadMs}ms.`);
+  else if (!result.cancelled) defaultLogger.error('LOCAL-AI', `No se pudo preparar el motor local: ${result.error}`);
+  return result;
 });
 
 ipcMain.on('LOCAL_AI_AUDIO', (event, { stream, lang, samples }) => {
@@ -650,7 +659,7 @@ ipcMain.handle('LOCAL_AI_TRANSLATE', async (event, { id, target }) => {
 });
 
 ipcMain.on('LOCAL_AI_STOP', () => {
-  localAi.stop();
+  localPrepare.cancel();
 });
 
 // ── Handlers IPC para Fish Audio AI (Clonación de Voz y TTS) ────────

@@ -8,6 +8,7 @@ function createLocalAiClient({ fork, workerPath, onEvent, now = Date.now }) {
   let child = null;
   let initMsg = null;
   let lastCrashAt = -Infinity;
+  let generation = 0;
   let readyWaiters = [];
   const translations = new Map();
 
@@ -15,6 +16,12 @@ function createLocalAiClient({ fork, workerPath, onEvent, now = Date.now }) {
     for (const waiter of translations.values()) waiter.reject(error);
     translations.clear();
     for (const waiter of readyWaiters.splice(0)) waiter.reject(error);
+  }
+
+  /** Cada proceso numera sus frases desde una base distinta: un identificador viejo nunca apunta al audio de otro proceso. */
+  function sendInit(proc) {
+    generation++;
+    proc.postMessage({ ...initMsg, idBase: generation * 1000000 + 1 });
   }
 
   function spawn() {
@@ -52,8 +59,7 @@ function createLocalAiClient({ fork, workerPath, onEvent, now = Date.now }) {
       for (const waiter of translations.values()) waiter.reject(new Error('El motor local se cerró'));
       translations.clear();
       onEvent({ type: 'error', stage: 'worker', fatal: false, message: 'El motor local se cerró y se está reiniciando.' });
-      spawn();
-      child.postMessage(initMsg);
+      sendInit(spawn());
     });
 
     return proc;
@@ -72,7 +78,7 @@ function createLocalAiClient({ fork, workerPath, onEvent, now = Date.now }) {
       initMsg = { type: 'init', ...init };
       return new Promise((resolve, reject) => {
         readyWaiters.push({ resolve, reject });
-        spawn().postMessage(initMsg);
+        sendInit(spawn());
       });
     },
     send(msg) {

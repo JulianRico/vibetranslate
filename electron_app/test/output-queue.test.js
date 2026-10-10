@@ -42,3 +42,15 @@ test('cada trabajo recibe cuántos esperan detrás, para poder omitir la voz atr
   await q.push(async ({ backlog }) => { backlogs.push(backlog); });
   assert.deepEqual(backlogs, [2, 1, 0]);
 });
+
+test('reset descarta lo que seguía en cola: al detener no llegan subtítulos ni voz atrasados', async () => {
+  const q = createOutputQueue();
+  const seen = [];
+  q.push(async () => { await sleep(20); seen.push('en curso'); });
+  q.push(async () => { seen.push('atrasado'); });
+  await sleep(5); // el primero ya está en curso; el segundo sigue esperando
+  q.reset();
+  await q.push(async () => { seen.push('nueva sesión'); });
+  assert.deepEqual(seen, ['en curso', 'nueva sesión']);
+  assert.equal(q.size(), 0);
+});

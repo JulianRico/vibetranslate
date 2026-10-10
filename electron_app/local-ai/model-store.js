@@ -5,7 +5,6 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { once } = require('events');
 
 const CANARY = 'https://huggingface.co/csukuangfj/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8/resolve/main/';
 
@@ -40,8 +39,22 @@ const MODEL_FILES = [
   }
 ];
 
-function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch }) {
+const STALL_MS = 30000;
+
+function hashFile(file) {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    fs.createReadStream(file)
+      .on('data', (chunk) => hash.update(chunk))
+      .on('error', reject)
+      .on('end', () => resolve(hash.digest('hex')));
+  });
+}
+
+function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs = STALL_MS }) {
   const fileFor = (f) => path.join(dir, f.file);
+  let inFlight = null;
+  let partCounter = 0;
 
   function isPresent(f) {
     try {
@@ -56,36 +69,55 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch }) {
     return { ready: missing.length === 0, missing, missingBytes: missing.reduce((n, f) => n + f.size, 0) };
   }
 
+  /** Lee el siguiente bloque o falla si el servidor deja de enviar datos. */
+  function nextChunk(iterator, f) {
+    let timer = null;
+    const stalled = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`La descarga de ${f.file} se detuvo: ${Math.round(stallMs / 1000)} s sin recibir datos`)),
+        stallMs
+      );
+    });
+    return Promise.race([iterator.next(), stalled]).finally(() => clearTimeout(timer));
+  }
+
   async function download(f, onChunk) {
     const target = fileFor(f);
-    const part = target + '.part';
-    const out = fs.createWriteStream(part);
-    const hash = crypto.createHash('sha256');
-    let loaded = 0;
+    // Nombre único: dos escritores nunca comparten parcial, ni siquiera entre procesos
+    const part = `${target}.${process.pid}.${++partCounter}.part`;
+    const abort = new AbortController();
+    let handle = null;
     try {
-      const res = await fetchImpl(f.url);
+      const res = await fetchImpl(f.url, { signal: abort.signal });
       if (!res.ok || !res.body) throw new Error(`No se pudo descargar ${f.file} (HTTP ${res.status})`);
-      for await (const chunk of res.body) {
-        const buf = Buffer.from(chunk);
-        hash.update(buf);
+      handle = await fs.promises.open(part, 'w');
+      const iterator = res.body[Symbol.asyncIterator]();
+      let loaded = 0;
+      for (;;) {
+        const { done, value } = await nextChunk(iterator, f);
+        if (done) break;
+        const buf = Buffer.from(value);
+        await handle.write(buf);
         loaded += buf.length;
-        if (!out.write(buf)) await once(out, 'drain');
         onChunk(buf.length, loaded);
       }
-      await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
-      if (loaded !== f.size || hash.digest('hex') !== f.sha256) {
+      await handle.close();
+      handle = null;
+      // Se verifica el archivo tal como quedó en disco, no los bytes que llegaron por la red
+      const onDisk = fs.statSync(part).size;
+      if (onDisk !== f.size || (await hashFile(part)) !== f.sha256) {
         throw new Error(`Descarga corrupta de ${f.file}: no coincide el tamaño o la suma de verificación`);
       }
       fs.renameSync(part, target);
     } catch (err) {
-      out.destroy();
-      if (!out.closed) await once(out, 'close').catch(() => {});
+      abort.abort();
+      if (handle) await handle.close().catch(() => {});
       fs.rmSync(part, { force: true });
       throw err;
     }
   }
 
-  async function ensure(onProgress = () => {}) {
+  async function run(onProgress) {
     fs.mkdirSync(dir, { recursive: true });
     const todo = files.filter((f) => !isPresent(f));
     const overallTotal = todo.reduce((n, f) => n + f.size, 0);
@@ -97,6 +129,14 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch }) {
         onProgress({ id: f.id, file: f.file, loaded, total: f.size, overallLoaded, overallTotal });
       });
     }
+  }
+
+  /** Una sola descarga a la vez: las llamadas que coinciden esperan a la que ya está en curso. */
+  function ensure(onProgress = () => {}) {
+    if (!inFlight) {
+      inFlight = run(onProgress).finally(() => { inFlight = null; });
+    }
+    return inFlight;
   }
 
   function paths() {

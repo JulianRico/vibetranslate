@@ -6,16 +6,20 @@
 function createOutputQueue({ onError = () => {} } = {}) {
   let tail = Promise.resolve();
   let pending = 0;
+  let epoch = 0;
 
   return {
     push(job) {
       pending++;
+      const mine = epoch;
       tail = tail
-        .then(() => job({ backlog: pending - 1 }))
+        .then(() => (mine === epoch ? job({ backlog: pending - 1 }) : undefined))
         .catch(onError)
         .finally(() => { pending--; });
       return tail;
     },
+    /** Descarta lo que aún no ha empezado (el trabajo en curso termina). */
+    reset() { epoch++; },
     size: () => pending
   };
 }

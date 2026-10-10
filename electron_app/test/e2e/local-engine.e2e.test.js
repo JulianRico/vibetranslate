@@ -7,6 +7,7 @@ const { spawn, spawnSync } = require('node:child_process');
 const { modelsDir, skipReason } = require('../support/models');
 const { readWav, writeWav } = require('../support/wav');
 const { wordErrorRate, hasKeywords } = require('../support/text');
+const { pinkNoise } = require('../support/noise');
 const phrases = require('../fixtures/phrases.json');
 
 const APP_DIR = path.join(__dirname, '..', '..');
@@ -15,8 +16,9 @@ const ELECTRON = require(path.join(APP_DIR, 'node_modules', 'electron'));
 /** Silencio inicial (mientras carga el modelo) + frase + silencio final para que la detección de voz cierre. */
 function micFile(dir, phraseId) {
   const speech = readWav(path.join(__dirname, '..', 'fixtures', 'audio', `${phraseId}.wav`));
-  const samples = new Float32Array(16000 * 6 + speech.length + 16000 * 4);
-  samples.set(speech, 16000 * 6);
+  // Ruido de sala muy bajo en vez de silencio digital: un micrófono real nunca entrega ceros exactos
+  const samples = pinkNoise(16000 * 6 + speech.length + 16000 * 4, 21).map((v) => v * 0.02);
+  for (let i = 0; i < speech.length; i++) samples[16000 * 6 + i] += speech[i];
   const file = path.join(dir, 'mic.wav');
   writeWav(file, samples);
   return file;
@@ -105,6 +107,8 @@ test('ES→EN con traducción local: la app muestra el subtítulo traducido sin 
   assert.ok(wordErrorRate(phrase.text, original) <= 0.2, original);
   assert.ok(hasKeywords(translated, phrase.keywordsEn), translated);
   assert.ok(logs.some((l) => l.includes('Motor local listo')), 'el motor local no arrancó');
+  assert.ok(logs.some((l) => l.includes('Traducido en') && l.includes('[local]')), 'la traducción no la hizo el motor local');
+  assert.ok(!logs.some((l) => l.includes('Traducido en') && !l.includes('[local]')), 'alguna frase se tradujo fuera del equipo');
 });
 
 test('EN→ES con traducción local', { skip: skipReason, timeout: 120000 }, async () => {

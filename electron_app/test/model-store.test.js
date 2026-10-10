@@ -116,3 +116,50 @@ test('una respuesta HTTP de error se informa con el archivo y el código', async
   const store = createModelStore({ dir: tmpDir(), files, fetchImpl: fakeFetch(bodies, { failUrl: 'https://example.test/a' }).impl });
   await assert.rejects(store.ensure(), /a\.onnx.*503/);
 });
+
+test('dos ensure a la vez comparten una sola descarga: nunca dos escritores sobre el mismo archivo', async () => {
+  const { files, bodies } = fixture();
+  const dir = tmpDir();
+  const { impl, calls } = fakeFetch(bodies);
+  const store = createModelStore({ dir, files, fetchImpl: impl });
+  await Promise.all([store.ensure(), store.ensure()]);
+  assert.deepEqual(calls, ['https://example.test/a', 'https://example.test/b']);
+  assert.equal(fs.readFileSync(store.paths().encoder, 'utf8'), 'bbbbbbbbbbbbbbbbbbbb');
+  assert.deepEqual(fs.readdirSync(dir).sort(), ['a.onnx', 'b.onnx']);
+});
+
+test('una descarga que deja de enviar datos se corta con error en vez de quedarse esperando', async () => {
+  const { files, bodies } = fixture();
+  const dir = tmpDir();
+  const stalled = async () => ({
+    ok: true,
+    status: 200,
+    body: (async function* () {
+      yield bodies['https://example.test/a'].subarray(0, 5);
+      await new Promise(() => {}); // el servidor deja de responder
+    })()
+  });
+  const store = createModelStore({ dir, files, fetchImpl: stalled, stallMs: 50 });
+  await assert.rejects(store.ensure(), /a\.onnx.*sin recibir datos/);
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
+
+test('se verifica lo que quedó en disco, no solo lo que llegó por la red', async () => {
+  const { files, bodies } = fixture();
+  const dir = tmpDir();
+  // Otro proceso pisa el parcial mientras se descarga: el tamaño coincide pero el contenido no
+  const tamper = async (url) => ({
+    ok: true,
+    status: 200,
+    body: (async function* () {
+      yield bodies[url];
+      for (const name of fs.readdirSync(dir)) {
+        if (name.includes('.part')) fs.writeFileSync(path.join(dir, name), 'X'.repeat(bodies[url].length));
+      }
+    })()
+  });
+  const store = createModelStore({ dir, files, fetchImpl: tamper });
+  await assert.rejects(store.ensure(), /a\.onnx/);
+  assert.equal(store.status().ready, false);
+  assert.deepEqual(fs.readdirSync(dir), []);
+});
