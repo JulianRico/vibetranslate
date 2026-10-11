@@ -653,7 +653,7 @@ Generado automáticamente por ViBeTranslate Desktop
     }, delayMs);
   }
 
-  async function speakSpanishToUser(text, { inProcessOnly = false } = {}) {
+  async function speakSpanishToUser(text, { inProcessOnly = false, waitForEnd = false } = {}) {
     if (!text || !text.trim()) return { success: false, elapsedMs: 0 };
 
     const startTtsTime = Date.now();
@@ -672,7 +672,7 @@ Generado automáticamente por ViBeTranslate Desktop
         audio.volume = vol;
         audio.playbackRate = 1.15; // algo más rápido que el habla normal, para no quedarse atrás
         markAppSpeakingStart();
-        if (inProcessOnly) {
+        if (inProcessOnly || waitForEnd) {
           // Se espera a que termine de sonar: así las frases no se pisan y se sabe cuánta voz hay pendiente
           const finished = new Promise((resolve) => {
             const limit = setTimeout(() => resolve(false), 20000);
@@ -682,7 +682,8 @@ Generado automáticamente por ViBeTranslate Desktop
           await audio.play();
           const played = await finished;
           markAppSpeakingEnd(played ? 450 : 0);
-          return { success: played, elapsedMs: Date.now() - startTtsTime };
+          if (played || inProcessOnly) return { success: played, elapsedMs: Date.now() - startTtsTime };
+          throw new Error('la voz en línea no llegó a sonar');
         }
         audio.onended = () => markAppSpeakingEnd(450);
         audio.onerror = () => {
@@ -693,7 +694,7 @@ Generado automáticamente por ViBeTranslate Desktop
         return { success: true, elapsedMs: elapsed };
       } catch (e) {
         console.warn('[TTS Google] Intentando fallback Web Speech:', e);
-        if (inProcessOnly) markAppSpeakingEnd(0);
+        if (inProcessOnly || waitForEnd) markAppSpeakingEnd(0);
       }
     }
 
@@ -703,6 +704,14 @@ Generado automáticamente por ViBeTranslate Desktop
     }
 
     fallbackWebSpeech(text, vol, selectedVoice);
+    if (waitForEnd) {
+      // La voz del sistema no avisa aquí de cuándo acaba: se espera a que deje de hablar para no pisar la frase siguiente
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const limit = Date.now() + 20000;
+      while (window.speechSynthesis && window.speechSynthesis.speaking && Date.now() < limit) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
     const elapsed = Date.now() - startTtsTime;
     return { success: true, elapsedMs: elapsed };
   }
@@ -1711,7 +1720,7 @@ Generado automáticamente por ViBeTranslate Desktop
     // Por defecto la reunión va solo con subtítulos: sin voz no hay pausas al escuchar ni frases perdidas
     if (silent || !(incomingVoiceToggle && incomingVoiceToggle.checked)) return;
     const speak = () => speakOrSkip(
-      () => speakSpanishToUser(translatedText, { inProcessOnly: incomingExcludesOwnAudio }),
+      () => speakSpanishToUser(translatedText, { inProcessOnly: incomingExcludesOwnAudio, waitForEnd: true }),
       (ttsElapsed) => {
         const totalChainMs = Date.now() - speechStartTime;
         appendLog('LATENCIA', `⏱️ Total Receptor: ${(totalChainMs / 1000).toFixed(2)}s ➔ [Voz: ${voiceDurationMs}ms] [STT: ${sttElapsed}ms] [Trad: ${transElapsed}ms] [TTS: ${ttsElapsed}ms]`, 'control');

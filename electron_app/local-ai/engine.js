@@ -20,7 +20,9 @@ const PARTIAL_MAX_LAG_MS = 600; // si el motor va con más retraso que esto, no 
  */
 function isInventedTranslation(text) {
   const t = text.trim();
-  return /^\(.*\)$/.test(t) || /^[-–—]\s*\S+$/.test(t) || /^\d{8,}$/.test(t.replace(/\s/g, ''));
+  if (/^\(.*\)$/.test(t) || /^[-–—]\s*\S+$/.test(t)) return true;
+  // Solo cifras y separadores ("1", "1.1.2.2.2"): un invento, salvo que sea un número corriente ("15", "2026")
+  return /^[\d\s.,]+$/.test(t) && !/^\d{2,4}$/.test(t);
 }
 
 function createEngine({

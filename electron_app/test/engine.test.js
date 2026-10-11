@@ -323,3 +323,16 @@ test('pedir la traducción de una frase cuyo resultado es un invento devuelve er
   assert.match(answer.error, /no fiable/);
   assert.equal(answer.text, undefined);
 });
+
+test('una traducción hecha solo de cifras sueltas y puntos es un invento; un número normal no', () => {
+  for (const junk of ['1', '1.1.2.2.2.2.2.2.2.2.2', '1.1.1.1.1.1.1.1.1.1.1.1.1.', '0 0 0 0']) {
+    const t = advanced({ segments: [[start(2000)]], translations: [junk] });
+    t.audio({ target: 'es' });
+    assert.equal(t.posted.filter((m) => m.type === 'segment')[0].translated, undefined, `"${junk}" no debe mostrarse`);
+  }
+  for (const fine of ['15', '2026', 'Son 15.', '1.5 millones']) {
+    const t = advanced({ segments: [[start(2000)]], translations: [fine] });
+    t.audio({ target: 'es' });
+    assert.equal(t.posted.filter((m) => m.type === 'segment')[0].translated, fine);
+  }
+});
