@@ -9,7 +9,8 @@ const path = require('path');
 const fs = require('fs');
 const https = require('https');
 const http = require('http');
-const { applyTechnicalGlossary, DEFAULT_GLOSSARY } = require('./glossary');
+const { userGlossary } = require('./glossary');
+const { createTechGlossary } = require('./local-ai/tech-glossary');
 const { createCloudTranslator } = require('./cloud-translator');
 const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
@@ -95,7 +96,7 @@ const DEFAULT_SETTINGS = {
   virtualCableId: 'default',
   micInputId: 'default',
   speakerOutputId: 'default',
-  glossary: DEFAULT_GLOSSARY,
+  glossary: {}, // solo lo que añade el usuario: los términos técnicos están en local-ai/tech-terms.js
   subtitleFontSize: 16,
   subtitleOpacity: 92,
   subtitleBgColor: '#000000',
@@ -117,6 +118,8 @@ function loadSavedSettings() {
     if (fs.existsSync(settingsFilePath)) {
       const data = fs.readFileSync(settingsFilePath, 'utf8');
       const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      // Las versiones anteriores guardaban una copia del glosario de fábrica (con 'real' → 'React'): se quita
+      loaded.glossary = userGlossary(loaded.glossary);
       defaultLogger.info('CONFIG', 'Configuración cargada correctamente desde disco.');
       return loaded;
     }
@@ -354,14 +357,25 @@ async function translateWithMyMemory(text, sl, tl) {
   }
 }
 
-ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang, googleOnly = false }) => {
+/** Términos técnicos para el texto que llega de los motores en la nube: solo formas exactas, más las pistas. */
+let cloudGlossary = { key: null, glossary: null };
+function termGlossary(user) {
+  const key = JSON.stringify(user || {});
+  if (cloudGlossary.key !== key) cloudGlossary = { key, glossary: createTechGlossary({ user, fuzzy: false }) };
+  return cloudGlossary.glossary;
+}
+
+ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang, googleOnly = false, hints = null }) => {
   if (!text || !text.trim()) return { original: '', translated: '', detectedLang: 'es', targetLang: 'en' };
 
   const cleanText = text.trim();
   const settings = loadSavedSettings();
-  const correctedText = applyTechnicalGlossary(cleanText, settings.glossary);
 
   let srcShort = (sourceLang || 'auto').substring(0, 2).toLowerCase();
+  // El motor local ya corrigió su texto; el de los motores en la nube pasa por las formas exactas del diccionario
+  const terms = termGlossary(settings.glossary).correct(cleanText, srcShort === 'en' ? 'en' : 'es');
+  const correctedText = terms.text;
+  const termHints = Array.isArray(hints) ? hints : terms.hints;
   let tgtShort = (targetLang || 'auto').substring(0, 2).toLowerCase();
 
   const isAutoSource = (srcShort === 'au' || !srcShort);
@@ -378,7 +392,7 @@ ipcMain.handle('TRANSLATE_TEXT', async (event, { text, sourceLang, targetLang, g
 
   if (!isAutoSource && !googleOnly) {
     try {
-      const res = await cloudTranslator.translate(sanitizedText, slParam, tlParam);
+      const res = await cloudTranslator.translate(sanitizedText, slParam, tlParam, { hints: termHints });
       const label = res.engine === 'groq' ? `Groq ${res.model}` : 'Google';
       defaultLogger.success('TRANSLATE', `Traducción completada (${label}) (${slParam} ➔ ${tlParam}) en ${res.elapsedMs}ms: "${res.translated}"`);
       return { original: correctedText, translated: res.translated, detectedLang: slParam, targetLang: tlParam, elapsedMs: res.elapsedMs, engine: res.engine };
@@ -614,7 +628,7 @@ ipcMain.handle('LOCAL_AI_PREPARE', async (event, { vadThreshold = 0.5 } = {}) =>
   if (!pending.ready) {
     defaultLogger.info('LOCAL-AI', `Descargando modelos (${(pending.missingBytes / 1e6).toFixed(0)} MB)...`);
   }
-  const result = await localPrepare.prepare({ vadThreshold, captureAudio: traceRecorder.savesAudio() });
+  const result = await localPrepare.prepare({ vadThreshold, captureAudio: traceRecorder.savesAudio(), glossary: loadSavedSettings().glossary });
   if (result.ok) defaultLogger.success('LOCAL-AI', `Motor local listo en ${result.loadMs}ms.`);
   else if (!result.cancelled) defaultLogger.error('LOCAL-AI', `No se pudo preparar el motor local: ${result.error}`);
   return result;

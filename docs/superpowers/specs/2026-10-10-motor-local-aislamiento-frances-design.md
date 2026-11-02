@@ -207,3 +207,23 @@ Decisiones:
 - **runonweb.ai:** su traducción es la que se adopta (Bergamot). Su STT (Whisper tiny.en, solo inglés) es peor que Canary. Su TTS (Kokoro, Supertonic 2, KittenTTS vía transformers.js/WASM) no se adopta por ahora: las voces españolas de Kokoro son de grado D, Supertonic 2 tiene licencia OpenRAIL-M con restricciones de uso, y añadiría transformers.js a la app; si hace falta voz sin red, sherpa-onnx (ya incluido) puede ejecutar voces locales de forma nativa.
 
 Límites de la clave gratuita de Groq (medidos en las cabeceras): 1000 peticiones/día y 8000 tokens/min por modelo. Al agotarse, el traductor pasa al otro modelo y luego a Google sin intervención.
+
+## 13. Diccionario técnico y primera palabra (2026-11-02)
+
+Medido repitiendo los 18 audios de la entrevista simulada (entrevistadora en inglés, candidato en español; voces de Windows) por el flujo completo, y juzgando cada traducción con Qwen 3.8 27B (1 a 5) frente a lo que se dijo de verdad.
+
+| | Antes | Ahora |
+|---|---|---|
+| Error de transcripción, candidato ES / entrevistadora EN | 11 % / 7 % | 5 % / 3 % |
+| Términos técnicos que llegan en la traducción entregada, ES→EN / EN→ES | 42 % / 44 % | 79 % / 78 % |
+| Juez, fidelidad de la traducción entregada, ES→EN / EN→ES | 3,33 / 4,44 | 4,11 / 4,56 |
+| Juez, fluidez de la traducción entregada, ES→EN / EN→ES | 3,67 / 4,89 | 4,67 / 4,89 |
+
+- **Primera palabra:** «Hi,», «Sí,», «Perdón,» seguidas de pausa no llegaban a los 400 ms de voz del detector y se perdían (9 de 18 turnos). Un segundo Silero sensible a 100 ms marca esas ráfagas y se anteponen a la frase (`segmenter.js`).
+- **Diccionario:** `local-ai/tech-terms.js`, unos 315 términos de Microsoft 365, SharePoint/SPFx/PnP, Power Platform, Azure, .NET, Windows y desarrollo general, con cómo los escribe el reconocedor al oírlos en español («taimaut», «cherpoint», «Postre S. Q. L.»).
+- **Corrección** (`tech-glossary.js`): por clave fonética, exacta o aproximada. Una palabra de verdad nunca se reemplaza: lo decide el vocabulario del traductor (`spm-lexicon.js`, 21 000 palabras) y, si hay duda, el traductor con una ida y vuelta («postres» → «desserts» → «postres»; «rumbook» → «heading» → «rumbo» no vuelve). En 206 frases sin jerga (las sesiones grabadas y las de reunión) solo cambió una, y bien («open AI anthropic» → «OpenAI Anthropic»).
+- **Protección en Bergamot:** la jerga que se dice en inglés viaja como marcador (X1Z) y se restaura concordando el artículo («la deploy» → «el deploy»). Sin protección Bergamot conservaba 7 de 14 términos de prueba; con ella, 14.
+- **Nube:** el texto llega corregido y el LLM recibe las palabras corrientes que podían ser un término («café» → ¿Kafka?) como pistas. La indicación de términos escritos de oído solo se da para español hablado: en inglés hacía ver «Vite» en «a bit garbled».
+- **Glosario antiguo:** las versiones anteriores guardaban una copia del glosario de fábrica en `settings.json` (con «real» → «React»); al cargar se descarta lo que coincide con esa copia. El vocabulario propio (nombres, siglas) se escribe en la interfaz: «cómo se oye = cómo se escribe».
+
+Lo que no arregla: palabras fundidas por el reconocedor («el lag volvió» → «lambolvió») y siglas deletreadas como «AWS» cuando el reconocedor pierde la primera letra.

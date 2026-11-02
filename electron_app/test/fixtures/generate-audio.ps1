@@ -15,7 +15,7 @@ $phrases = Get-Content -Raw -Encoding UTF8 (Join-Path $here 'phrases.json') | Co
 
 foreach ($lang in 'es', 'en') {
   # Las frases con modismos son las que distinguen al traductor local de la nube
-  foreach ($p in @($phrases.$lang) + @($phrases.idioms.$lang) + @($phrases.shortStart.$lang)) {
+  foreach ($p in @($phrases.$lang) + @($phrases.idioms.$lang) + @($phrases.shortStart.$lang) + @($phrases.tech.$lang)) {
     $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
     $synth.SelectVoice($voices[$lang])
     $synth.SetOutputToWaveFile((Join-Path $out "$($p.id).wav"), $format)

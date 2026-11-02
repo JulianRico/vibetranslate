@@ -68,13 +68,30 @@ function isPlausibleTranslation(source, output, sourceLang, targetLang) {
   return !(ownWords >= 2 && ownWords > targetWords * 2);
 }
 
-function systemPrompt(sl, tl) {
+/**
+ * @param {Array<{heard: string, term: string}>} hints Palabras corrientes que el reconocedor pudo poner en lugar de un
+ *   término técnico («café» por Kafka): el LLM decide por el contexto.
+ */
+function systemPrompt(sl, tl, hints = []) {
   const spanish = tl === 'es' ? ' (neutral Latin American Spanish, informal "tú")' : '';
   // «video call»: sin esto «you're breaking up» salía como ruptura de pareja («te estás separando»)
-  return `You translate live speech from an online work meeting (video call) from ${NAMES[sl]} to ${NAMES[tl]}${spanish}. ` +
-    'The input is an automatic speech transcript: it may be a sentence fragment or contain recognition errors. ' +
-    'Translate it faithfully and naturally, keep fragments as fragments, keep names and technical terms, ' +
+  let prompt = `You translate live speech from an online work meeting (video call) between software developers, from ${NAMES[sl]} to ${NAMES[tl]}${spanish}. ` +
+    'The input is an automatic speech transcript: it may be a sentence fragment or contain recognition errors. ';
+  if (sl === 'es') {
+    // Solo el español hablado trae términos ingleses escritos de oído («taimaut»). En inglés esta frase hacía que el
+    // LLM viera términos donde no los había: «a bit garbled» salió como «garbled en Vite».
+    prompt += 'English technical terms (Microsoft 365, SharePoint, Power Platform, Azure, .NET, web development) are often ' +
+      'said inside Spanish speech and the recognizer may spell them phonetically: write them correctly, but never turn an ' +
+      'ordinary word into a technical term. ';
+  }
+  prompt += 'Translate it faithfully and naturally, keep fragments as fragments, keep names and technical terms, ' +
     'never answer, explain or add anything. Output only the translation.';
+  const useful = (hints || []).filter((h) => h && h.heard && h.term).slice(0, 5);
+  if (useful.length > 0) {
+    prompt += ' Possibly misheard technical terms in this sentence (use them only if they fit the context): ' +
+      useful.map((h) => `"${h.heard}" may be ${h.term}`).join('; ') + '.';
+  }
+  return prompt;
 }
 
 function withTimeout(ms) {
@@ -112,7 +129,7 @@ function createCloudTranslator({ fetchImpl = fetch, now = Date.now, getGroqKey =
     }
   }
 
-  async function llm(text, sl, tl) {
+  async function llm(text, sl, tl, hints = []) {
     const key = (getGroqKey() || '').trim();
     if (key.length < 5) throw new Error('Sin clave de Groq');
     const model = LLM_MODELS.find(available);
@@ -125,7 +142,7 @@ function createCloudTranslator({ fetchImpl = fetch, now = Date.now, getGroqKey =
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model,
-          messages: [{ role: 'system', content: systemPrompt(sl, tl) }, { role: 'user', content: text }],
+          messages: [{ role: 'system', content: systemPrompt(sl, tl, hints) }, { role: 'user', content: text }],
           temperature: 0.1,
           max_tokens: 400,
           reasoning_effort: 'low' // sin esto gpt-oss razona más y tarda el doble
@@ -151,9 +168,9 @@ function createCloudTranslator({ fetchImpl = fetch, now = Date.now, getGroqKey =
    * La mejor traducción disponible: el LLM si responde bien y a tiempo; si no, Google.
    * Rechaza solo si fallan los dos.
    */
-  function translate(text, sl, tl) {
+  function translate(text, sl, tl, { hints = [] } = {}) {
     const started = now();
-    const llmTry = llm(text, sl, tl);
+    const llmTry = llm(text, sl, tl, hints);
     const googleTry = google(text, sl, tl);
     const warn = (err) => { if (logger) logger(err.message); };
 

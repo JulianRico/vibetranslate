@@ -12,6 +12,7 @@ const { createLevelCompensator } = require('./level-compensator');
 const { resolvePair } = require('./local-ai/languages');
 const { thresholdFromNoiseGate } = require('./local-ai/segmenter');
 const { createTranslateRouter } = require('./local-ai/translate-route');
+const { parseVocabulary, formatVocabulary } = require('./vocabulary');
 const { createSlowDetector } = require('./local-ai/slow-detector');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
@@ -264,6 +265,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const labOpenBtn = document.getElementById('lab-open-btn');
   const labSummary = document.getElementById('lab-summary');
   const translationModeSelect = document.getElementById('translation-mode');
+  const customVocabulary = document.getElementById('custom-vocabulary');
   const localAiStatus = document.getElementById('local-ai-status');
 
   const vadBadge = document.getElementById('vad-badge');
@@ -971,6 +973,9 @@ Generado automáticamente por ViBeTranslate Desktop
     saveCurrentSettings();
   });
 
+  // El vocabulario propio se guarda al salir del campo; el motor local lo recibe al activar la traducción
+  if (customVocabulary) customVocabulary.addEventListener('change', () => saveCurrentSettings());
+
   if (translationModeSelect) {
     translationModeSelect.addEventListener('change', () => {
       saveCurrentSettings();
@@ -1149,6 +1154,7 @@ Generado automáticamente por ViBeTranslate Desktop
     targetLangSelect.value = s.targetLang || 'en';
     sttEngineSelect.value = s.sttEngine || 'gemini_35_transcribe';
     if (translationModeSelect) translationModeSelect.value = s.translationMode || 'auto';
+    if (customVocabulary) customVocabulary.value = formatVocabulary(s.glossary);
     if (incomingVoiceToggle) incomingVoiceToggle.checked = !!s.incomingVoice;
     if (duckLevelSelect) duckLevelSelect.value = String(s.duckLevel || 0.05);
     geminiKeyInput.value = s.geminiApiKey || '';
@@ -1205,6 +1211,7 @@ Generado automáticamente por ViBeTranslate Desktop
       targetLang: targetLangSelect.value,
       sttEngine: sttEngineSelect.value,
       translationMode: translationModeSelect ? translationModeSelect.value : 'auto',
+      glossary: customVocabulary ? parseVocabulary(customVocabulary.value) : {},
       incomingVoice: incomingVoiceToggle ? incomingVoiceToggle.checked : false,
       duckLevel: duckLevelSelect ? parseFloat(duckLevelSelect.value) || 0.05 : 0.05,
       ttsEngine: ttsEngineSelect ? ttsEngineSelect.value : 'fish_audio',
@@ -1569,17 +1576,18 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   /** Muestra una línea nueva o reescribe la de `lineId` (subtítulo flotante e historial). */
-  function showLine({ lineId, replace, grows = false, direction, subtitleDirection, from, to, original, translated, prefix = '' }) {
+  function showLine({ lineId, replace, grows = false, direction, subtitleDirection, from, to, original, translated, prefix = '', hints = null }) {
     const known = lineId !== null && lineId !== undefined ? shownLines.get(lineId) : null;
     if (replace && known) {
       known.source = original;
+      if (hints) known.hints = hints;
       conversationLog.update(known.n, { original, translated });
       known.originalEl.textContent = original || '…';
       known.translatedEl.textContent = translated;
     } else {
       const shown = recordConversation({ direction, from, to, original, translated });
       if (shown && lineId !== null && lineId !== undefined) {
-        shownLines.set(lineId, { n: shown.entry.n, originalEl: shown.originalEl, translatedEl: shown.translatedEl, source: original, direction: subtitleDirection, prefix });
+        shownLines.set(lineId, { n: shown.entry.n, originalEl: shown.originalEl, translatedEl: shown.translatedEl, source: original, direction: subtitleDirection, prefix, hints: hints || [] });
         while (shownLines.size > MAX_SHOWN_LINES) shownLines.delete(shownLines.keys().next().value);
       }
     }
@@ -1598,11 +1606,11 @@ Generado automáticamente por ViBeTranslate Desktop
    * Pide a la nube (LLM + Google) una traducción mejor de la línea y la aplica si la línea no ha cambiado.
    * Devuelve la traducción de la nube, o null si no llegó.
    */
-  async function refineLine({ lineId, source, sourceLang, targetLang, current, segmentId, stream }) {
+  async function refineLine({ lineId, source, sourceLang, targetLang, current, segmentId, stream, hints = [] }) {
     const started = Date.now();
     let res = null;
     try {
-      res = await ipcRenderer.invoke('TRANSLATE_TEXT', { text: source, sourceLang, targetLang });
+      res = await ipcRenderer.invoke('TRANSLATE_TEXT', { text: source, sourceLang, targetLang, hints });
     } catch (err) {
       res = null;
     }
@@ -1694,25 +1702,28 @@ Generado automáticamente por ViBeTranslate Desktop
    * Qué mostrar de una frase ya traducida: la línea (la frase entera si este trozo continúa otra) y, si hay red,
    * la mejora de la nube. Devuelve la promesa de la nube para que la voz pueda esperarla.
    */
-  function presentLine({ stream, segmentId, line, translation, pair, subtitleDirection, from, to, prefix, silent }) {
+  function presentLine({ stream, segmentId, line, translation, pair, subtitleDirection, from, to, prefix, silent, hints = [] }) {
     const translatedText = translation.translated.trim();
     // Un trozo que continúa una frase reescribe su línea, si el motor tradujo la frase entera
     const joined = !!(line && line.translated);
     const lineId = joined ? line.lineId : segmentId;
     const lineSource = joined ? line.text : translation.original;
     const lineTranslated = joined ? line.translated : translatedText;
-    showLine({ lineId, replace: joined, grows: joined, direction: stream === 'mic' ? 'outgoing' : 'incoming', subtitleDirection, from, to, original: lineSource, translated: lineTranslated, prefix });
+    // Pistas de términos mal oídos («café» por Kafka) de todos los trozos de la frase
+    const earlier = joined && shownLines.has(lineId) ? (shownLines.get(lineId).hints || []) : [];
+    const lineHints = [...earlier, ...hints.filter((h) => !earlier.some((e) => e.heard === h.heard))];
+    showLine({ lineId, replace: joined, grows: joined, direction: stream === 'mic' ? 'outgoing' : 'incoming', subtitleDirection, from, to, original: lineSource, translated: lineTranslated, prefix, hints: lineHints });
     previewTrans.textContent = `✨ ${lineTranslated}`;
 
     // Traducción local con red: la nube mejora la línea (subtítulo) y, si llega a tiempo, la voz
     const local = translation.engine === 'local' && segmentId !== null && pair;
     const refine = local && !silent && cloudAllowed() && lineSource
-      ? refineLine({ lineId, source: lineSource, sourceLang: pair.source, targetLang: pair.target, current: lineTranslated, segmentId, stream })
+      ? refineLine({ lineId, source: lineSource, sourceLang: pair.source, targetLang: pair.target, current: lineTranslated, segmentId, stream, hints: lineHints })
       : null;
     return { joined, refine };
   }
 
-  async function deliverOutgoing({ recognizedText, sttElapsed, voiceDurationMs, userSpeechStart, segmentId = null, pair = null, silent = false, preTranslated = null, line = null }) {
+  async function deliverOutgoing({ recognizedText, sttElapsed, voiceDurationMs, userSpeechStart, segmentId = null, pair = null, silent = false, preTranslated = null, line = null, hints = [] }) {
     const transStart = Date.now();
     const translation = preTranslated
       ? { original: recognizedText, translated: preTranslated.text, detectedLang: pair.source, targetLang: pair.target, elapsedMs: preTranslated.ms, engine: 'local' }
@@ -1740,7 +1751,7 @@ Generado automáticamente por ViBeTranslate Desktop
     const { joined, refine } = presentLine({
       stream: 'mic', segmentId, line, translation, pair,
       subtitleDirection: isTargetSpanish ? 'incoming' : 'outgoing',
-      from: isTargetSpanish ? 'en' : 'es', to: isTargetSpanish ? 'es' : 'en', prefix: '', silent
+      from: isTargetSpanish ? 'en' : 'es', to: isTargetSpanish ? 'es' : 'en', prefix: '', silent, hints
     });
 
     if (silent) return; // frase cerrada al detener: solo subtítulo
@@ -1757,7 +1768,7 @@ Generado automáticamente por ViBeTranslate Desktop
     );
   }
 
-  async function deliverIncoming({ text, sttElapsed, voiceDurationMs, speechStartTime, segmentId = null, silent = false, preTranslated = null, line = null }) {
+  async function deliverIncoming({ text, sttElapsed, voiceDurationMs, speechStartTime, segmentId = null, silent = false, preTranslated = null, line = null, hints = [] }) {
     const transStart = Date.now();
     const translation = preTranslated
       ? { original: text, translated: preTranslated.text, detectedLang: 'en', targetLang: 'es', elapsedMs: preTranslated.ms, engine: 'local' }
@@ -1790,7 +1801,7 @@ Generado automáticamente por ViBeTranslate Desktop
     previewOrig.textContent = `👤 Receptor (Inglés): ${(line && line.translated ? line.text : text) || '…'}`;
     const { joined, refine } = presentLine({
       stream: 'incoming', segmentId, line, translation, pair: { source: 'en', target: 'es' },
-      subtitleDirection: 'incoming', from: 'en', to: 'es', prefix: 'Receptor: ', silent
+      subtitleDirection: 'incoming', from: 'en', to: 'es', prefix: 'Receptor: ', silent, hints
     });
 
     // Por defecto la reunión va solo con subtítulos: sin voz no hay pausas al escuchar ni frases perdidas
@@ -1866,6 +1877,8 @@ Generado automáticamente por ViBeTranslate Desktop
       const silent = !!msg.late;
       const preTranslated = msg.translated ? { text: msg.translated, ms: msg.translateMs } : null;
       const line = msg.join || null;
+      const hints = msg.hints || [];
+      if (msg.heard) appendLog('GLOSARIO', `🔤 Términos corregidos: "${msg.heard}" ➔ "${msg.text}"`, 'control');
       if (slowDetector.observe(msg)) {
         appendLog('LOCAL-AI', '⚠️ Este equipo transcribe más lento de lo que hablas y el retraso se irá acumulando. Prueba un motor en la nube.', 'warn');
       }
@@ -1874,13 +1887,13 @@ Generado automáticamente por ViBeTranslate Desktop
         previewOrig.textContent = `🎙️ ${line && line.translated ? line.text : msg.text}`;
         outputQueue.push(() => deliverOutgoing({
           recognizedText: msg.text, sttElapsed: msg.sttMs, voiceDurationMs: msg.durationMs,
-          userSpeechStart: startedAt, segmentId: msg.id, pair, silent, preTranslated, line
+          userSpeechStart: startedAt, segmentId: msg.id, pair, silent, preTranslated, line, hints
         }));
       } else {
         appendLog('RECEPTOR', `Inglés (Motor local) en ${msg.sttMs}ms: "${msg.text}"`, 'audio');
         outputQueue.push(() => deliverIncoming({
           text: msg.text, sttElapsed: msg.sttMs, voiceDurationMs: msg.durationMs,
-          speechStartTime: startedAt, segmentId: msg.id, silent, preTranslated, line
+          speechStartTime: startedAt, segmentId: msg.id, silent, preTranslated, line, hints
         }));
       }
     }

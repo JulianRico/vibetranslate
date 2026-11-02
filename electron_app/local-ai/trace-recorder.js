@@ -127,6 +127,7 @@ function formatReport(session, summary) {
     const tr = translationFor(e.id);
     out.push(`**[${clock(e.t)}] ${STREAM_NAMES[e.stream] || e.stream}** — voz ${e.durationMs} ms, transcripción ${e.sttMs} ms${tr ? `, traducción ${tr.translateMs} ms (${tr.engine})` : ''}`);
     out.push(`- Oído: ${e.text}`);
+    if (e.heard) out.push(`- Antes de corregir los términos técnicos: ${e.heard}`);
     out.push(`- Traducción: ${tr ? (tr.translated || `(sin traducción: ${tr.error || 'motivo desconocido'})`) : '(no llegó a traducirse)'}`);
     if (tr && tr.join) {
       out.push(`- Frase completa: ${tr.join.text}`);

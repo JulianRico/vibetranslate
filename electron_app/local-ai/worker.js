@@ -5,6 +5,8 @@
 const sherpa = require('sherpa-onnx-node');
 const { createEngine } = require('./engine');
 const { createTextTranslator, modelsFromPaths } = require('./text-translator');
+const { createTechGlossary, translatorWordCheck } = require('./tech-glossary');
+const { loadLexicon } = require('./spm-lexicon');
 
 let engine = null;
 let initializing = null; // mientras carga, los mensajes esperan en orden en vez de fallar
@@ -22,6 +24,25 @@ async function loadTranslator(paths) {
   }
 }
 
+/**
+ * Términos técnicos: el vocabulario del traductor dice qué es una palabra corriente; en caso de duda se consulta al
+ * propio traductor. Sin vocabulario solo se aplican las formas exactas; sin traductor, nada se considera deformación.
+ */
+function makeGlossary(paths, translator, user) {
+  let lexicon = null;
+  try {
+    lexicon = loadLexicon(paths.mtEsEnVocab || paths.mtEnEsVocab);
+  } catch (err) {
+    post({ type: 'error', stage: 'glossary', fatal: false, message: `No se pudo leer el vocabulario: ${err.message}` });
+  }
+  return createTechGlossary({
+    user: user || {},
+    isKnownWord: (w) => !!lexicon && lexicon.has(w),
+    isWord: translator ? translatorWordCheck(translator) : () => true,
+    fuzzy: !!lexicon
+  });
+}
+
 process.parentPort.on('message', async (event) => {
   const msg = event.data;
   try {
@@ -33,7 +54,8 @@ process.parentPort.on('message', async (event) => {
       const started = Date.now();
       initializing = loadTranslator(msg.paths);
       const translator = await initializing;
-      engine = createEngine({ sherpa, paths: msg.paths, vadThreshold: msg.vadThreshold, idBase: msg.idBase, captureAudio: msg.captureAudio, post, translator });
+      const glossary = makeGlossary(msg.paths, translator, msg.glossary);
+      engine = createEngine({ sherpa, paths: msg.paths, vadThreshold: msg.vadThreshold, idBase: msg.idBase, captureAudio: msg.captureAudio, post, translator, glossary });
       initializing = null;
       post({ type: 'ready', loadMs: Date.now() - started, translator: !!translator });
       return;

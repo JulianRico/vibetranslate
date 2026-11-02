@@ -115,3 +115,22 @@ test('si fallan los dos, rechaza', async () => {
   const fetch = fakeFetch({ google: () => ({ throws: 'sin red' }), groq: () => ({ throws: 'sin red' }) });
   await assert.rejects(make(fetch).translate('hello', 'en', 'es'), /Fallaron/);
 });
+
+test('el LLM sabe que habla entre desarrolladores y recibe las pistas de términos mal oídos', async () => {
+  const fetch = fakeFetch({ groq: () => ({ body: { choices: [{ message: { content: 'For the tests we use Testcontainers with real Postgres and Kafka.' } }] } }) });
+  await make(fetch).translate('Para las pruebas usamos Testcontainers con postres y café reales.', 'es', 'en', {
+    hints: [{ heard: 'postres', term: 'PostgreSQL' }, { heard: 'café', term: 'Kafka' }]
+  });
+  const prompt = fetch.calls.find((c) => c.to === 'groq').body.messages[0].content;
+  assert.match(prompt, /software developers/);
+  assert.match(prompt, /SharePoint/);
+  assert.match(prompt, /"postres" may be PostgreSQL; "café" may be Kafka/);
+});
+
+test('sin pistas el prompt no las menciona', async () => {
+  const fetch = fakeFetch();
+  await make(fetch).translate('hello there', 'en', 'es');
+  assert.doesNotMatch(fetch.calls.find((c) => c.to === 'groq').body.messages[0].content, /misheard/);
+  // en inglés no hay términos escritos de oído: la indicación hacía ver «Vite» en «a bit garbled»
+  assert.doesNotMatch(fetch.calls.find((c) => c.to === 'groq').body.messages[0].content, /phonetically/);
+});

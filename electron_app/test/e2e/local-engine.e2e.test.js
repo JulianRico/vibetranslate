@@ -199,6 +199,23 @@ for (const [lang, sourceLang, targetLang, key] of [['en', 'en-US', 'es', 'keywor
   });
 }
 
+test('jerga técnica en español: la app corrige los términos, aplica el vocabulario propio y los conserva al traducir', { skip: skipReason, timeout: 120000 }, async () => {
+  const phrase = phrases.tech.es[0]; // «Hicimos rollback del deploy porque el timeout era muy bajo, y revisamos los logs en Grafana.»
+  const { subtitles, logs } = await runApp({
+    phraseId: phrase.id, sourceLang: 'es-ES', targetLang: 'en', translationMode: 'local',
+    settings: { glossary: { grafana: 'Grafana Cloud' } }
+  });
+  const original = joined(subtitles, 'originalText');
+  const translated = joined(subtitles, 'translatedText');
+  console.log(`  oído: "${original}" ➔ "${translated}"`);
+  for (const term of ['rollback', 'deploy', 'timeout', 'logs']) {
+    assert.ok(original.toLowerCase().includes(term), `«${term}» en lo oído: ${original}`);
+    assert.ok(translated.toLowerCase().includes(term), `«${term}» en la traducción: ${translated}`);
+  }
+  assert.ok(original.includes('Grafana Cloud'), 'el vocabulario propio manda');
+  assert.ok(logs.some((l) => l.includes('Términos corregidos')), 'se registra la corrección');
+});
+
 test('con origen Auto el motor local no arranca y lo explica', { skip: skipReason, timeout: 120000 }, async () => {
   await assert.rejects(
     runApp({ phraseId: 'es1', sourceLang: 'auto', targetLang: 'en', translationMode: 'local' }),

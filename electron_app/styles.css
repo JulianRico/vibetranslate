@@ -658,7 +658,7 @@ label {
   color: var(--text-secondary);
 }
 
-select, input[type="text"] {
+select, input[type="text"], textarea.vocabulary-input {
   width: 100%;
   padding: 9px 12px;
   background: rgba(255, 255, 255, 0.6);
@@ -674,7 +674,13 @@ select, input[type="text"] {
   transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
 }
 
-select:focus, input[type="text"]:focus {
+textarea.vocabulary-input {
+  font-family: inherit;
+  resize: vertical;
+  min-height: 58px;
+}
+
+select:focus, input[type="text"]:focus, textarea.vocabulary-input:focus {
   background: rgba(255, 255, 255, 0.95);
   border-color: var(--apple-blue);
   box-shadow: 0 0 0 3.5px rgba(0, 113, 227, 0.2);
@@ -1624,7 +1630,8 @@ body.dark-theme .btn-preset-vol.active-preset {
 }
 
 body.dark-theme select,
-body.dark-theme input[type="text"] {
+body.dark-theme input[type="text"],
+body.dark-theme textarea.vocabulary-input {
   background: rgba(30, 41, 59, 0.7);
   border-color: rgba(255, 255, 255, 0.15);
   color: #f8fafc;

@@ -44,8 +44,8 @@ const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
 
 function createEngine({
   sherpa, paths, post, vadThreshold = 0.5, idBase = 1, captureAudio = false, now = Date.now, translator = null,
-  makeSegmenter = createSegmenter, makeTranscriber = createTranscriber, makeEchoDetector = createEchoDetector,
-  makeJoiner = createSentenceJoiner
+  glossary = null, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber,
+  makeEchoDetector = createEchoDetector, makeJoiner = createSentenceJoiner
 }) {
   const transcriber = makeTranscriber({ sherpa, paths });
   const echoDetector = makeEchoDetector();
@@ -74,12 +74,41 @@ function createEngine({
     return state;
   }
 
+  /**
+   * Traduce con el traductor de texto protegiendo los términos técnicos que estropearía («mocks» → «burlas»): van
+   * como marcadores y se restauran; si el traductor pierde un marcador, esa frase se traduce sin proteger.
+   */
+  function translateProtected(texts, source, target) {
+    if (!glossary) return translator.translateMany(texts, source, target);
+    const guarded = texts.map((t) => glossary.protect(t, source));
+    const out = translator.translateMany(guarded.map((g) => g.text), source, target);
+    const retry = [];
+    const result = out.map((translated, i) => {
+      if (!guarded[i].count) return translated;
+      const restored = guarded[i].restore(translated, target);
+      if (restored === null) retry.push(i);
+      return restored;
+    });
+    if (retry.length > 0) {
+      const plain = translator.translateMany(retry.map((i) => texts[i]), source, target);
+      retry.forEach((i, k) => { result[i] = plain[k]; });
+    }
+    return result;
+  }
+
+  /** Corrige los términos técnicos mal transcritos; devuelve el texto, lo oído si cambió y las pistas para la nube. */
+  function fixTerms(text, lang) {
+    if (!glossary || !text) return { text, heard: null, hints: [] };
+    const fixed = glossary.correct(text, lang);
+    return { text: fixed.text, heard: fixed.fixes.length > 0 ? text : null, hints: fixed.hints };
+  }
+
   /** Traduce texto con el traductor local; sin él, Canary traduce desde el audio de la frase. */
   function translateTexts(texts, samples, source, target) {
     const started = now();
     if (translator) {
       try {
-        return { texts: translator.translateMany(texts, source, target), ms: now() - started };
+        return { texts: translateProtected(texts, source, target), ms: now() - started };
       } catch (err) {
         post({ type: 'error', stage: 'translate', fatal: false, message: `Traductor local: ${err.message}` });
       }
@@ -123,12 +152,13 @@ function createEngine({
         continue;
       }
 
-      const { text, ms } = transcriber.transcribe(segment.samples, lang);
-      if (!text || !HAS_WORDS.test(text)) continue;
-      if (isNoiseTranscript(text) || isMicNoise(name, lang, text, segment.samples)) {
-        post({ type: 'noise', stream: name, durationMs, text });
+      const { text: raw, ms } = transcriber.transcribe(segment.samples, lang);
+      if (!raw || !HAS_WORDS.test(raw)) continue;
+      if (isNoiseTranscript(raw) || isMicNoise(name, lang, raw, segment.samples)) {
+        post({ type: 'noise', stream: name, durationMs, text: raw });
         continue;
       }
+      const { text, heard, hints } = fixTerms(raw, lang);
 
       const id = nextId++;
       kept.set(id, { samples: segment.samples, lang });
@@ -142,6 +172,8 @@ function createEngine({
       const piece = joiner.add({ stream: name, id, lang, text, gapMs });
 
       const message = { type: 'segment', id, stream: name, lang, text, durationMs, sttMs: ms, gapMs };
+      if (heard) message.heard = heard; // lo que escribió el reconocedor antes de corregir los términos
+      if (hints.length > 0) message.hints = hints;
       if (piece.joined) message.join = { lineId: piece.lineId, text: piece.text };
       if (state.target && state.target !== lang) {
         const wanted = piece.joined ? [text, piece.text] : [text];
@@ -168,6 +200,7 @@ function createEngine({
     state.partialSamples = pending.length;
     const heard = transcriber.transcribe(pending, state.lang);
     if (!heard.text || !HAS_WORDS.test(heard.text) || isNoiseTranscript(heard.text)) return;
+    heard.text = fixTerms(heard.text, state.lang).text;
     const message = { type: 'partial', stream: name, lang: state.lang, text: heard.text, translated: false, durationMs: Math.round(pending.length / 16), ms: heard.ms };
     if (state.target && state.target !== state.lang) {
       const done = translateTexts([heard.text], pending, state.lang, state.target);

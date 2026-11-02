@@ -23,8 +23,8 @@ test('corrige las deformaciones fonéticas de términos técnicos', () => {
 });
 
 test('un reemplazo no se vuelve a reemplazar ni se aplica dentro de otra palabra', () => {
-  const glossary = { node: 'Node.js', js: 'JavaScript' };
-  assert.equal(applyTechnicalGlossary('a node app', glossary), 'a Node.js app');
+  const glossary = { node: 'NodeJS', js: 'JavaScript' };
+  assert.equal(applyTechnicalGlossary('a node app', glossary), 'a NodeJS app');
   assert.equal(applyTechnicalGlossary('nodemon', glossary), 'nodemon');
 });
 
@@ -40,4 +40,14 @@ test('el glosario del usuario se suma al de serie y gana si repite una entrada',
 test('texto vacío o glosario vacío no fallan', () => {
   assert.equal(applyTechnicalGlossary(''), '');
   assert.equal(applyTechnicalGlossary('hola', null), 'hola');
+});
+
+test('la configuración antigua guardaba el glosario de fábrica entero: al cargar solo queda lo del usuario', () => {
+  const { userGlossary, LEGACY_GLOSSARY } = require('../glossary');
+  // así está el settings.json real de quien usaba versiones anteriores
+  const saved = { ...LEGACY_GLOSSARY, andrews: 'Andrés', real: 'Real Madrid' };
+  assert.deepEqual(userGlossary(saved), { andrews: 'Andrés', real: 'Real Madrid' });
+  assert.equal(applyTechnicalGlossary('you want to join a real AI research lab', LEGACY_GLOSSARY), 'you want to join a real AI research lab');
+  assert.deepEqual(userGlossary(undefined), {});
+  assert.deepEqual(userGlossary({ '  ': 'x', vacio: '' }), {});
 });

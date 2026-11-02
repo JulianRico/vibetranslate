@@ -198,3 +198,33 @@ for (const lang of ['en', 'es']) {
     }
   });
 }
+
+// Jerga técnica dicha con voz real: el diccionario corrige lo que el reconocedor escribe a su manera y la traducción
+// local conserva los términos que se dicen en inglés
+const { createTechGlossary, translatorWordCheck } = require('../local-ai/tech-glossary');
+const { loadLexicon } = require('../local-ai/spm-lexicon');
+
+for (const [lang, target] of [['es', 'en'], ['en', 'es']]) {
+  test(`frases técnicas (${lang}): términos corregidos en lo oído y conservados en la traducción`, { skip: skipReason }, () => {
+    const lexicon = loadLexicon(store.paths().mtEsEnVocab);
+    const glossary = createTechGlossary({ isKnownWord: (w) => lexicon.has(w), isWord: translatorWordCheck(translator) });
+    const posted = [];
+    const e = createEngine({ sherpa: require('sherpa-onnx-node'), paths: store.paths(), post: (m) => posted.push(m), translator, glossary });
+    const lower = (s) => s.toLowerCase();
+    for (const phrase of phrases.tech[lang]) {
+      const padded = new Float32Array(audio(phrase.id).length + 16000);
+      padded.set(audio(phrase.id));
+      const from = posted.length;
+      for (let i = 0; i < padded.length; i += 2048) e.handle({ type: 'audio', stream: `tech-${phrase.id}`, lang, target, samples: padded.slice(i, i + 2048) });
+      e.handle({ type: 'flush', stream: `tech-${phrase.id}` });
+      const segments = posted.slice(from).filter((m) => m.type === 'segment');
+      const heard = textOf(segments);
+      const translated = translate(segments);
+      console.log(`  ${phrase.id}: oído "${segments.map((s) => s.heard || s.text).join(' ')}"\n      corregido "${heard}"\n      → "${translated}"`);
+      const missing = phrase.terms.filter((t) => !lower(heard).includes(lower(t)));
+      const lost = phrase.terms.filter((t) => lower(heard).includes(lower(t)) && !lower(translated).includes(lower(t)));
+      assert.ok(missing.length <= 1, `faltan en lo oído: ${missing.join(', ')}`);
+      assert.deepEqual(lost, [], 'términos oídos que la traducción no conservó');
+    }
+  });
+}

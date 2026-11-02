@@ -30,7 +30,7 @@ function setup({ ready = true, ensureError = null, startError = null } = {}) {
 test('con los modelos presentes arranca el motor sin descargar', async () => {
   const t = setup();
   assert.deepEqual(await t.session.prepare({ vadThreshold: 0.6 }), { ok: true, loadMs: 1400 });
-  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.6, captureAudio: false }]]);
+  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.6, captureAudio: false, glossary: {} }]]);
 });
 
 test('si faltan modelos los descarga, informa el progreso y luego arranca', async () => {
@@ -74,5 +74,11 @@ test('un fallo de descarga o de arranque se devuelve como error, no como excepci
 test('si hay una sesión de prueba grabando audio, el motor arranca con la captura activada', async () => {
   const t = setup();
   await t.session.prepare({ vadThreshold: 0.5, captureAudio: true });
-  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.5, captureAudio: true }]]);
+  assert.deepEqual(t.calls, [['start', { paths: { vad: 'v' }, vadThreshold: 0.5, captureAudio: true, glossary: {} }]]);
+});
+
+test('el vocabulario propio del usuario viaja al motor al arrancar', async () => {
+  const t = setup();
+  await t.session.prepare({ vadThreshold: 0.5, glossary: { andrews: 'Andrés' } });
+  assert.deepEqual(t.calls[0][1].glossary, { andrews: 'Andrés' });
 });

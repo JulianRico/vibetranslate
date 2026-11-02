@@ -427,3 +427,57 @@ test('sin traductor, pedir la traducción de una frase cuyo resultado es un inve
   assert.match(answer.error, /no fiable/);
   assert.equal(answer.text, undefined);
 });
+
+/** Glosario doble: corrige «taimaud» y da una pista para «café»; protege «deploy». */
+function fakeGlossary() {
+  return {
+    correct: (text) => {
+      const fixed = text.replace('taimaud', 'timeout');
+      return { text: fixed, fixes: fixed !== text ? [{ from: 'taimaud', to: 'timeout' }] : [], hints: text.includes('café') ? [{ heard: 'café', term: 'Kafka' }] : [] };
+    },
+    protect: (text) => ({
+      text: text.replace('deploy', 'X1Z'),
+      count: text.includes('deploy') ? 1 : 0,
+      restore: (out) => (out.includes('X1Z') ? out.replace('X1Z', 'deploy') : null)
+    })
+  };
+}
+
+function withGlossary({ heard, translate }) {
+  const posted = [];
+  const engine = createEngine({
+    sherpa: {}, paths: {}, post: (m) => posted.push(m), glossary: fakeGlossary(),
+    translator: { translateMany: translate },
+    makeSegmenter: () => ({ push: () => [{ samples: new Float32Array(48000), start: 50000 }], flush: () => [], isSpeaking: () => false }),
+    makeTranscriber: () => ({ transcribe: () => ({ text: heard, ms: 100 }), translate: () => ({ text: 'x', ms: 1 }) })
+  });
+  engine.handle({ type: 'audio', stream: 'incoming', lang: 'es', target: 'en', samples: new Float32Array(2048) });
+  return posted.filter((m) => m.type === 'segment')[0];
+}
+
+test('los términos mal transcritos se corrigen antes de traducir y se conserva lo que oyó el reconocedor', () => {
+  const seen = [];
+  const seg = withGlossary({ heard: 'ajusté el taimaud y el café', translate: (texts) => { seen.push(...texts); return texts.map((t) => `EN ${t}`); } });
+  assert.equal(seg.text, 'ajusté el timeout y el café');
+  assert.equal(seg.heard, 'ajusté el taimaud y el café');
+  assert.deepEqual(seg.hints, [{ heard: 'café', term: 'Kafka' }]);
+  assert.deepEqual(seen, ['ajusté el timeout y el café'], 'el traductor recibe el texto corregido');
+});
+
+test('los términos protegidos viajan como marcador y se restauran; si el traductor pierde el marcador se traduce sin proteger', () => {
+  const calls = [];
+  const kept = withGlossary({ heard: 'hicimos el deploy', translate: (texts) => { calls.push(...texts); return texts.map((t) => t.replace('hicimos el', 'we did the')); } });
+  assert.equal(kept.translated, 'we did the deploy');
+  assert.deepEqual(calls, ['hicimos el X1Z']);
+
+  const lostCalls = [];
+  const lost = withGlossary({ heard: 'hicimos el deploy', translate: (texts) => { lostCalls.push(...texts); return texts.map((t) => (t.includes('X1Z') ? 'we did the implementation' : 'we did the deploy (plain)')); } });
+  assert.equal(lost.translated, 'we did the deploy (plain)');
+  assert.deepEqual(lostCalls, ['hicimos el X1Z', 'hicimos el deploy']);
+});
+
+test('sin términos que corregir no se añade nada al mensaje', () => {
+  const seg = withGlossary({ heard: 'buenos días a todos', translate: (texts) => texts });
+  assert.equal(seg.heard, undefined);
+  assert.equal(seg.hints, undefined);
+});

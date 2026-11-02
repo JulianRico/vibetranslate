@@ -13,6 +13,16 @@
     { "id": "en4", "text": "The customer wants a demonstration next week.", "keywordsEs": ["cliente", "semana"] },
     { "id": "en5", "text": "I think we should postpone the launch until next month.", "keywordsEs": ["mes"] }
   ],
+  "tech": {
+    "es": [
+      { "id": "es-tech1", "text": "Hicimos rollback del deploy porque el timeout era muy bajo, y revisamos los logs en Grafana.", "terms": ["rollback", "deploy", "timeout", "logs", "Grafana"] },
+      { "id": "es-tech2", "text": "Creé un web part con SPFx y lo subí al app catalog de SharePoint.", "terms": ["web part", "SPFx", "app catalog", "SharePoint"] }
+    ],
+    "en": [
+      { "id": "en-tech1", "text": "Please open a pull request and add a feature flag before the deploy.", "terms": ["pull request", "feature flag", "deploy"] },
+      { "id": "en-tech2", "text": "We test with real containers instead of mocks, and we wrote a runbook for the on call team.", "terms": ["mocks", "runbook"] }
+    ]
+  },
   "shortStart": {
     "en": [
       { "id": "en-short1", "text": "Hi, thanks for joining the call today.", "first": "hi" },
