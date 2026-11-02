@@ -56,11 +56,15 @@ test('translate se resuelve con la respuesta de su identificador o falla con su 
   const t = setup();
   t.start();
   t.children[0].emit('message', { type: 'ready', loadMs: 1 });
-  const ok = t.client.translate(3, 'en');
-  const bad = t.client.translate(4, 'en');
-  assert.deepEqual(t.children[0].sent.slice(1), [{ type: 'translate', id: 3, target: 'en' }, { type: 'translate', id: 4, target: 'en' }]);
-  t.children[0].emit('message', { type: 'translation', id: 4, error: 'ya no está' });
-  t.children[0].emit('message', { type: 'translation', id: 3, text: 'Hello.', ms: 400 });
+  const ok = t.client.translate({ text: 'Hola.', source: 'es', target: 'en', segmentId: 3 });
+  const bad = t.client.translate({ text: 'Adiós.', source: 'es', target: 'en', segmentId: 4 });
+  // cada petición lleva su propio identificador: dos traducciones del mismo segmento no se pisan
+  assert.deepEqual(t.children[0].sent.slice(1), [
+    { type: 'translate', id: 1, text: 'Hola.', source: 'es', target: 'en', segmentId: 3 },
+    { type: 'translate', id: 2, text: 'Adiós.', source: 'es', target: 'en', segmentId: 4 }
+  ]);
+  t.children[0].emit('message', { type: 'translation', id: 2, error: 'ya no está' });
+  t.children[0].emit('message', { type: 'translation', id: 1, text: 'Hello.', ms: 400 });
   assert.deepEqual(await ok, { text: 'Hello.', ms: 400 });
   await assert.rejects(bad, /ya no está/);
   assert.deepEqual(t.events, []);
@@ -70,7 +74,7 @@ test('si el proceso muere se reinicia una vez con el mismo init y avisa sin ser 
   const t = setup();
   t.start();
   t.children[0].emit('message', { type: 'ready', loadMs: 1 });
-  const pending = t.client.translate(1, 'en');
+  const pending = t.client.translate({ text: 'Hola.', source: 'es', target: 'en' });
   t.children[0].emit('exit', 1);
   await assert.rejects(pending, /se cerró/);
   assert.equal(t.children.length, 2);
@@ -111,7 +115,7 @@ test('stop mata el proceso, no lo reinicia y send deja de hacer nada', async () 
   assert.equal(t.children.length, 1);
   assert.deepEqual(t.events, []);
   t.client.send({ type: 'audio' });
-  await assert.rejects(t.client.translate(1, 'en'), /detenido/);
+  await assert.rejects(t.client.translate({ text: 'Hola.', source: 'es', target: 'en' }), /detenido/);
 });
 
 test('start sobre un cliente en marcha reemplaza el proceso anterior', async () => {

@@ -43,15 +43,76 @@ function fakeFetch(bodies, { failUrl = null, breakUrl = null, ignoreRange = fals
   return { impl, calls, ranges };
 }
 
-test('la lista real declara los cuatro archivos con tamaño y suma', () => {
-  assert.deepEqual(MODEL_FILES.map((f) => f.id), ['vad', 'encoder', 'decoder', 'tokens']);
+test('la lista real declara voz, transcripción y traducción EN↔ES con tamaño y suma', () => {
+  assert.deepEqual(MODEL_FILES.map((f) => f.id), [
+    'vad', 'encoder', 'decoder', 'tokens',
+    'mtEnEs', 'mtEnEsLex', 'mtEnEsVocab', 'mtEsEn', 'mtEsEnLex', 'mtEsEnVocab'
+  ]);
   for (const f of MODEL_FILES) {
     assert.match(f.url, /^https:\/\//);
     // una rama puede cambiar de contenido y romper todas las instalaciones: se fija la revisión
     assert.doesNotMatch(f.url, /\/resolve\/main\//);
     assert.match(f.sha256, /^[0-9a-f]{64}$/);
     assert.ok(f.size > 0);
+    if (f.gzip) {
+      assert.match(f.url, /\.gz$/);
+      assert.ok(f.downloadSize > 0 && f.downloadSize < f.size, `${f.file}: lo comprimido ocupa menos`);
+    }
   }
+  assert.equal(new Set(MODEL_FILES.map((f) => f.file)).size, MODEL_FILES.length, 'cada archivo con su nombre');
+});
+
+/** Un modelo que el servidor entrega comprimido con gzip. */
+function gzipFixture() {
+  const zlib = require('node:zlib');
+  const plain = Buffer.from('modelo de traducción '.repeat(50));
+  const packed = zlib.gzipSync(plain);
+  const files = [{ id: 'mt', file: 'mt.bin', url: 'https://example.test/mt.gz', gzip: true, downloadSize: packed.length, size: plain.length, sha256: sha(plain) }];
+  return { files, plain, packed, bodies: { 'https://example.test/mt.gz': packed } };
+}
+
+test('un modelo comprimido se descarga, se descomprime y se verifica sobre el archivo final', async () => {
+  const { files, plain, packed, bodies } = gzipFixture();
+  const dir = tmpDir();
+  const store = createModelStore({ dir, files, fetchImpl: fakeFetch(bodies).impl });
+  assert.equal(store.status().missingBytes, packed.length, 'se informa lo que se va a bajar, no lo que ocupará');
+
+  const progress = [];
+  await store.ensure((p) => progress.push(p));
+  assert.deepEqual(fs.readFileSync(store.paths().mt), plain);
+  assert.deepEqual(fs.readdirSync(dir), ['mt.bin'], 'no quedan parciales');
+  assert.equal(progress[progress.length - 1].overallLoaded, packed.length);
+  assert.equal(progress[progress.length - 1].overallTotal, packed.length);
+  assert.equal(store.status().ready, true);
+});
+
+test('un comprimido cortado se reanuda donde se quedó', async () => {
+  const { files, plain, bodies } = gzipFixture();
+  const dir = tmpDir();
+  const url = files[0].url;
+  await assert.rejects(createModelStore({ dir, files, fetchImpl: fakeFetch(bodies, { breakUrl: url }).impl }).ensure(), /socket hang up/);
+  assert.deepEqual(fs.readdirSync(dir), ['mt.bin.gz.part']);
+
+  const server = fakeFetch(bodies);
+  const store = createModelStore({ dir, files, fetchImpl: server.impl });
+  await store.ensure();
+  assert.equal(server.ranges[0], 'bytes=5-');
+  assert.deepEqual(fs.readFileSync(store.paths().mt), plain);
+});
+
+test('un comprimido que no descomprime o no verifica no deja nada a medias', async () => {
+  const { files, packed } = gzipFixture();
+  const garbage = Buffer.alloc(packed.length, 7); // mismo tamaño, pero no es gzip
+  const dir = tmpDir();
+  const store = createModelStore({ dir, files, fetchImpl: fakeFetch({ [files[0].url]: garbage }).impl });
+  await assert.rejects(store.ensure(), /Descarga corrupta de mt\.bin/);
+  assert.deepEqual(fs.readdirSync(dir), []);
+
+  const wrongSum = [{ ...files[0], sha256: '0'.repeat(64) }];
+  const other = createModelStore({ dir, files: wrongSum, fetchImpl: fakeFetch({ [files[0].url]: packed }).impl });
+  await assert.rejects(other.ensure(), /suma de verificación/);
+  assert.deepEqual(fs.readdirSync(dir), []);
+  assert.equal(other.status().ready, false);
 });
 
 test('status informa lo que falta y ensure lo descarga con progreso', async () => {

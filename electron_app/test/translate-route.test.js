@@ -23,14 +23,14 @@ function setup({ cloudResult = CLOUD_OK, localResult = { ok: true, translated: '
 test('con red y modo auto traduce en la nube y no toca el motor local', async () => {
   const t = setup();
   assert.deepEqual(await t.translate(REQUEST), CLOUD_OK);
-  // googleOnly: con motor local detrás no tiene sentido esperar a los otros niveles de la nube
-  assert.deepEqual(t.calls, [['cloud', { text: 'Hola.', sourceLang: 'es-ES', targetLang: 'en', googleOnly: true }]]);
+  assert.deepEqual(t.calls, [['cloud', { text: 'Hola.', sourceLang: 'es-ES', targetLang: 'en' }]]);
 });
 
 test('sin red va directo al motor local, sin esperar a la nube', async () => {
   const t = setup({ online: false });
   assert.deepEqual(await t.translate(REQUEST), { original: 'Hola.', translated: 'Hi.', detectedLang: 'es', targetLang: 'en', elapsedMs: 410, engine: 'local' });
-  assert.deepEqual(t.calls, [['local', { id: 7, target: 'en' }]]);
+  // el texto viaja al motor local; el identificador de la frase sirve si no hay traductor de texto
+  assert.deepEqual(t.calls, [['local', { text: 'Hola.', source: 'es', target: 'en', segmentId: 7 }]]);
 });
 
 test('en modo local traduce siempre en local aunque haya red', async () => {

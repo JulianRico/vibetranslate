@@ -152,3 +152,23 @@ test('con traducción directa el texto oído llega después y se une a su frase 
   assert.match(report, /eco/i);
   assert.ok(fs.existsSync(path.join(dir, 'informe.md')));
 });
+
+test('el informe muestra la frase completa de los trozos unidos y la mejora de la nube', () => {
+  const t = setup();
+  t.recorder.start();
+  phrase(t, { id: 1, stream: 'incoming', text: "Of course, we don't know what's going to.", translated: 'Por supuesto, no sabemos qué va a hacer.' });
+  t.recorder.record('segment', { id: 2, stream: 'incoming', lang: 'en', text: 'happen in a year.', durationMs: 2000, sttMs: 300 });
+  t.recorder.record('translation', {
+    segmentId: 2, stream: 'incoming', engine: 'local', translateMs: 40, endToEndMs: 400, original: 'happen in a year.', translated: 'sucede en un año.',
+    join: { lineId: 1, text: "Of course, we don't know what's going to happen in a year.", translated: 'Por supuesto, no sabemos qué va a pasar en un año.' }
+  });
+  t.recorder.record('refine', { segmentId: 2, lineId: 1, stream: 'incoming', engine: 'groq', translateMs: 480, original: '…', translated: 'Claro, no sabemos qué pasará dentro de un año.' });
+  const { summary, report } = t.recorder.stop();
+  assert.equal(summary.streams.incoming.joined, 1);
+  assert.equal(summary.streams.incoming.refined, 1);
+  assert.match(report, /Trozos unidos a la frase anterior: 1/);
+  assert.match(report, /Líneas mejoradas por la nube: 1/);
+  assert.match(report, /- Frase completa: Of course, we don't know what's going to happen in a year\./);
+  assert.match(report, /- Traducción de la frase completa: Por supuesto, no sabemos qué va a pasar en un año\./);
+  assert.match(report, /- Mejorada en la nube \(groq, 480 ms\): Claro, no sabemos qué pasará dentro de un año\./);
+});

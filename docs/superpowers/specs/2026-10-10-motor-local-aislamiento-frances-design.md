@@ -184,3 +184,26 @@ Memoria del proceso con el modelo cargado: ~420 MB. Descarga inicial: 208 MB (Ca
 Canales IPC definitivos: `LOCAL_AI_STATUS`, `LOCAL_AI_PREPARE`, `LOCAL_AI_AUDIO`, `LOCAL_AI_TRANSLATE`, `LOCAL_AI_STOP` (renderer → principal) y un único `LOCAL_AI_EVENT` (principal → renderer) con `type`: `progress`, `segment`, `vad`, `error`. Desaparecen `LOCAL_AI_ENROLL` y `speaker-gate.js`, `local-translator.js`.
 
 El motor local exige idioma de origen fijo (no «Auto»). Las pruebas de ruido usan solo ruido rosa generado; no hay grabación de cafetería.
+
+## 12. Revisión de la traducción (2026-11-02)
+
+Medido con 61 frases reales de las sesiones de prueba (transcritas por Canary) y 60 frases típicas de reunión, con traducciones de referencia escritas a mano. Métrica chrF (más es mejor) y latencia desde este equipo.
+
+| Sistema | EN→ES real | EN→ES reunión | ES→EN real | ES→EN reunión | Latencia (mediana) |
+|---|---|---|---|---|---|
+| Canary desde el audio (lo que usaba el modo local) | 69,9 | — | 56,7 | — | 560 ms |
+| Bergamot + Firefox Translations (motor de runonweb.ai) | 75,8 | 69,8 | 64,1 | 72,9 | 45 ms |
+| Google (dict-chrome-ex) | 74,9 | 69,6 | 74,4 | 82,1 | 500 ms |
+| Groq gpt-oss-20b con el prompt anterior (nivel 2 de la nube) | 66,6 | 69,9 | 70,7 | 75,6 | 730 ms |
+| Groq gpt-oss-120b, `reasoning_effort: low`, prompt de reunión | 78,1 | 74,5 | 72,5 | 81,5 | 500 ms |
+| Lo que se envía: LLM y Google en paralelo, con validación | 78,7 | 72,7 | 66,8 | 81,5 | 500 ms |
+
+Decisiones:
+
+- **Traducción local = Canary transcribe + Bergamot traduce el texto.** Mejor que la traducción directa de Canary, una sola pasada del modelo de voz por frase y 30-50 ms por frase. Modelos `en-es`/`es-en` base-memory de Mozilla (31 MB cada uno, MPL-2.0), descargados de Mozilla con suma verificada; el WASM (`@mkljczk/bergamot-translator` 0.4.16) va copiado en `local-ai/vendor/bergamot`. La traducción directa de Canary solo queda como detector de ruido para frases del micrófono de hasta 3 palabras (sobre ruido devuelve «1.1.1.1…»).
+- **Los trozos de una frase se unen** (`sentence-joiner.js`) y la línea del subtítulo se reescribe con la frase entera. Tras un punto, la minúscula inicial solo une con ≤ 800 ms de pausa medida.
+- **En modo nube, el subtítulo local sale al instante y la nube lo mejora en la misma línea** (`cloud-translator.js`: gpt-oss-120b → gpt-oss-20b y Google a la vez; gana el LLM si su respuesta pasa la validación y llega hasta 1 s después de Google). La voz espera a la nube como mucho 1,5 s.
+- **Glosario:** `'real' → 'React'`, `'node'/'nodo' → 'Node.js'`, `'jason' → 'JSON'` y similares corrompían frases normales («a real AI lab» → «a React AI lab», «cada nodo» → «cada Node.js.js»). Se eliminaron y el reemplazo es de una sola pasada.
+- **runonweb.ai:** su traducción es la que se adopta (Bergamot). Su STT (Whisper tiny.en, solo inglés) es peor que Canary. Su TTS (Kokoro, Supertonic 2, KittenTTS vía transformers.js/WASM) no se adopta por ahora: las voces españolas de Kokoro son de grado D, Supertonic 2 tiene licencia OpenRAIL-M con restricciones de uso, y añadiría transformers.js a la app; si hace falta voz sin red, sherpa-onnx (ya incluido) puede ejecutar voces locales de forma nativa.
+
+Límites de la clave gratuita de Groq (medidos en las cabeceras): 1000 peticiones/día y 8000 tokens/min por modelo. Al agotarse, el traductor pasa al otro modelo y luego a Google sin intervención.

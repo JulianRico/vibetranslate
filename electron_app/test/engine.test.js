@@ -30,8 +30,9 @@ function setup({ queue = [], texts = [], speaking = [] } = {}) {
 test('un segmento de voz se transcribe y se publica con su duración e identificador', () => {
   const t = setup({ queue: [[seg(1500)]], texts: ['Hola a todos.'] });
   t.audio('mic', 'es');
-  assert.deepEqual(t.posted, [{ type: 'segment', id: 1, stream: 'mic', lang: 'es', text: 'Hola a todos.', durationMs: 1500, sttMs: 5 }]);
-  assert.deepEqual(t.calls, [['transcribe', 24000, 'es']]);
+  assert.deepEqual(t.posted, [{ type: 'segment', id: 1, stream: 'mic', lang: 'es', text: 'Hola a todos.', durationMs: 1500, sttMs: 5, gapMs: null }]);
+  // frase corta del micrófono: una pasada de traducción desde el audio comprueba que no sea ruido
+  assert.deepEqual(t.calls, [['transcribe', 24000, 'es'], ['translate', 24000, 'es', 'en']]);
 });
 
 test('un segmento de menos de 400 ms se descarta sin llamar al modelo (tos, clic)', () => {
@@ -66,26 +67,26 @@ test('micrófono y receptor tienen segmentadores independientes', () => {
   assert.deepEqual(t.posted.map((m) => [m.stream, m.lang, m.text]), [['mic', 'es', 'uno'], ['incoming', 'en', 'two']]);
 });
 
-test('translate usa el audio guardado del segmento y su idioma de origen', () => {
+test('sin traductor de texto, translate usa el audio guardado de la frase y su idioma de origen', () => {
   const t = setup({ queue: [[seg(1000)]], texts: ['Hola.'] });
   t.audio('mic', 'es');
-  t.engine.handle({ type: 'translate', id: 1, target: 'en' });
+  t.engine.handle({ type: 'translate', id: 50, segmentId: 1, target: 'en' });
   assert.deepEqual(t.calls[1], ['translate', 16000, 'es', 'en']);
-  assert.deepEqual(t.posted[1], { type: 'translation', id: 1, text: 'translated', ms: 7 });
+  assert.deepEqual(t.posted[1], { type: 'translation', id: 50, text: 'translated', ms: 7 });
 });
 
-test('translate de un segmento desconocido o ya caducado responde con error', () => {
+test('translate de una frase desconocida o ya caducada responde con error', () => {
   const batch = Array.from({ length: 9 }, () => seg(500));
   const t = setup({ queue: [batch], texts: batch.map((_, i) => `frase ${i}`) });
   t.audio();
-  t.engine.handle({ type: 'translate', id: 1, target: 'en' });
-  t.engine.handle({ type: 'translate', id: 99, target: 'en' });
+  t.engine.handle({ type: 'translate', id: 1, segmentId: 1, target: 'en' });
+  t.engine.handle({ type: 'translate', id: 2, segmentId: 99, target: 'en' });
   const answers = t.posted.filter((m) => m.type === 'translation');
   assert.deepEqual(answers, [
     { type: 'translation', id: 1, error: 'El audio de esa frase ya no está disponible' },
-    { type: 'translation', id: 99, error: 'El audio de esa frase ya no está disponible' }
+    { type: 'translation', id: 2, error: 'El audio de esa frase ya no está disponible' }
   ]);
-  t.engine.handle({ type: 'translate', id: 9, target: 'en' });
+  t.engine.handle({ type: 'translate', id: 3, segmentId: 9, target: 'en' });
   assert.equal(t.posted[t.posted.length - 1].text, 'translated');
 });
 
@@ -193,13 +194,16 @@ test('con la captura activada cada frase lleva su audio, para guardarlo en la se
   assert.equal(posted[2].samples.length, 900 * 16);
 });
 
-/** Motor con dobles configurables para las mejoras de latencia y eco. */
-function advanced({ segments = [], peeks = [], speaking = true, translations = null, echo = () => ({ echo: false, score: 0 }), clock = { now: 5000 } } = {}) {
+/** Motor con dobles configurables para traducción, eco y texto provisional. */
+function advanced({ segments = [], peeks = [], speaking = true, heard = null, probes = null, translator = undefined, echo = () => ({ echo: false, score: 0 }), clock = { now: 5000 } } = {}) {
   const posted = [];
   const calls = [];
   const observed = [];
+  const fakeTranslator = translator === undefined
+    ? { translateMany: (texts, from, to) => { calls.push(['mt', texts, from, to]); return texts.map((x) => `${to}:${x}`); } }
+    : translator;
   const engine = createEngine({
-    sherpa: {}, paths: {}, post: (m) => posted.push(m), now: () => clock.now,
+    sherpa: {}, paths: {}, post: (m) => posted.push(m), now: () => clock.now, translator: fakeTranslator,
     makeSegmenter: () => ({
       push: () => segments.shift() || [],
       flush: () => [],
@@ -208,39 +212,87 @@ function advanced({ segments = [], peeks = [], speaking = true, translations = n
       peek: () => (peeks.length ? peeks.shift() : null)
     }),
     makeTranscriber: () => ({
-      transcribe: (samples, lang) => { calls.push('transcribe'); return { text: `oído en ${lang}`, ms: 300 }; },
-      translate: (samples, source, target) => { calls.push('translate'); return { text: translations ? translations.shift() : `traducido a ${target}`, ms: 400 }; }
+      transcribe: (samples, lang) => { calls.push('transcribe'); return { text: heard ? heard.shift() : `oído en ${lang} con muchas palabras`, ms: 300 }; },
+      translate: (samples, source, target) => { calls.push('translate'); return { text: probes ? probes.shift() : `directo a ${target}`, ms: 400 }; }
     }),
     makeEchoDetector: () => ({ observeReference: (samples, at) => observed.push(at), check: echo })
   });
   const audio = (extra = {}) => engine.handle({ type: 'audio', stream: 'incoming', lang: 'en', samples: new Float32Array(2048), at: clock.now, ...extra });
-  return { engine, posted, calls, observed, audio, clock };
+  const mic = (extra = {}) => engine.handle({ type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(2048), at: clock.now, ...extra });
+  const segmentsOut = () => posted.filter((m) => m.type === 'segment');
+  return { engine, posted, calls, observed, audio, mic, clock, segmentsOut };
 }
-const start = (ms) => ({ samples: new Float32Array(ms * 16), start: 50000 });
+const start = (ms, at = 50000) => ({ samples: new Float32Array(ms * 16), start: at });
 
-test('con destino indicado la frase se traduce primero: el subtítulo no espera a la transcripción', () => {
+test('con destino indicado, Canary transcribe una sola vez y el traductor de texto traduce', () => {
   const t = advanced({ segments: [[start(3000)]] });
   t.audio({ target: 'es' });
-  assert.deepEqual(t.calls, ['translate', 'transcribe']);
-  assert.deepEqual(t.posted.filter((m) => m.type !== 'vad'), [
-    { type: 'segment', id: 1, stream: 'incoming', lang: 'en', target: 'es', text: '', durationMs: 3000, sttMs: 0, translated: 'traducido a es', translateMs: 400 },
-    { type: 'segment-text', id: 1, stream: 'incoming', text: 'oído en en', sttMs: 300 }
-  ]);
-});
-
-test('si la traducción directa sale vacía se vuelve al camino normal: transcribir y que la interfaz decida', () => {
-  const t = advanced({ segments: [[start(3000)]], translations: ['  '] });
-  t.audio({ target: 'es' });
-  const out = t.posted.filter((m) => m.type !== 'vad');
-  assert.equal(out.length, 1);
-  assert.equal(out[0].text, 'oído en en');
-  assert.equal(out[0].translated, undefined);
+  assert.deepEqual(t.calls, ['transcribe', ['mt', ['oído en en con muchas palabras'], 'en', 'es']]);
+  assert.deepEqual(t.segmentsOut(), [{
+    type: 'segment', id: 1, stream: 'incoming', lang: 'en', text: 'oído en en con muchas palabras', durationMs: 3000, sttMs: 300, gapMs: null,
+    target: 'es', translated: 'es:oído en en con muchas palabras', translateMs: 0
+  }]);
 });
 
 test('sin destino (traducción en la nube) solo se transcribe', () => {
   const t = advanced({ segments: [[start(3000)]] });
   t.audio();
   assert.deepEqual(t.calls, ['transcribe']);
+  assert.equal(t.segmentsOut()[0].translated, undefined);
+});
+
+test('los trozos de una misma frase se unen y la frase entera se traduce junto al trozo nuevo', () => {
+  // 1 s de voz desde la muestra 50000; el siguiente trozo empieza 160 ms (2560 muestras) después
+  const t = advanced({
+    segments: [[start(1000, 50000)], [start(2000, 50000 + 16000 + 2560)]],
+    heard: ["Of course, we don't know what's going to.", 'happen in a year.']
+  });
+  t.audio({ target: 'es' });
+  t.audio({ target: 'es' });
+  const [first, second] = t.segmentsOut();
+  assert.equal(first.join, undefined);
+  assert.equal(second.gapMs, 160);
+  assert.deepEqual(second.join, {
+    lineId: first.id,
+    text: "Of course, we don't know what's going to happen in a year.",
+    translated: "es:Of course, we don't know what's going to happen in a year."
+  });
+  assert.equal(second.translated, 'es:happen in a year.', 'el trozo solo, para la voz');
+  // una sola llamada al traductor para los dos textos
+  assert.deepEqual(t.calls.filter((c) => c[0] === 'mt')[1], ['mt', ['happen in a year.', "Of course, we don't know what's going to happen in a year."], 'en', 'es']);
+});
+
+test('tras una pausa larga el trozo siguiente es otra frase aunque la anterior no terminara', () => {
+  const t = advanced({
+    segments: [[start(1000, 50000)], [start(1000, 50000 + 16000 + 16000 * 3)]],
+    heard: ['vamos a revisar un poco esa', 'esa tendencia.']
+  });
+  t.audio({ target: 'es', lang: 'es' });
+  t.audio({ target: 'es', lang: 'es' });
+  assert.equal(t.segmentsOut()[1].join, undefined);
+  assert.equal(t.segmentsOut()[1].gapMs, 3000);
+});
+
+test('sin traductor de texto la frase se traduce desde el audio y la frase unida queda sin traducir', () => {
+  const t = advanced({
+    translator: null,
+    segments: [[start(1000, 50000)], [start(1000, 50000 + 16000 + 1600)]],
+    heard: ['This is the latest job posting for an', 'AI researcher.']
+  });
+  t.audio({ target: 'es' });
+  t.audio({ target: 'es' });
+  const second = t.segmentsOut()[1];
+  assert.equal(second.translated, 'directo a es');
+  assert.deepEqual(second.join, { lineId: t.segmentsOut()[0].id, text: 'This is the latest job posting for an AI researcher.' });
+});
+
+test('si el traductor falla se avisa y la frase cae a la traducción desde el audio', () => {
+  const t = advanced({ segments: [[start(3000)]], translator: { translateMany: () => { throw new Error('No hay modelo de traducción local para en → es'); } } });
+  t.audio({ target: 'es' });
+  const out = t.segmentsOut()[0];
+  assert.equal(out.text, 'oído en en con muchas palabras');
+  assert.equal(out.translated, 'directo a es');
+  assert.ok(t.posted.some((m) => m.type === 'error' && /en → es/.test(m.message) && m.fatal === false));
 });
 
 test('una frase del micrófono que es eco de la reunión se descarta y se avisa', () => {
@@ -263,16 +315,64 @@ test('el audio de la reunión alimenta al detector de eco; el del micrófono no'
 test('las frases de la reunión nunca se tratan como eco', () => {
   const t = advanced({ segments: [[start(1000)]], echo: () => ({ echo: true, score: 1 }) });
   t.audio();
-  assert.equal(t.posted.filter((m) => m.type === 'segment').length, 1);
+  assert.equal(t.segmentsOut().length, 1);
 });
 
-test('mientras se sigue hablando se publica texto provisional cada 1,5 s de audio nuevo', () => {
+test('ruido del micrófono que el modelo oye como palabras sueltas se descarta (sesiones reales)', () => {
+  // Lo que Canary devolvió en las sesiones de prueba para ruido, y su traducción directa desde el audio
+  const cases = [['Que', '1.1.1.1.1.1.1.1.1.1'], ['Mm.', '1'], ['sí.', '1.1.1.1.1.1.1.1.1.1.1.1.'], ['Kfi.', '1000000000000000000000'], ['Eco.', 'E E E E E E E E'], ['Ahí es', '1.1.1.1.1.1.1.1.1.1.1.1.1.']];
+  for (const [heard, probe] of cases) {
+    const t = advanced({ segments: [[start(800)]], heard: [heard], probes: [probe] });
+    t.mic({ target: 'en' });
+    assert.deepEqual(t.segmentsOut(), [], `"${heard}" no debe publicarse`);
+    assert.deepEqual(t.posted.filter((m) => m.type === 'noise').map((m) => m.text), [heard]);
+  }
+});
+
+test('las acotaciones y letras sueltas no se publican en ningún flujo, sin gastar otra pasada', () => {
+  for (const heard of ['(Tecológica)', '(mucha?', 'E C H O N G I L']) {
+    const t = advanced({ segments: [[start(2000)]], heard: [heard] });
+    t.audio({ target: 'es' });
+    assert.deepEqual(t.segmentsOut(), [], heard);
+    assert.deepEqual(t.calls, ['transcribe']);
+  }
+});
+
+test('frases cortas reales del micrófono pasan la comprobación; las largas ni la necesitan', () => {
+  const t = advanced({ segments: [[start(900)]], heard: ['Entendieron'], probes: ['understood'] });
+  t.mic({ target: 'en' });
+  assert.equal(t.segmentsOut()[0].translated, 'en:Entendieron');
+
+  const long = advanced({ segments: [[start(3000)]], heard: ['vamos a revisar todos los temas de hoy'] });
+  long.mic({ target: 'en' });
+  assert.ok(!long.calls.includes('translate'), 'más de 3 palabras: sin pasada extra');
+});
+
+test('frases cortas de la reunión no se comprueban: «Usually.» o «Tokenizers.» son reales y no deben esperar', () => {
+  const t = advanced({ segments: [[start(700)]], heard: ['Usually.'], probes: ['1'] });
+  t.audio({ target: 'es' });
+  assert.equal(t.segmentsOut()[0].text, 'Usually.');
+  assert.ok(!t.calls.includes('translate'));
+});
+
+test('mientras se sigue hablando se publica texto provisional cada 1,5 s de audio nuevo, ya traducido', () => {
   const sizes = [1000, 1600, 2000, 3200, 3300].map((ms) => new Float32Array(ms * 16));
   const t = advanced({ peeks: sizes });
   for (let i = 0; i < 5; i++) t.audio({ target: 'es', partial: true });
   const partials = t.posted.filter((m) => m.type === 'partial');
   assert.deepEqual(partials.map((p) => p.durationMs), [1600, 3200]); // 1000 es poco; 2000 y 3300 no suman 1,5 s nuevos
-  assert.deepEqual(partials[0], { type: 'partial', stream: 'incoming', lang: 'en', text: 'traducido a es', translated: true, durationMs: 1600, ms: 400 });
+  assert.deepEqual(partials[0], {
+    type: 'partial', stream: 'incoming', lang: 'en', text: 'es:oído en en con muchas palabras', heard: 'oído en en con muchas palabras',
+    translated: true, durationMs: 1600, ms: 300
+  });
+});
+
+test('sin destino el texto provisional es lo oído', () => {
+  const t = advanced({ peeks: [new Float32Array(32000)] });
+  t.audio({ partial: true });
+  const partial = t.posted.find((m) => m.type === 'partial');
+  assert.equal(partial.translated, false);
+  assert.equal(partial.text, 'oído en en con muchas palabras');
 });
 
 test('si el motor va con retraso no gasta tiempo en texto provisional', () => {
@@ -294,45 +394,36 @@ test('sin pedirlo no hay texto provisional, y al cerrar una frase la cuenta vuel
   assert.equal(t.posted.filter((m) => m.type === 'partial').length, 2);
 });
 
-test('una traducción directa que es claramente un invento del modelo no se publica como subtítulo', () => {
-  for (const junk of ['(en inglés)', '- No.', '10000000000000000000000000', '(apa)', '(Música)']) {
-    const t = advanced({ segments: [[start(2000)]], translations: [junk] });
+test('sin traductor de texto, una traducción directa que es un invento no se publica como subtítulo', () => {
+  for (const junk of ['(en inglés)', '- No.', '10000000000000000000000000', '(apa)', '(Música)', '1', '1.1.2.2.2.2.2.2.2.2.2', '0 0 0 0', 'E E E E E E']) {
+    const t = advanced({ translator: null, segments: [[start(2000)]], probes: [junk] });
     t.audio({ target: 'es' });
-    const out = t.posted.filter((m) => m.type === 'segment');
+    const out = t.segmentsOut();
     assert.equal(out.length, 1);
     assert.equal(out[0].translated, undefined, `"${junk}" no debe mostrarse`);
-    assert.equal(out[0].text, 'oído en en'); // queda lo que se oyó, para que la interfaz decida
+    assert.equal(out[0].text, 'oído en en con muchas palabras'); // queda lo que se oyó, para que la interfaz decida
   }
-});
-
-test('una traducción corta legítima sí se publica', () => {
-  for (const fine of ['No.', 'No, gracias.', 'Son 15.', 'Sí (creo).']) {
-    const t = advanced({ segments: [[start(2000)]], translations: [fine] });
+  for (const fine of ['No.', 'No, gracias.', 'Son 15.', 'Sí (creo).', '15', '2026', '1.5 millones']) {
+    const t = advanced({ translator: null, segments: [[start(2000)]], probes: [fine] });
     t.audio({ target: 'es' });
-    assert.equal(t.posted.filter((m) => m.type === 'segment')[0].translated, fine);
+    assert.equal(t.segmentsOut()[0].translated, fine);
   }
 });
 
-test('pedir la traducción de una frase cuyo resultado es un invento devuelve error, no el invento', () => {
-  const t = advanced({ segments: [[start(2000)]], translations: ['(en inglés)'] });
+test('con traductor, translate traduce el texto pedido sin necesitar el audio', () => {
+  const t = advanced();
+  t.engine.handle({ type: 'translate', id: 7, text: 'Hola a todos.', source: 'es', target: 'en' });
+  assert.deepEqual(t.posted[t.posted.length - 1], { type: 'translation', id: 7, text: 'en:Hola a todos.', ms: 0 });
+  assert.ok(!t.calls.includes('translate'), 'sin pasada de Canary');
+});
+
+test('sin traductor, pedir la traducción de una frase cuyo resultado es un invento devuelve error, no el invento', () => {
+  const t = advanced({ translator: null, segments: [[start(2000)]], probes: ['(en inglés)'] });
   t.audio(); // sin destino: se transcribe y la interfaz pide la traducción después
-  const id = t.posted.find((m) => m.type === 'segment').id;
-  t.engine.handle({ type: 'translate', id, target: 'es' });
+  const segmentId = t.segmentsOut()[0].id;
+  t.engine.handle({ type: 'translate', id: 1, segmentId, text: 'oído', target: 'es' });
   const answer = t.posted[t.posted.length - 1];
   assert.equal(answer.type, 'translation');
   assert.match(answer.error, /no fiable/);
   assert.equal(answer.text, undefined);
-});
-
-test('una traducción hecha solo de cifras sueltas y puntos es un invento; un número normal no', () => {
-  for (const junk of ['1', '1.1.2.2.2.2.2.2.2.2.2', '1.1.1.1.1.1.1.1.1.1.1.1.1.', '0 0 0 0']) {
-    const t = advanced({ segments: [[start(2000)]], translations: [junk] });
-    t.audio({ target: 'es' });
-    assert.equal(t.posted.filter((m) => m.type === 'segment')[0].translated, undefined, `"${junk}" no debe mostrarse`);
-  }
-  for (const fine of ['15', '2026', 'Son 15.', '1.5 millones']) {
-    const t = advanced({ segments: [[start(2000)]], translations: [fine] });
-    t.audio({ target: 'es' });
-    assert.equal(t.posted.filter((m) => m.type === 'segment')[0].translated, fine);
-  }
 });

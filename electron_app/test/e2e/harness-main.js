@@ -42,6 +42,8 @@ app.whenReady().then(() => {
     if (activated) return clearInterval(timer);
     const control = BrowserWindow.getAllWindows().find((w) => w.webContents.getURL().endsWith('index.html'));
     if (!control || control.webContents.isLoading()) return;
+    // La voz de la traducción no debe sonar en el equipo de quien lanza las pruebas (VIBE_E2E_SOUND=1 la deja sonar)
+    if (process.env.VIBE_E2E_SOUND !== '1') control.webContents.setAudioMuted(true);
     emit({ type: 'activating', at: Date.now() });
     control.webContents.executeJavaScript(
       "(() => { const t = document.getElementById('toggle-active'); if (t.checked) t.checked = false; t.click(); })()", true);

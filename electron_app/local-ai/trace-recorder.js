@@ -32,6 +32,7 @@ function sessionName(ms) {
 function summarize(session, endedAt) {
   const segments = session.events.filter((e) => e.type === 'segment');
   const translations = session.events.filter((e) => e.type === 'translation');
+  const refines = session.events.filter((e) => e.type === 'refine');
   const streams = {};
   for (const name of [...new Set([...segments, ...translations].map((e) => e.stream))]) {
     const heard = segments.filter((e) => e.stream === name);
@@ -49,7 +50,9 @@ function summarize(session, endedAt) {
       translate: stats(translated.map((e) => e.translateMs || 0)),
       endToEnd: stats(translated.map((e) => e.endToEndMs || 0)),
       engines,
-      untranslated: done.length - translated.length
+      untranslated: done.length - translated.length,
+      joined: done.filter((e) => e.join).length,
+      refined: refines.filter((e) => e.stream === name).length
     };
   }
   return {
@@ -79,6 +82,8 @@ function formatReport(session, summary) {
     out.push(`- Tiempo de transcripción / duración de la voz: ${s.realTimeFactor} (por debajo de 1 va más rápido que el habla)`);
     out.push(`- Traducción: media ${s.translate.avg} ms, máximo ${s.translate.max} ms; motores: ${Object.entries(s.engines).map(([e, n]) => `${e} ×${n}`).join(', ') || 'ninguno'}`);
     out.push(`- Fin de la voz ➔ subtítulo en pantalla: media ${s.endToEnd.avg} ms, percentil 95 ${s.endToEnd.p95} ms, máximo ${s.endToEnd.max} ms`);
+    if (s.joined > 0) out.push(`- Trozos unidos a la frase anterior: ${s.joined}`);
+    if (s.refined > 0) out.push(`- Líneas mejoradas por la nube: ${s.refined}`);
     if (s.untranslated > 0) out.push(`- **Frases sin traducir: ${s.untranslated}**`);
     out.push('');
   }
@@ -88,6 +93,7 @@ function formatReport(session, summary) {
 
   const segments = session.events.filter((e) => e.type === 'segment');
   const translationFor = (id) => session.events.find((e) => e.type === 'translation' && e.segmentId === id);
+  const refineFor = (id) => [...session.events].reverse().find((e) => e.type === 'refine' && e.segmentId === id);
   const audioFor = (id) => session.audioById.get(id) || '';
 
   const slow = segments.filter((e) => e.sttMs > e.durationMs);
@@ -122,6 +128,12 @@ function formatReport(session, summary) {
     out.push(`**[${clock(e.t)}] ${STREAM_NAMES[e.stream] || e.stream}** — voz ${e.durationMs} ms, transcripción ${e.sttMs} ms${tr ? `, traducción ${tr.translateMs} ms (${tr.engine})` : ''}`);
     out.push(`- Oído: ${e.text}`);
     out.push(`- Traducción: ${tr ? (tr.translated || `(sin traducción: ${tr.error || 'motivo desconocido'})`) : '(no llegó a traducirse)'}`);
+    if (tr && tr.join) {
+      out.push(`- Frase completa: ${tr.join.text}`);
+      out.push(`- Traducción de la frase completa: ${tr.join.translated}`);
+    }
+    const better = refineFor(e.id);
+    if (better) out.push(`- Mejorada en la nube (${better.engine}, ${better.translateMs} ms): ${better.translated}`);
     if (audioFor(e.id)) out.push(`- Audio: ${audioFor(e.id)}`);
     out.push('');
   }

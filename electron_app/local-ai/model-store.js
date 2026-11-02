@@ -5,9 +5,17 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
+const { pipeline } = require('stream/promises');
 
 // Revisión fijada: una rama puede cambiar de contenido y entonces ninguna instalación pasaría la verificación
 const CANARY = 'https://huggingface.co/csukuangfj/sherpa-onnx-nemo-canary-180m-flash-en-es-de-fr-int8/resolve/9077164e0d3dd1d5353743e89ceaa1d3a770838c/';
+
+// Traducción de texto: modelos de Firefox Translations (MPL-2.0) tal como los publica Mozilla, comprimidos con gzip.
+// La carpeta es la ejecución de entrenamiento: un modelo nuevo tendría otra ruta y estas no cambian.
+const FIREFOX = 'https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/models/';
+const EN_ES = FIREFOX + 'en-es/retrain_hr_fix_names_CUAEXUHoQum_cFqh-ZAryw/exported/';
+const ES_EN = FIREFOX + 'es-en/retrain_hr_HbNjJ60BTwmVTbhfFxuduA/exported/';
 
 const MODEL_FILES = [
   {
@@ -37,6 +45,61 @@ const MODEL_FILES = [
     url: CANARY + 'tokens.txt',
     size: 53555,
     sha256: '2dae6fc7815f9640645e0c765522b278ee0cef49b482d91f6913e334628d3e77'
+  },
+  // `size` y `sha256` son del archivo ya descomprimido; `downloadSize`, de lo que llega por la red
+  {
+    id: 'mtEnEs',
+    file: 'model.enes.intgemm.alphas.bin',
+    url: EN_ES + 'model.enes.intgemm.alphas.bin.gz',
+    gzip: true,
+    downloadSize: 22698792,
+    size: 31561787,
+    sha256: '3b1c399511c01c84c36fae5c0524df44096288efdc8236e182b5c97d7ad2244c'
+  },
+  {
+    id: 'mtEnEsLex',
+    file: 'lex.50.50.enes.s2t.bin',
+    url: EN_ES + 'lex.50.50.enes.s2t.bin.gz',
+    gzip: true,
+    downloadSize: 2265250,
+    size: 4198436,
+    sha256: '7d51237c0a07027dcd61643cfbbb0f8c48597d19907ef53d2cae9d6bec2cf25c'
+  },
+  {
+    id: 'mtEnEsVocab',
+    file: 'vocab.enes.spm',
+    url: EN_ES + 'vocab.enes.spm.gz',
+    gzip: true,
+    downloadSize: 409312,
+    size: 816054,
+    sha256: '5ae254fa9b15aa182e70fd2a6186b1333c63a29a48043a9224c6aa4fcac058ad'
+  },
+  {
+    id: 'mtEsEn',
+    file: 'model.esen.intgemm.alphas.bin',
+    url: ES_EN + 'model.esen.intgemm.alphas.bin.gz',
+    gzip: true,
+    downloadSize: 23288494,
+    size: 31561787,
+    sha256: '4aed7734152ae0045d1a69ae49c86cfda18f53c61f90e95e1d1de1c7c7c3b033'
+  },
+  {
+    id: 'mtEsEnLex',
+    file: 'lex.50.50.esen.s2t.bin',
+    url: ES_EN + 'lex.50.50.esen.s2t.bin.gz',
+    gzip: true,
+    downloadSize: 2543246,
+    size: 4636248,
+    sha256: 'e2610211d3b9577d012638fe7e7e74ed7b4b708ce96b9e792e67c282a6492daa'
+  },
+  {
+    id: 'mtEsEnVocab',
+    file: 'vocab.esen.spm',
+    url: ES_EN + 'vocab.esen.spm.gz',
+    gzip: true,
+    downloadSize: 409312,
+    size: 816054,
+    sha256: '5ae254fa9b15aa182e70fd2a6186b1333c63a29a48043a9224c6aa4fcac058ad'
   }
 ];
 
@@ -52,6 +115,9 @@ function hashFile(file) {
   });
 }
 
+/** Bytes que llegan por la red: los comprimidos ocupan menos que el archivo final. */
+const wireSize = (f) => f.downloadSize || f.size;
+
 function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs = STALL_MS }) {
   const fileFor = (f) => path.join(dir, f.file);
   let inFlight = null; // una sola descarga a la vez: es lo que permite un parcial con nombre fijo y reanudable
@@ -65,8 +131,9 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs
   }
 
   function status() {
-    const missing = files.filter((f) => !isPresent(f)).map((f) => ({ id: f.id, file: f.file, size: f.size }));
-    return { ready: missing.length === 0, missing, missingBytes: missing.reduce((n, f) => n + f.size, 0) };
+    const todo = files.filter((f) => !isPresent(f));
+    const missing = todo.map((f) => ({ id: f.id, file: f.file, size: f.size }));
+    return { ready: missing.length === 0, missing, missingBytes: todo.reduce((n, f) => n + wireSize(f), 0) };
   }
 
   /** Lee el siguiente bloque o falla si el servidor deja de enviar datos. */
@@ -81,16 +148,29 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs
     return Promise.race([iterator.next(), stalled]).finally(() => clearTimeout(timer));
   }
 
+  /** Descomprime el gzip descargado junto al destino; un archivo dañado no llega a escribirse entero. */
+  async function gunzip(f, packed) {
+    const unpacked = `${fileFor(f)}.part`;
+    try {
+      await pipeline(fs.createReadStream(packed), zlib.createGunzip(), fs.createWriteStream(unpacked));
+    } catch {
+      fs.rmSync(unpacked, { force: true });
+      throw new Error(`Descarga corrupta de ${f.file}: no se pudo descomprimir`);
+    }
+    return unpacked;
+  }
+
   async function download(f, onChunk) {
     const target = fileFor(f);
-    const part = `${target}.part`;
+    const part = f.gzip ? `${target}.gz.part` : `${target}.part`;
     const abort = new AbortController();
     let handle = null;
+    let unpacked = null;
     let keepPart = true; // un parcial sano se conserva para reanudar; uno que no verifica se borra
     try {
       let have = 0;
       try { have = fs.statSync(part).size; } catch { /* no hay parcial */ }
-      if (have >= f.size) have = 0; // no puede ser un parcial válido: se empieza de cero
+      if (have >= wireSize(f)) have = 0; // no puede ser un parcial válido: se empieza de cero
       const headers = have > 0 ? { Range: `bytes=${have}-` } : {};
       const res = await fetchImpl(f.url, { signal: abort.signal, headers });
       if (!res.ok || !res.body) throw new Error(`No se pudo descargar ${f.file} (HTTP ${res.status})`);
@@ -110,16 +190,27 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs
       }
       await handle.close();
       handle = null;
+      if (f.gzip) {
+        if (fs.statSync(part).size !== f.downloadSize) {
+          keepPart = false;
+          throw new Error(`Descarga corrupta de ${f.file}: no coincide el tamaño descargado`);
+        }
+        keepPart = false; // ya completo: si no verifica, hay que volver a bajarlo entero
+        unpacked = await gunzip(f, part);
+      }
       // Se verifica el archivo tal como quedó en disco, no los bytes que llegaron por la red
-      const onDisk = fs.statSync(part).size;
-      if (onDisk !== f.size || (await hashFile(part)) !== f.sha256) {
+      const final = unpacked || part;
+      const onDisk = fs.statSync(final).size;
+      if (onDisk !== f.size || (await hashFile(final)) !== f.sha256) {
         keepPart = false;
         throw new Error(`Descarga corrupta de ${f.file}: no coincide el tamaño o la suma de verificación`);
       }
-      fs.renameSync(part, target);
+      fs.renameSync(final, target);
+      if (unpacked) fs.rmSync(part, { force: true });
     } catch (err) {
       abort.abort();
       if (handle) await handle.close().catch(() => {});
+      if (unpacked) fs.rmSync(unpacked, { force: true });
       if (!keepPart) fs.rmSync(part, { force: true });
       throw err;
     }
@@ -128,13 +219,13 @@ function createModelStore({ dir, files = MODEL_FILES, fetchImpl = fetch, stallMs
   async function run(onProgress) {
     fs.mkdirSync(dir, { recursive: true });
     const todo = files.filter((f) => !isPresent(f));
-    const overallTotal = todo.reduce((n, f) => n + f.size, 0);
+    const overallTotal = todo.reduce((n, f) => n + wireSize(f), 0);
     let overallLoaded = 0;
     for (const f of todo) {
       fs.rmSync(fileFor(f), { force: true });
       await download(f, (delta, loaded) => {
         overallLoaded += delta;
-        onProgress({ id: f.id, file: f.file, loaded, total: f.size, overallLoaded, overallTotal });
+        onProgress({ id: f.id, file: f.file, loaded, total: wireSize(f), overallLoaded, overallTotal });
       });
     }
   }

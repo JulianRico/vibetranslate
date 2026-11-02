@@ -3,6 +3,7 @@
  */
 
 const { ipcRenderer } = require('electron');
+const { createSubtitleLines } = require('./subtitle-lines');
 
 document.addEventListener('DOMContentLoaded', () => {
   const elOriginal = document.getElementById('sub-original');
@@ -18,18 +19,21 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentFontSize = 18;
   let isMinimized = false;
 
-  const HISTORY_LINES = 2;
-  const previousLines = [];
-  let currentLine = null; // { icon, text } de la frase que se está mostrando
+  const lines = createSubtitleLines({ history: 2 });
 
-  function renderHistory() {
-    if (!elHistory) return;
-    elHistory.replaceChildren(...previousLines.map((line) => {
-      const el = document.createElement('div');
-      el.className = 'sub-history-line';
-      el.textContent = `${line.icon} ${line.text}`;
-      return el;
-    }));
+  function render() {
+    if (elHistory) {
+      elHistory.replaceChildren(...lines.history().map((line) => {
+        const el = document.createElement('div');
+        el.className = 'sub-history-line';
+        el.textContent = `${line.icon} ${line.text}`;
+        return el;
+      }));
+    }
+    const current = lines.current();
+    if (!current) return;
+    if (elOriginal) elOriginal.textContent = `${current.icon} ${current.original || '…'}`;
+    if (elTranslated) elTranslated.textContent = current.provisional ? `${current.text} …` : current.text;
   }
 
   // ── Escuchar mensajes desde el Proceso Principal ──────────────────
@@ -44,22 +48,22 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    if (elOriginal) {
-      if (originalText) elOriginal.textContent = `${icon} ${originalText}`;
-      else if (translatedText) elOriginal.textContent = `${icon} …`;
+    if (!translatedText) {
+      if (elOriginal && originalText) elOriginal.textContent = `${icon} ${originalText}`;
+      return;
     }
-
-    if (elTranslated && translatedText) {
-      // La frase terminada que estaba en pantalla pasa al historial; un texto provisional simplemente se reemplaza
-      if (currentLine && !currentLine.provisional) {
-        previousLines.push(currentLine);
-        while (previousLines.length > HISTORY_LINES) previousLines.shift();
-        renderHistory();
-      }
-      const provisional = payload.isFinal === false;
-      currentLine = { icon, text: translatedText, provisional };
-      elTranslated.textContent = provisional ? `${translatedText} …` : translatedText;
-    }
+    // La frase terminada que estaba en pantalla pasa al historial; un texto provisional simplemente se reemplaza.
+    // Con `replace`, la línea de esa frase se reescribe donde esté (resto de la frase o traducción de la nube).
+    lines.apply({
+      lineId: payload.lineId ?? null,
+      replace: !!payload.replace,
+      grows: !!payload.grows,
+      icon,
+      original: originalText,
+      text: translatedText,
+      provisional: payload.isFinal === false
+    });
+    render();
   });
 
   const statusBadgeText = document.querySelector('.status-badge span:last-child');

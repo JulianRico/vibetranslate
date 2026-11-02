@@ -12,5 +12,13 @@
     { "id": "en3", "text": "We need to review the quarterly budget.", "keywordsEs": ["presupuesto"] },
     { "id": "en4", "text": "The customer wants a demonstration next week.", "keywordsEs": ["cliente", "semana"] },
     { "id": "en5", "text": "I think we should postpone the launch until next month.", "keywordsEs": ["mes"] }
-  ]
+  ],
+  "idioms": {
+    "en": [
+      { "id": "en-idiom1", "text": "You are breaking up so I could not hear the last part.", "keywordsEs": ["parte"] }
+    ],
+    "es": [
+      { "id": "es-idiom1", "text": "Perdón, estaba en silencio. ¿Me repites la pregunta?", "keywordsEn": ["question"] }
+    ]
+  }
 }

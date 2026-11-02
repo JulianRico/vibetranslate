@@ -22,6 +22,7 @@ function createLocalAiClient({ fork, workerPath, onEvent, now = Date.now, timers
   let generation = 0;
   let readyWaiters = [];
   const translations = new Map();
+  let requestSeq = 0;
 
   // Los temporizadores no deben mantener viva la aplicación al salir
   const quiet = (timer) => { if (timer && typeof timer.unref === 'function') timer.unref(); return timer; };
@@ -196,12 +197,14 @@ function createLocalAiClient({ fork, workerPath, onEvent, now = Date.now, timers
       if (stream === 'mic' && initMsg) initMsg = { ...initMsg, vadThreshold };
       if (child) child.postMessage({ type: 'config', stream, vadThreshold });
     },
-    translate(id, target) {
+    /** Traduce un texto en el motor local; `segmentId` permite traducir desde el audio si no hay traductor de texto. */
+    translate({ text = '', source = null, target, segmentId = null }) {
       return new Promise((resolve, reject) => {
         const proc = child || draining;
         if (!proc) return reject(new Error('Motor local detenido'));
+        const id = ++requestSeq;
         translations.set(id, { resolve, reject });
-        proc.postMessage({ type: 'translate', id, target });
+        proc.postMessage({ type: 'translate', id, text, source, target, segmentId });
       });
     },
     stop,

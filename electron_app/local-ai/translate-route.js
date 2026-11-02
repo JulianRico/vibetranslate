@@ -14,7 +14,7 @@ function createTranslateRouter({ cloud, local, isOnline = () => true, getMode = 
     const started = now();
 
     async function viaLocal() {
-      const res = await local({ id: segmentId, target: pair.target });
+      const res = await local({ text, source: pair.source, target: pair.target, segmentId });
       if (!res || !res.ok || !res.translated || !res.translated.trim()) {
         throw new Error((res && res.error) || 'Traducción local vacía');
       }
@@ -51,7 +51,8 @@ function createTranslateRouter({ cloud, local, isOnline = () => true, getMode = 
       }
     }
 
-    const cloudResult = await cloud({ text, sourceLang, targetLang, googleOnly: true });
+    // La nube pide a la vez un LLM y Google y responde con el primero válido: no hay niveles lentos que evitar
+    const cloudResult = await cloud({ text, sourceLang, targetLang });
     if (cloudResult && cloudResult.engine !== 'none') return cloudResult;
 
     // La nube no responde aunque el equipo diga tener red: las siguientes frases van directas al local

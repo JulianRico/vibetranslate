@@ -6,39 +6,48 @@ const { readWav } = require('./support/wav');
 const { wordErrorRate, hasKeywords } = require('./support/text');
 const { pinkNoise, mixAtSnr } = require('./support/noise');
 const { createEngine } = require('../local-ai/engine');
+const { createTextTranslator, modelsFromPaths } = require('../local-ai/text-translator');
 const phrases = require('./fixtures/phrases.json');
 
 const audio = (id) => readWav(path.join(__dirname, 'fixtures', 'audio', `${id}.wav`));
 
 let shared = null;
+let translator = null;
+// El traductor de texto se carga de forma asíncrona, como en el proceso utilitario
+test.before(async () => {
+  if (!skipReason) translator = await createTextTranslator({ models: modelsFromPaths(store.paths()) });
+});
+
 /** Un solo motor para todo el archivo: cargar el modelo cuesta ~1,5 s. */
 function engine() {
   if (!shared) {
     const posted = [];
-    shared = { posted, engine: createEngine({ sherpa: require('sherpa-onnx-node'), paths: store.paths(), post: (m) => posted.push(m) }) };
+    shared = { posted, engine: createEngine({ sherpa: require('sherpa-onnx-node'), paths: store.paths(), post: (m) => posted.push(m), translator }) };
   }
   return shared;
 }
 
 /** Pasa un audio por el motor como lo haría el renderer y devuelve los segmentos publicados. */
-function hear(samples, lang, stream) {
+function hear(samples, lang, stream, target) {
   const { engine: e, posted } = engine();
   const from = posted.length;
   const padded = new Float32Array(samples.length + 16000);
   padded.set(samples);
-  for (let i = 0; i < padded.length; i += 2048) e.handle({ type: 'audio', stream, lang, samples: padded.slice(i, i + 2048) });
+  for (let i = 0; i < padded.length; i += 2048) e.handle({ type: 'audio', stream, lang, target, samples: padded.slice(i, i + 2048) });
   e.handle({ type: 'flush', stream, lang });
   return posted.slice(from).filter((m) => m.type === 'segment');
 }
 
 const textOf = (segments) => segments.map((s) => s.text).join(' ');
 
-function translate(segments, target) {
-  const { engine: e, posted } = engine();
-  return segments.map((s) => {
-    e.handle({ type: 'translate', id: s.id, target });
-    return posted[posted.length - 1].text;
-  }).join(' ');
+/** Traducción del motor: la de cada frase, o la de la frase entera si el trozo continuaba otra. */
+function translate(segments) {
+  const lines = [];
+  for (const seg of segments) {
+    if (seg.join && seg.join.translated) lines[lines.length - 1] = seg.join.translated;
+    else lines.push(seg.translated || '');
+  }
+  return lines.join(' ');
 }
 
 for (const lang of ['es', 'en']) {
@@ -69,7 +78,7 @@ for (const lang of ['es', 'en']) {
 test('traduce ES→EN en local: cada frase conserva sus palabras clave', { skip: skipReason }, () => {
   const misses = [];
   phrases.es.forEach((p, i) => {
-    const translated = translate(hear(audio(p.id), 'es', `tr-es-${i}`), 'en');
+    const translated = translate(hear(audio(p.id), 'es', `tr-es-${i}`, 'en'));
     console.log(`  ${p.id} -> "${translated}"`);
     if (!hasKeywords(translated, p.keywordsEn)) misses.push(`${p.id}: "${translated}" sin ${p.keywordsEn}`);
   });
@@ -79,7 +88,7 @@ test('traduce ES→EN en local: cada frase conserva sus palabras clave', { skip:
 test('traduce EN→ES en local: cada frase conserva sus palabras clave', { skip: skipReason }, () => {
   const misses = [];
   phrases.en.forEach((p, i) => {
-    const translated = translate(hear(audio(p.id), 'en', `tr-en-${i}`), 'es');
+    const translated = translate(hear(audio(p.id), 'en', `tr-en-${i}`, 'es'));
     console.log(`  ${p.id} -> "${translated}"`);
     if (!hasKeywords(translated, p.keywordsEs)) misses.push(`${p.id}: "${translated}" sin ${p.keywordsEs}`);
   });
@@ -129,4 +138,47 @@ test('micrófono en español y receptor en inglés a la vez no se mezclan', { sk
   const heardIn = textOf(segments.filter((s) => s.stream === 'mix-in'));
   assert.ok(wordErrorRate(phrases.es[2].text, heardMic) <= 0.2, heardMic);
   assert.ok(wordErrorRate(phrases.en[2].text, heardIn) <= 0.2, heardIn);
+});
+
+/** Inserta 500 ms de silencio en el punto más tranquilo cerca de `fraction` del audio: la frase llega en dos trozos. */
+function splitAt(samples, fraction) {
+  const win = 320; // 20 ms
+  let best = -1;
+  let bestEnergy = Infinity;
+  for (let i = Math.floor(samples.length * (fraction - 0.05)); i < samples.length * (fraction + 0.05); i += 160) {
+    let e = 0;
+    for (let j = i; j < i + win; j++) e += samples[j] * samples[j];
+    if (e < bestEnergy) { bestEnergy = e; best = i + win / 2; }
+  }
+  const out = new Float32Array(samples.length + 8000);
+  out.set(samples.subarray(0, best));
+  out.set(samples.subarray(best), best + 8000);
+  return out;
+}
+
+// Cortes entre dos palabras de la misma frase («The customer wants a | demonstration next week.»)
+for (const [id, lang, target, fraction, key] of [['en4', 'en', 'es', 0.3, 'keywordsEs'], ['es2', 'es', 'en', 0.7, 'keywordsEn']]) {
+  test(`una frase cortada por una pausa breve se une y se traduce entera (${id})`, { skip: skipReason }, () => {
+    const phrase = phrases[lang].find((p) => p.id === id);
+    const segments = hear(splitAt(audio(id), fraction), lang, `split-${id}`, target);
+    console.log(segments.map((s) => `  [${s.gapMs ?? '-'} ms] "${s.text}" → "${s.translated}"${s.join ? ` | frase: "${s.join.text}" → "${s.join.translated}"` : ''}`).join('\n'));
+    assert.equal(segments.length, 2, 'el detector de voz la corta en dos');
+    assert.ok(segments[1].join, 'el segundo trozo continúa la frase');
+    assert.equal(segments[1].join.lineId, segments[0].id);
+    // el detector cuenta el margen previo de cada frase: mide algo menos que los 500 ms de silencio insertados
+    assert.ok(segments[1].gapMs > 100 && segments[1].gapMs <= 500, `pausa medida ${segments[1].gapMs} ms`);
+    assert.ok(wordErrorRate(phrase.text, segments[1].join.text) <= 0.2, segments[1].join.text);
+    assert.ok(hasKeywords(segments[1].join.translated, phrase[key]), segments[1].join.translated);
+  });
+}
+
+test('dos frases completas seguidas no se unen', { skip: skipReason }, () => {
+  const a = audio('es3');
+  const b = audio('es4');
+  const both = new Float32Array(a.length + 8000 + b.length);
+  both.set(a);
+  both.set(b, a.length + 8000);
+  const segments = hear(both, 'es', 'two-es', 'en');
+  assert.equal(segments.length, 2);
+  assert.equal(segments[1].join, undefined, `"${segments[0].text}" + "${segments[1].text}"`);
 });

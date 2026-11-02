@@ -33,6 +33,14 @@ function createConversationLog({ max = 500, clock = () => new Date().toLocaleTim
       entry.original = String(original || '').trim();
       return true;
     },
+    /** Reescribe una frase: llegó el resto de la frase o una traducción mejor. */
+    update(n, { original, translated } = {}) {
+      const entry = items.find((e) => e.n === n);
+      if (!entry) return false;
+      if (original !== undefined) entry.original = String(original || '').trim();
+      if (translated !== undefined && String(translated).trim()) entry.translated = String(translated).trim();
+      return true;
+    },
     entries: () => items.slice(),
     tail: (n) => items.slice(-n),
     size: () => items.length,

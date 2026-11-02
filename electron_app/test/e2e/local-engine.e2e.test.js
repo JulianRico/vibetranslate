@@ -17,6 +17,7 @@ const ELECTRON = process.env.VIBE_ELECTRON_BIN || require(path.join(APP_DIR, 'no
 /** Silencio inicial (mientras carga el modelo) + frase + silencio final para que la detección de voz cierre. */
 function micFile(dir, phraseId) {
   const speech = readWav(path.join(__dirname, '..', 'fixtures', 'audio', `${phraseId}.wav`));
+  if (!speech.length) throw new Error(`audio vacío: ${phraseId}`);
   // Ruido de sala muy bajo en vez de silencio digital: un micrófono real nunca entrega ceros exactos
   const samples = pinkNoise(16000 * 6 + speech.length + 16000 * 4, 21).map((v) => v * 0.02);
   for (let i = 0; i < speech.length; i++) samples[16000 * 6 + i] += speech[i];
@@ -112,11 +113,17 @@ function runApp({ phraseId, sourceLang, targetLang, translationMode, settings = 
           }
           if (msg.message.includes('idioma de origen fijo')) return finish(new Error(msg.message));
         }
-        // Con traducción directa el texto oído llega después, como actualización de un subtítulo ya mostrado
-        if (msg.type === 'subtitle' && msg.update) {
-          const shown = subtitles.find((sub) => sub.segmentId === msg.segmentId);
-          if (shown) shown.originalText = msg.originalText;
-          continue;
+        // Una línea ya mostrada se reescribe: llegó el resto de su frase o la traducción mejorada de la nube
+        if (msg.type === 'subtitle' && msg.replace) {
+          const shown = subtitles.find((sub) => sub.lineId === msg.lineId);
+          if (shown) {
+            shown.versions = [...(shown.versions || [shown.translatedText]), msg.translatedText];
+            shown.versionAt = [...(shown.versionAt || [shown.at]), msg.at];
+            shown.translatedText = msg.translatedText;
+            if (msg.originalText) shown.originalText = msg.originalText;
+            shown.replacedAfterMs = msg.at - shown.at;
+            continue;
+          }
         }
         if (msg.type === 'subtitle' && msg.isFinal && (!only || msg.direction === only)) {
           subtitles.push(msg);
@@ -137,6 +144,8 @@ const joined = (subtitles, field) => subtitles.map((s) => s[field]).join(' ');
 test('ES→EN con traducción local: la app muestra el subtítulo traducido sin usar la nube', { skip: skipReason, timeout: 120000 }, async () => {
   const phrase = phrases.es[0];
   const { subtitles, logs } = await runApp({ phraseId: phrase.id, sourceLang: 'es-ES', targetLang: 'en', translationMode: 'local' });
+  assert.ok(!logs.some((l) => l.includes('Mejorada en la nube')), 'en modo local nada sale del equipo');
+  assert.ok(subtitles.every((s) => !s.versions), 'nadie reescribe la traducción local');
   const original = joined(subtitles, 'originalText');
   const translated = joined(subtitles, 'translatedText');
   console.log(`  oído: "${original}" ➔ "${translated}"`);
@@ -164,6 +173,31 @@ test('ES→EN en modo auto: transcribe en local y traduce con el mejor motor dis
   console.log(`  ➔ "${translated}"`);
   assert.ok(hasKeywords(translated, phrase.keywordsEn), translated);
 });
+
+// Con red: la traducción local sale al instante y la nube (LLM de Groq o Google) reescribe la línea con su versión
+const cloudSkip = skipReason || (process.env.VIBE_E2E_OFFLINE === '1' ? 'sin red (VIBE_E2E_OFFLINE=1)' : false);
+
+for (const [lang, sourceLang, targetLang, key] of [['en', 'en-US', 'es', 'keywordsEs'], ['es', 'es-ES', 'en', 'keywordsEn']]) {
+  test(`modo auto con un modismo (${lang}): el subtítulo local sale al instante y la nube lo mejora en la misma línea`, { skip: cloudSkip, timeout: 120000 }, async () => {
+    const phrase = phrases.idioms[lang][0];
+    const { subtitles, logs } = await runApp({ phraseId: phrase.id, sourceLang, targetLang, translationMode: 'auto', settleMs: 5000 });
+    for (const s of subtitles) console.log(`  "${s.originalText}" ➔ ${(s.versions || [s.translatedText]).map((v) => `"${v}"`).join(' ➔ ')}${s.replacedAfterMs !== undefined ? ` (mejorada ${s.replacedAfterMs} ms después)` : ''}`);
+    // La frase puede llegar en una o varias líneas (cada frase completa es la suya); la mejora no añade líneas
+    assert.equal(new Set(subtitles.map((x) => x.lineId)).size, subtitles.length, 'cada línea aparece una sola vez');
+    assert.ok(logs.some((l) => l.includes('Traducido en') && l.includes('[local]')), 'la primera versión es la local');
+    // Cada línea pasa por la nube: o la mejora o confirma la local (depende de qué motor responda primero)
+    const checked = logs.filter((l) => l.includes('Mejorada en la nube') || l.includes('coincide con la traducción local'));
+    assert.ok(checked.length >= subtitles.length, 'la nube revisa todas las líneas (una línea unida, cada vez que crece)');
+    const improved = subtitles.filter((x) => x.versions);
+    for (const line of improved) {
+      assert.notEqual(line.versions[0], line.versions[line.versions.length - 1]);
+      // cada versión llega poco después de la anterior: la nube no hace esperar al subtítulo
+      const gaps = line.versionAt.slice(1).map((t, i) => t - line.versionAt[i]);
+      assert.ok(gaps.every((g) => g < 4000), `esperas entre versiones: ${gaps.join(', ')} ms`);
+    }
+    assert.ok(hasKeywords(joined(subtitles, 'translatedText'), phrase[key]), joined(subtitles, 'translatedText'));
+  });
+}
 
 test('con origen Auto el motor local no arranca y lo explica', { skip: skipReason, timeout: 120000 }, async () => {
   await assert.rejects(

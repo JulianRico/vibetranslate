@@ -122,8 +122,10 @@ test('al detener con margen, la frase en curso se cierra y aún se puede traduci
   t.children[0].emit('message', { type: 'segment', id: 1000007, stream: 'mic', lang: 'es', text: 'última frase' });
   assert.deepEqual(t.events, [{ type: 'segment', id: 1000007, stream: 'mic', lang: 'es', text: 'última frase', late: true }]);
 
-  const translation = t.client.translate(1000007, 'en');
-  t.children[0].emit('message', { type: 'translation', id: 1000007, text: 'last phrase', ms: 300 });
+  const translation = t.client.translate({ text: 'última frase', source: 'es', target: 'en', segmentId: 1000007 });
+  const request = t.children[0].sent[t.children[0].sent.length - 1];
+  assert.equal(request.type, 'translate');
+  t.children[0].emit('message', { type: 'translation', id: request.id, text: 'last phrase', ms: 300 });
   assert.deepEqual(await translation, { text: 'last phrase', ms: 300 });
 
   t.client.send({ type: 'audio' }); // ya no se acepta audio nuevo
@@ -131,7 +133,7 @@ test('al detener con margen, la frase en curso se cierra y aún se puede traduci
 
   t.timers.advance(4000);
   assert.equal(t.children[0].killed, true);
-  await assert.rejects(t.client.translate(1000007, 'en'), /detenido/);
+  await assert.rejects(t.client.translate({ text: 'última frase', source: 'es', target: 'en' }), /detenido/);
 });
 
 test('volver a arrancar durante ese margen apaga el proceso anterior de inmediato', () => {

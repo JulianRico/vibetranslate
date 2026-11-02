@@ -66,3 +66,15 @@ test('el texto original puede llegar después de la traducción y se completa en
   assert.match(log.toText(), /Original:   Hello everyone\./);
   assert.equal(log.setOriginal(99, 'x'), false);
 });
+
+test('una frase se reescribe entera cuando llega el resto o una traducción mejor', () => {
+  const log = createConversationLog({ clock: fixedClock });
+  const entry = log.add({ direction: 'incoming', from: 'en', to: 'es', original: "we don't know what's going to.", translated: 'no sabemos qué va a hacer.' });
+  assert.equal(log.update(entry.n, { original: "we don't know what's going to happen in a year.", translated: 'no sabemos qué va a pasar en un año.' }), true);
+  assert.deepEqual([log.entries()[0].original, log.entries()[0].translated], ["we don't know what's going to happen in a year.", 'no sabemos qué va a pasar en un año.']);
+  // una traducción vacía no borra la que había
+  log.update(entry.n, { translated: '  ' });
+  assert.equal(log.entries()[0].translated, 'no sabemos qué va a pasar en un año.');
+  assert.equal(log.update(99, { translated: 'x' }), false);
+  assert.equal(log.size(), 1, 'no crea filas nuevas');
+});
