@@ -3,6 +3,8 @@
  * Modulo nativo para la app de escritorio Electron.
  */
 
+// Solo deformaciones que no son palabras corrientes: el glosario se aplica a todo lo que se traduce, en inglés
+// y en español, y una entrada como 'real' → 'React' convertía «a real AI lab» en «a React AI lab».
 const DEFAULT_GLOSSARY = {
   // SharePoint & M365
   'cherpoy': 'SharePoint',
@@ -32,23 +34,16 @@ const DEFAULT_GLOSSARY = {
   'graf api': 'Microsoft Graph API',
 
   // Desarrollo Web & Frontend
-  'ria': 'React',
-  'real': 'React',
   'riac': 'React',
   'riact': 'React',
   'taipscrip': 'TypeScript',
   'taips crip': 'TypeScript',
   'fluter': 'Flutter',
-  'nod': 'Node.js',
-  'nodo': 'Node.js',
-  'node': 'Node.js',
   'nes j s': 'Next.js',
   'nextjs': 'Next.js',
-  'vats': 'Vite',
   'vait': 'Vite',
   'angular': 'Angular',
   'yeison': 'JSON',
-  'jason': 'JSON',
   'res api': 'REST API',
 
   // Cloud & DevOps
@@ -67,17 +62,19 @@ const DEFAULT_GLOSSARY = {
   'paiplain': 'Pipeline'
 };
 
+/** Corrige términos técnicos mal transcritos en una sola pasada: lo ya reemplazado no se vuelve a reemplazar. */
 function applyTechnicalGlossary(text, customGlossary = {}) {
   if (!text) return '';
-  const combined = { ...DEFAULT_GLOSSARY, ...(customGlossary || {}) };
-  let processed = text;
-
-  for (const [misspelled, correct] of Object.entries(combined)) {
-    const regex = new RegExp(`\\b${misspelled.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-    processed = processed.replace(regex, correct);
+  const combined = {};
+  for (const [misspelled, correct] of Object.entries({ ...DEFAULT_GLOSSARY, ...(customGlossary || {}) })) {
+    if (misspelled && misspelled.trim()) combined[misspelled.trim().toLowerCase()] = correct;
   }
-
-  return processed;
+  const keys = Object.keys(combined).sort((a, b) => b.length - a.length); // la forma más larga gana
+  if (keys.length === 0) return text;
+  const alternatives = keys.map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  // Límites de palabra que entienden tildes y eñes (\b no: trata «á» como separador)
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`, 'giu');
+  return text.replace(pattern, (match) => combined[match.toLowerCase()] ?? match);
 }
 
 if (typeof module !== 'undefined' && module.exports) {
