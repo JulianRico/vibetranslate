@@ -4,798 +4,522 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ViBeTranslate Desktop - Studio Translation Console</title>
+  <title>ViBeTranslate</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
 
-  <!-- Top App Header -->
-  <header class="app-header">
-    <div class="brand-group">
-      <div class="brand-icon-circle">
-        <svg class="mic-svg" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-          <path
-            d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-        </svg>
+  <!-- Pantalla principal: un botón para empezar y parar, lo que se cambia en una reunión y la conversación -->
+  <main class="view view-main" id="view-main">
+    <header class="topbar">
+      <div class="live-status" id="live-badge" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="status-text">Apagado</span>
+        <span class="live-timer" id="live-timer"></span>
       </div>
-      <div class="brand-text-col">
-        <div class="brand-title-row">
-          <span class="brand-name">ViBeTranslate</span>
-          <span class="pro-badge">PRO STUDIO</span>
-        </div>
-        <span class="brand-subtitle">Simultaneous Audio Translation Workstation</span>
+      <div class="topbar-actions">
+        <button type="button" class="icon-btn pip-only" id="btn-pip-exit" title="Volver a la ventana normal" aria-label="Volver a la ventana normal">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
+        </button>
+        <button type="button" class="icon-btn" id="btn-open-settings" title="Ajustes" aria-label="Ajustes">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+        </button>
       </div>
-    </div>
+    </header>
 
-    <div class="header-actions">
-      <div class="live-badge" id="live-badge">
-        <span class="status-dot"></span>
-        <span id="status-text">DESACTIVADO</span>
-      </div>
-      <button type="button" class="btn-hardware-pill" id="btn-hardware-check">
-        <span class="dot-cyan"></span>
-        <span>🖥️ Validador de Hardware</span>
+    <section class="hero">
+      <button type="button" class="booth-key" id="btn-main-toggle" aria-pressed="false" aria-labelledby="main-toggle-label" aria-describedby="direction-text">
+        <svg class="key-icon key-icon-start" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="22" /></svg>
+        <svg class="key-icon key-icon-stop" viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="6.5" width="11" height="11" rx="2" /></svg>
       </button>
-      <button type="button" class="btn-icon-round" id="btn-toggle-overlay-header"
-        title="Encender / Apagar Recuadro Flotante (Ctrl+Shift+T)">📺</button>
-      <button type="button" class="btn-icon-round" id="btn-theme-toggle" title="Cambiar Tema">🌙</button>
-      <button type="button" class="btn-icon-round" id="btn-pip-toggle" title="Modo Ventana">🗗</button>
-      <button type="button" class="btn-icon-round" id="btn-export-all" title="Exportar">📤</button>
-    </div>
-  </header>
+      <div class="hero-copy">
+        <p class="hero-label" id="main-toggle-label">Empezar a traducir</p>
+        <p class="hero-direction" id="direction-text">Hablas en español y la reunión te oye en inglés.</p>
+        <button type="button" class="link-btn" id="btn-change-languages">Cambiar idiomas</button>
+      </div>
+      <!-- Estado real del interruptor: el botón grande lo pulsa y las pruebas automáticas también -->
+      <input type="checkbox" id="toggle-active" class="visually-hidden" tabindex="-1" aria-hidden="true">
+    </section>
 
-  <!-- Row 2: Platform Bar & Translation Switch -->
-  <div class="top-controls-row">
-    <div class="platform-card">
-      <div class="platform-btn" data-platform="teams">
-        <span class="platform-icon">👥</span>
-        <span class="platform-name">Microsoft Teams</span>
-      </div>
-      <div class="platform-btn" data-platform="zoom">
-        <span class="platform-icon">📹</span>
-        <span class="platform-name">Zoom Workplace</span>
-      </div>
-      <div class="platform-btn active" data-platform="meet">
-        <span class="platform-icon">🟢</span>
-        <span class="platform-name">Google Meet</span>
-      </div>
+    <ul class="readiness" id="readiness" aria-label="Comprobaciones">
+      <li class="check" data-state="ok" id="check-mic">Micrófono</li>
+      <li class="check" data-state="ok" id="check-cable">Cable virtual</li>
+      <li class="check" data-state="ok" id="check-engine">Motor</li>
+    </ul>
+
+    <div class="notice" id="setup-notice" data-state="info" role="status">
+      <p id="setup-notice-text">En Meet, Teams o Zoom elige <strong>CABLE Output</strong> como micrófono.</p>
+      <button type="button" class="btn btn-small" id="setup-notice-action" hidden></button>
     </div>
 
-    <div class="toggle-card">
-      <div class="toggle-text">
-        <span class="toggle-title">Traducción Simultánea</span>
-        <span class="toggle-sub">Audio hacia Google Meet</span>
-      </div>
-      <label class="switch">
-        <input type="checkbox" id="toggle-active">
-        <span class="slider"></span>
+    <div class="quick-switches">
+      <label class="switch-row">
+        <span class="switch-text">Subtítulos flotantes <kbd>Ctrl+Shift+T</kbd></span>
+        <input type="checkbox" id="toggle-overlay" class="toggle" role="switch" checked>
+      </label>
+      <label class="switch-row">
+        <span class="switch-text">Leer en voz alta lo que dicen</span>
+        <input type="checkbox" id="incoming-voice-toggle" class="toggle" role="switch">
       </label>
     </div>
 
-    <div class="toggle-card" id="card-toggle-overlay">
-      <div class="toggle-text">
-        <span class="toggle-title">📺 Recuadro Flotante</span>
-        <span class="toggle-sub">Subtítulos <kbd class="kbd-pill">Ctrl+Shift+T</kbd></span>
+    <section class="conversation" aria-labelledby="conversation-title">
+      <div class="conversation-head">
+        <h2 id="conversation-title">Conversación</h2>
+        <button type="button" class="icon-btn" id="btn-export-conv" title="Exportar la conversación" aria-label="Exportar la conversación">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+        </button>
       </div>
-      <label class="switch">
-        <input type="checkbox" id="toggle-overlay" checked>
-        <span class="slider"></span>
-      </label>
-    </div>
-  </div>
-
-  <!-- Main 2-Column Grid -->
-  <main class="main-grid">
-
-    <!-- LEFT COLUMN -->
-    <div class="grid-col left-col">
-
-      <!-- Panel 1: ENRUTAMIENTO DE AUDIO Y DISPOSITIVOS -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon icon-blue">⚡</span> ENRUTAMIENTO DE AUDIO Y DISPOSITIVOS
-          </div>
-          <button type="button" class="btn-header-action" id="btn-refresh-devices">
-            <span>🔄 Escanear</span>
-          </button>
-        </div>
-
-        <!-- Banner Estado Driver VB-Cable -->
-        <div class="alert-banner green-banner" id="driver-ready-banner">
-          <div class="banner-title">
-            <span class="banner-icon">🛡️</span> Driver VB-Audio Cable activo y calibrado
-          </div>
-          <div class="banner-desc">
-            En la videollamada selecciona <strong>CABLE Output</strong> como micrófono para enviar únicamente la
-            traducción en inglés.
-          </div>
-        </div>
-
-        <div class="alert-banner red-banner" id="driver-missing-banner" style="display: none;">
-          <div class="banner-title">⚠️ Driver Virtual VB-CABLE Requerido</div>
-          <div class="banner-desc">
-            Para enviar la traducción a Google Meet, Teams o Zoom y silenciar tu voz real, Windows necesita el driver
-            VB-Audio Cable.
-          </div>
-          <div class="banner-actions">
-            <button type="button" class="btn-download" id="btn-download-vbcable">📥 Descargar VB-CABLE</button>
-            <a href="#" id="link-vbcable-url" class="link-url">https://vb-audio.com/Cable/</a>
-          </div>
-        </div>
-
-        <!-- Form 2 Cols: Mic Input + Virtual Cable Output -->
-        <div class="form-row-2">
-          <div class="form-group">
-            <label for="mic-input-select">Micrófono de Entrada (Tu voz)</label>
-            <select id="mic-input-select">
-              <option value="default">Cargando micrófonos del sistema...</option>
-            </select>
-          </div>
-
-          <div class="form-group">
-            <div class="label-row">
-              <label for="virtual-cable-select">Salida Virtual (Hacia la Reunión)</label>
-              <button type="button" class="btn-mini-test" id="btn-test-vbcable">🔊 Probar</button>
-            </div>
-            <select id="virtual-cable-select">
-              <option value="default">CABLE Input (VB-Audio Virtual Cable)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Checkbox List -->
-        <div class="checkbox-list">
-          <label class="checkbox-card">
-            <input type="checkbox" id="local-monitor-toggle">
-            <span class="checkbox-label">Monitoreo local (Escuchar mi voz traducida en mis propios auriculares)</span>
-          </label>
-
-          <label class="checkbox-card">
-            <input type="checkbox" id="translate-incoming-toggle" checked>
-            <span class="checkbox-label">Traducción bidireccional (Traducir al receptor de la llamada al español)</span>
-          </label>
-
-          <label class="checkbox-card">
-            <input type="checkbox" id="incoming-voice-toggle">
-            <span class="checkbox-label">Leer en voz alta la traducción de la reunión, bajando el volumen del original</span>
-          </label>
-
-          <div class="form-group" id="duck-level-group">
-            <label for="duck-level">Volumen del audio original mientras suena la traducción</label>
-            <select id="duck-level">
-              <option value="0.05" selected>5 % (se nota que hablan, se entiende la traducción)</option>
-              <option value="0.1">10 %</option>
-              <option value="0.2">20 %</option>
-              <option value="1">100 % (sin bajar)</option>
-            </select>
-          </div>
-
-          <label class="checkbox-card">
-            <input type="checkbox" id="three-toggle" checked>
-            <span class="checkbox-label">🌿 Renderizado y Animación 3D (Desmarcar para Modo Eco / 0% GPU)</span>
-          </label>
-        </div>
-      </section>
-      <!-- Noise Gate & VU Meter -->
-      <div class="noise-gate-section">
-        <div class="label-row">
-          <label for="noise-gate-select">Filtro de Ruido Ambiental (Noise Gate / VAD)</label>
-          <span class="vad-badge" id="vad-badge">⚪ SILENCIO</span>
-        </div>
-        <select id="noise-gate-select">
-          <option value="0.008">Sensible (Espacio silencioso / Oficina privada)</option>
-          <option value="0.016" selected>Equilibrado (Recomendado - Filtra respiración y eco)</option>
-          <option value="0.030">Alto (Filtra teclado, clics y ruido de fondo moderado)</option>
-          <option value="0.055">Agresivo (Ambiente concurrido o con eco)</option>
-        </select>
-
-        <div class="vu-container">
-          <div class="vu-label">
-            <span>Nivel de Entrada</span>
-            <span id="vu-val-text">0%</span>
-          </div>
-          <div class="vu-track">
-            <div class="vu-bar" id="vu-bar"></div>
-            <div class="vu-threshold-line" id="vu-threshold-line" title="Umbral de Activación de Voz"></div>
-          </div>
-        </div>
+      <div class="now-line" id="preview-box" style="display: none;">
+        <span class="now-orig" id="preview-orig"></span>
+        <span class="now-trans" id="preview-trans"></span>
       </div>
-      <!-- Panel 3: MONITOR Y PARTICIPANTES EN VIVO -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon icon-monitor">🖥️</span> MONITOR Y PARTICIPANTES EN VIVO
-          </div>
-          <div class="card-header-actions">
-            <button type="button" class="btn-pill-action" id="btn-toggle-3d">
-              <span>⚡ Activar 3D Studio</span>
-            </button>
-            <button type="button" class="btn-pill-action" id="btn-export-conv">
-              <span>📥 Exportar Conversación</span>
-            </button>
-          </div>
-        </div>
+      <div class="conversation-log" id="conversation-log" aria-live="polite">
+        <div class="conversation-empty" id="conversation-empty">La conversación aparecerá aquí, frase por frase.</div>
+      </div>
+    </section>
+  </main>
 
-        <!-- Dark 3D / Eco Mode Stage Box -->
+  <!-- Ajustes: todo lo que no se toca durante una reunión -->
+  <section class="view view-settings" id="view-settings" aria-labelledby="settings-title" hidden>
+    <header class="topbar">
+      <button type="button" class="icon-btn" id="btn-close-settings" title="Volver" aria-label="Volver">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
+      </button>
+      <h1 class="settings-title" id="settings-title">Ajustes</h1>
+    </header>
 
+    <div class="settings-body" id="settings-body">
 
-        <!-- Big Purple-Blue Vibrant Action Button -->
-        <!--  <button type="button" class="btn-vibrant-gradient" id="btn-test-mic">
-          <span>▶ Probar Transcripción y Traducción</span>
-        </button> -->
-
-        <!-- Subtitle / Preview pill row -->
-        <div class="preview-pills-row" id="preview-box">
-          <span class="preview-badge entrada">ENTRADA</span>
-          <span class="preview-text orig-text" id="preview-orig">🎙️ ¡Mamá!</span>
-          <span class="preview-badge traduccion">TRADUCCIÓN</span>
-          <span class="preview-text trans-text" id="preview-trans">✨ Mother!</span>
-        </div>
-
-        <!-- Historial de la conversación -->
-        <div class="conversation-log" id="conversation-log" aria-live="polite">
-          <div class="conversation-empty" id="conversation-empty">La conversación aparecerá aquí, frase por frase.</div>
-        </div>
-      </section>
-
-      <!-- Panel: LABORATORIO DE PRUEBAS -->
-      <section class="card" id="lab-card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon">🧪</span> LABORATORIO DE PRUEBAS
-          </div>
-          <div class="card-header-actions">
-            <button type="button" class="btn-pill-action" id="lab-open-btn">
-              <span>📂 Abrir sesiones</span>
-            </button>
-          </div>
-        </div>
-
-        <p class="lab-help">
-          Graba una sesión para ver dónde mejorar: cada frase queda con su audio, lo que se entendió, la traducción y los tiempos.
-          Habla por tu micrófono y, para simular la reunión, reproduce un vídeo de YouTube en inglés (con «Traducción bidireccional» activada).
-        </p>
-
-        <div class="lab-options">
-          <label class="checkbox-card">
-            <input type="checkbox" id="lab-save-audio" checked>
-            <span class="checkbox-label">Guardar el audio de cada frase (solo Motor Local)</span>
-          </label>
-          <label class="checkbox-card">
-            <input type="checkbox" id="lab-mute-voice" checked>
-            <span class="checkbox-label">Sin voz sintetizada para tu micrófono durante la prueba (la voz de la reunión no se ve afectada)</span>
-          </label>
-        </div>
-
-        <div class="lab-actions">
-          <button type="button" class="btn-pill-action lab-main-btn" id="lab-toggle-btn">
-            <span id="lab-toggle-text">⏺ Iniciar sesión de prueba</span>
-          </button>
-          <span class="lab-status" id="lab-status">Sin sesión en curso.</span>
-        </div>
-
-        <div class="lab-flag-row">
-          <input type="text" id="lab-note" class="lab-note" placeholder="¿Qué falló en la última frase? (opcional)" disabled>
-          <button type="button" class="btn-pill-action" id="lab-flag-btn" disabled>
-            <span>🚩 Marcar la última frase</span>
-          </button>
-        </div>
-
-        <pre class="lab-summary" id="lab-summary" style="display: none;"></pre>
-      </section>
-
-      <!-- Panel 4: REGISTRO DE EVENTOS Y DIAGNÓSTICO -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon icon-terminal">>_</span> REGISTRO DE EVENTOS Y DIAGNÓSTICO
-          </div>
-          <div class="card-header-actions">
-            <button type="button" class="btn-pill-action" id="btn-export-logs">
-              <span>📥 Exportar Logs</span>
-            </button>
-            <button type="button" class="btn-icon-btn" id="btn-clear-logs" title="Limpiar Consola">🗑️</button>
-            <button type="button" class="btn-icon-btn" id="btn-open-devtools"
-              title="Herramientas de Desarrollador">🛠️</button>
-          </div>
-        </div>
-
-        <!-- Dark Log Terminal -->
-        <div id="log-container" class="log-terminal">
-          <div class="log-entry system">[SISTEMA] Consola de diagnóstico lista para registrar eventos...</div>
-        </div>
-      </section>
-
-
-
-
-
-
-    </div>
-
-    <!-- RIGHT COLUMN -->
-    <div class="grid-col right-col">
-
-      <!-- Panel 2: MOTORES DE TRANSCRIPCIÓN Y VOCES -->
-      <section class="card">
-        <div class="card-header">
-          <div class="card-title">
-            <span class="title-icon icon-gear">⚙️</span> MOTORES DE TRANSCRIPCIÓN Y VOCES
-          </div>
-        </div>
-
-        <!-- 2 Cols: Canal Origen + Canal Destino -->
-        <div class="form-row-2">
+      <section class="settings-section" id="settings-languages">
+        <h2>Idiomas</h2>
+        <div class="field-pair">
           <div class="form-group">
-            <label for="source-lang">Canal Origen</label>
+            <label for="source-lang">Tú hablas</label>
             <select id="source-lang">
-              <option value="es-ES">Español (ES)</option>
-              <option value="en-US">Inglés (EN)</option>
-              <option value="auto">⚡ Auto (Multilingüe)</option>
+              <option value="es-ES">Español</option>
+              <option value="en-US">Inglés</option>
+              <option value="auto">Detectar solo</option>
             </select>
           </div>
-
           <div class="form-group">
-            <label for="target-lang">Canal Destino</label>
+            <label for="target-lang">La reunión te oye en</label>
             <select id="target-lang">
-              <option value="en">Inglés (EN)</option>
-              <option value="es">Español (ES)</option>
-              <option value="auto">⚡ Auto (Bidireccional)</option>
+              <option value="en">Inglés</option>
+              <option value="es">Español</option>
+              <option value="auto">El otro idioma</option>
             </select>
           </div>
         </div>
+        <label class="switch-row">
+          <span class="switch-text">Traducir también lo que dicen los demás<small>Lo ves en los subtítulos y en la conversación.</small></span>
+          <input type="checkbox" id="translate-incoming-toggle" class="toggle" role="switch" checked>
+        </label>
+      </section>
 
-        <!-- Motor de Transcripción (STT) -->
-        <div class="form-group">
-          <label for="stt-engine">Motor de Transcripción de Voz (STT)</label>
-          <select id="stt-engine">
-            <option value="local">🔒 Motor Local (Sin conexión, privado, sin claves)</option>
-            <option value="gemini_35_transcribe" selected>✨ Google Gemini 3.5 Transcribe (Live STT Inteligente)</option>
-            <option value="whisper_groq">Groq Whisper AI (Ultra Baja Latencia ~300ms)</option>
-            <option value="gemini_live">Gemini Live (Audio-to-Audio Ultra-Fluido)</option>
-            <option value="webspeech">Web Speech API (Nativo Gratis)</option>
-          </select>
-        </div>
-
-        <!-- Motor Local -->
-        <div class="form-group" id="local-ai-group" style="display: none;">
-          <label for="translation-mode">Traducción con el Motor Local</label>
-          <select id="translation-mode">
-            <option value="auto" selected>Nube si hay red, local si no (mejor calidad)</option>
-            <option value="local">Siempre local (el texto no sale del equipo)</option>
-          </select>
-          <span class="link-aff-url" id="local-ai-status">Comprobando modelos...</span>
-        </div>
-
-        <!-- Vocabulario propio: nombres y siglas que el diccionario técnico no puede conocer -->
-        <div class="form-group" id="vocabulary-group">
-          <label for="custom-vocabulary">Vocabulario propio (nombres y siglas de tu equipo)</label>
-          <textarea id="custom-vocabulary" class="vocabulary-input" rows="3" spellcheck="false"
-            placeholder="Andrews = Andrés&#10;proyecto fénix = Proyecto Phoenix"></textarea>
-          <span class="link-aff-url">Una entrada por línea: cómo lo escribe el reconocedor = cómo debe quedar. Los términos de Microsoft 365, SharePoint, Power Platform, Azure y .NET ya vienen incluidos. Se aplica al activar la traducción.</span>
-        </div>
-
-        <!-- Groq API Key -->
-        <div class="form-group" id="groq-key-group">
-          <div class="label-row">
-            <label for="groq-key">Groq API Key <span class="required-pill">Obligatorio</span></label>
-            <a href="#" id="link-get-groq-key" class="btn-api-get-link"
-              title="Obtener API Key gratuita en Groq Console">⚡ Obtener API Key de Groq</a>
-          </div>
-          <input type="text" id="groq-key" placeholder="gsk_..."
-            value="gsk_dummy_replace_with_your_groq_api_key_000000000000">
-          <div class="field-hint-row">
-            <span>Crea tu API Key gratuita para transcripción ultrarrápida en: </span>
-            <a href="#" id="link-get-groq-key-bottom" class="link-aff-url">https://console.groq.com/keys</a>
+      <section class="settings-section" id="settings-audio">
+        <h2>Audio</h2>
+        <p class="inline-status" data-state="ok" id="driver-ready-banner">VB-CABLE está instalado. En la reunión elige <strong>CABLE Output</strong> como micrófono.</p>
+        <div class="inline-status" data-state="error" id="driver-missing-banner" style="display: none;">
+          <p>Para que la reunión oiga tu traducción, Windows necesita el cable virtual VB-CABLE.</p>
+          <div class="row-actions">
+            <button type="button" class="btn btn-small" id="btn-download-vbcable">Descargar VB-CABLE</button>
+            <a href="#" id="link-vbcable-url" class="link">vb-audio.com/Cable</a>
           </div>
         </div>
-
-        <!-- Gemini API Key & Voice (Hidden unless Gemini is active) -->
-        <div class="form-group" id="gemini-key-group" style="display: none;">
-          <div class="label-row">
-            <label for="gemini-key">Gemini API Key <span class="required-pill">Google AI Studio</span></label>
-            <a href="#" id="link-get-gemini-key" class="btn-api-get-link" title="Obtener API Key en Google AI Studio">✨
-              Obtener API Key de Gemini</a>
-          </div>
-          <input type="text" id="gemini-key" placeholder="AIzaSy..." value="">
-          <div class="field-hint-row">
-            <span>Obtén tu clave de Gemini 3.5 en: </span>
-            <a href="#" id="link-get-gemini-key-bottom" class="link-aff-url">https://aistudio.google.com/app/apikey</a>
-          </div>
-        </div>
-
-        <div class="form-group" id="gemini-voice-group" style="display: none;">
-          <label for="gemini-voice">Voz de Gemini Live</label>
-          <select id="gemini-voice">
-            <option value="Puck">Puck (Masculina Dinámica)</option>
-            <option value="Charon">Charon (Masculina Sobria)</option>
-            <option value="Kore">Kore (Femenina Cálida)</option>
-            <option value="Fenrir">Fenrir (Masculina Profunda)</option>
-            <option value="Aoede">Aoede (Femenina Profesional)</option>
-          </select>
-        </div>
-
-        <!-- Motor de Síntesis de Voz (TTS) -->
         <div class="form-group">
           <div class="label-row">
-            <label for="tts-engine-select">Motor de Síntesis de Voz (TTS Hacia la Llamada)</label>
-            <span class="engine-badge-pill" id="tts-engine-badge">🐟 FISH AUDIO AI</span>
+            <label for="mic-input-select">Tu micrófono</label>
+            <button type="button" class="link-btn" id="btn-refresh-devices">Buscar de nuevo</button>
           </div>
-          <select id="tts-engine-select">
-            <option value="fish_audio" selected>🐟 Fish Audio AI (Clon de Voz Idéntica - Ultra Realista)</option>
-            <option value="google_tts">Google TTS (Voz Estándar Natural)</option>
-            <option value="webspeech">Web Speech API (Nativo del Sistema)</option>
+          <select id="mic-input-select">
+            <option value="default">Cargando micrófonos…</option>
           </select>
         </div>
-
-        <!-- Fish Audio AI Settings Card -->
-        <div class="fish-audio-panel" id="fish-audio-panel">
-          <div class="fish-panel-header">
-            <div class="fish-title-row">
-              <span class="fish-icon">🐟</span>
-              <div>
-                <strong class="fish-title">Estudio de Voz Clonada Fish Audio</strong>
-                <span class="fish-subtitle">Replica tu timbre y entonación en las traducciones</span>
-              </div>
+        <div class="form-group">
+          <div class="label-row">
+            <label for="virtual-cable-select">Salida hacia la reunión</label>
+            <button type="button" class="link-btn" id="btn-test-vbcable">Probar</button>
+          </div>
+          <select id="virtual-cable-select">
+            <option value="default">CABLE Input (VB-Audio Virtual Cable)</option>
+          </select>
+        </div>
+        <label class="switch-row">
+          <span class="switch-text">Oír mi traducción en mis auriculares</span>
+          <input type="checkbox" id="local-monitor-toggle" class="toggle" role="switch">
+        </label>
+        <div class="form-group">
+          <div class="label-row">
+            <label for="noise-gate-select">Filtro de ruido</label>
+            <span class="vad-badge" id="vad-badge">Silencio</span>
+          </div>
+          <select id="noise-gate-select">
+            <option value="0.008">Sensible: habitación silenciosa</option>
+            <option value="0.016" selected>Equilibrado (recomendado)</option>
+            <option value="0.030">Alto: teclado, clics y algo de ruido</option>
+            <option value="0.055">Máximo: sitio con gente o con eco</option>
+          </select>
+          <div class="vu-container">
+            <div class="vu-label"><span>Nivel del micrófono</span><span id="vu-val-text">0%</span></div>
+            <div class="vu-track">
+              <div class="vu-bar" id="vu-bar"></div>
+              <div class="vu-threshold-line" id="vu-threshold-line" title="A partir de aquí cuenta como voz"></div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="settings-section" id="settings-meeting-voice">
+        <h2>Tu voz en la reunión</h2>
+        <div class="form-group">
+          <label for="tts-engine-select">Voz con la que te oyen</label>
+          <select id="tts-engine-select">
+            <option value="fish_audio" selected>Fish Audio: tu voz clonada</option>
+            <option value="google_tts">Google: voz estándar</option>
+            <option value="webspeech">Voz de Windows</option>
+          </select>
+        </div>
+
+        <div class="fish-audio-panel" id="fish-audio-panel">
+          <div class="label-row">
+            <span class="group-title">Fish Audio</span>
             <span class="status-pill-fish green" id="fish-status-pill">Conectado</span>
           </div>
-
-          <!-- Fish API Key -->
           <div class="form-group">
             <div class="label-row">
-              <label for="fish-api-key">Fish Audio API Key <span class="required-pill">Obligatorio</span></label>
-              <div class="label-actions-right">
-                <a href="#" id="link-get-fish-key" class="btn-api-get-link fish-aff-btn"
-                  title="Crear cuenta y obtener API Key en Fish Audio">🐟 Obtener API Key de Fish Audio</a>
-                <button type="button" class="btn-mini-link" id="btn-toggle-fish-key">👁️ Ver</button>
-                <button type="button" class="btn-mini-test" id="btn-verify-fish-key">✓ Validar</button>
-              </div>
+              <label for="fish-api-key">Clave</label>
+              <span class="label-actions">
+                <button type="button" class="link-btn" id="btn-toggle-fish-key">Ver</button>
+                <button type="button" class="link-btn" id="btn-verify-fish-key">Validar</button>
+              </span>
             </div>
             <input type="password" id="fish-api-key" placeholder="sk-fish-..."
               value="00000000000000000000000000000000">
-            <div class="field-hint-row">
-              <span>Registra tu cuenta y obtén tu API Key obligatoria en: </span>
-              <a href="#" id="link-get-fish-key-bottom" class="link-aff-url">https://fish.audio/?aff=SNSVEP4PGIIVI</a>
-            </div>
+            <p class="hint">Consíguela en <a href="#" id="link-get-fish-key" class="link">fish.audio</a>.<a href="#" id="link-get-fish-key-bottom" hidden></a></p>
           </div>
-
-          <!-- Fish Voice Model Selection & Clone Studio Trigger -->
           <div class="form-group">
             <div class="label-row">
-              <label for="fish-voice-select">Voz de Salida (Tu Voz Clonada)</label>
-              <button type="button" class="btn-mini-refresh" id="btn-refresh-fish-voices"
-                title="Actualizar lista de voces">🔄</button>
+              <label for="fish-voice-select">Voz</label>
+              <button type="button" class="link-btn" id="btn-refresh-fish-voices">Actualizar</button>
             </div>
             <select id="fish-voice-select">
-              <option value="0356fc9e08b646ed91607baa54a847c3" selected>🎙️ Mi Voz Principal (Clonada)</option>
-              <option value="default">⚡ Voz Estándar de Fish Audio</option>
-              <option value="custom">✏️ Ingresar ID de Modelo Manualmente...</option>
+              <option value="0356fc9e08b646ed91607baa54a847c3" selected>Mi voz principal (clonada)</option>
+              <option value="default">Voz estándar de Fish Audio</option>
+              <option value="custom">Escribir el ID de un modelo…</option>
             </select>
           </div>
-
-          <!-- Manual Voice ID input if custom is chosen -->
           <div class="form-group" id="fish-custom-voice-group" style="display: none;">
-            <label for="fish-voice-id-input">ID del Modelo de Voz de Fish Audio</label>
-            <input type="text" id="fish-voice-id-input" placeholder="Ej: d8a1340984ee4b63ad1ffae27a6a4339"
+            <label for="fish-voice-id-input">ID del modelo de voz</label>
+            <input type="text" id="fish-voice-id-input" placeholder="d8a1340984ee4b63ad1ffae27a6a4339"
               value="0356fc9e08b646ed91607baa54a847c3">
           </div>
-
-          <!-- Action Buttons: Clone Studio + Test Voice -->
-          <div class="fish-actions-grid">
-            <button type="button" class="btn-fish-studio" id="btn-open-clone-studio">
-              <span class="btn-icon">🎙️</span>
-              <span class="btn-text">Clonar Mi Voz (Estudio de Grabación)</span>
-            </button>
-            <button type="button" class="btn-fish-test" id="btn-test-fish-voice">
-              <span class="btn-icon">🔊</span>
-              <span class="btn-text">Probar Mi Voz</span>
-            </button>
+          <div class="row-actions">
+            <button type="button" class="btn" id="btn-open-clone-studio">Clonar mi voz</button>
+            <button type="button" class="btn" id="btn-test-fish-voice">Probar mi voz</button>
           </div>
-
-          <!-- Model Tier & Latency Options -->
-          <div class="form-row-2">
+          <div class="field-pair">
             <div class="form-group">
-              <label for="fish-model-tier">Modelo de Red</label>
+              <label for="fish-model-tier">Modelo</label>
               <select id="fish-model-tier">
-                <option value="s2.1-pro-free" selected>s2.1-pro-free (Rápido y Gratuito)</option>
-                <option value="s2.1-pro">s2.1-pro (Máxima Fidelidad HD)</option>
-                <option value="s2-pro">s2-pro (Estable)</option>
+                <option value="s2.1-pro-free" selected>Gratis y rápido</option>
+                <option value="s2.1-pro">Máxima calidad</option>
+                <option value="s2-pro">Estable</option>
               </select>
             </div>
             <div class="form-group">
-              <label for="fish-latency-mode">Modo de Latencia</label>
+              <label for="fish-latency-mode">Latencia</label>
               <select id="fish-latency-mode">
-                <option value="balanced" selected>⚡ Equilibrado (~200ms)</option>
-                <option value="normal">Calidad de Estudio</option>
+                <option value="balanced" selected>Baja (~200 ms)</option>
+                <option value="normal">Calidad de estudio</option>
               </select>
             </div>
-          </div>
-        </div>
-
-        <!-- Spanish Voice Select (para incoming / receptor) -->
-        <div class="form-group" id="spanish-voice-group">
-          <div class="label-row">
-            <label for="spanish-voice-select">Voz del Traductor en Español (Receptor)</label>
-            <button type="button" class="btn-mini-test" id="btn-test-spanish-voice">🔊 Probar</button>
-          </div>
-          <select id="spanish-voice-select">
-            <option value="google_tts">Google Español (Neutro Natural Online)</option>
-            <option value="auto">⚡ Auto (Mejor voz en Español detectada)</option>
-          </select>
-        </div>
-
-        <!-- Spanish Volume Slider & Presets -->
-        <div class="form-group" id="spanish-volume-group">
-          <div class="label-row">
-            <label for="spanish-volume-slider">Nivel de Volumen (Traducción en Español)</label>
-            <span class="vol-badge" id="spanish-volume-text">90%</span>
-          </div>
-          <div class="range-container">
-            <input type="range" id="spanish-volume-slider" min="10" max="100" value="90">
-          </div>
-          <div class="presets-row">
-            <button type="button" class="btn-preset-vol" data-vol="30">30% Suave</button>
-            <button type="button" class="btn-preset-vol" data-vol="60">60%</button>
-            <button type="button" class="btn-preset-vol active-preset" data-vol="90">90% Recomendado</button>
-            <button type="button" class="btn-preset-vol" data-vol="100">100% Máx</button>
           </div>
         </div>
       </section>
 
+      <section class="settings-section" id="settings-their-voice">
+        <h2>Lo que dicen los demás</h2>
+        <div class="form-group" id="spanish-voice-group">
+          <div class="label-row">
+            <label for="spanish-voice-select">Voz que te lo lee</label>
+            <button type="button" class="link-btn" id="btn-test-spanish-voice">Probar</button>
+          </div>
+          <select id="spanish-voice-select">
+            <option value="google_tts">Google, español neutro</option>
+            <option value="auto">La mejor voz en español del equipo</option>
+          </select>
+        </div>
+        <div class="form-group" id="spanish-volume-group">
+          <div class="label-row">
+            <label for="spanish-volume-slider">Volumen de esa voz</label>
+            <span class="vol-badge" id="spanish-volume-text">90%</span>
+          </div>
+          <input type="range" id="spanish-volume-slider" min="10" max="100" value="90">
+        </div>
+        <div class="form-group" id="duck-level-group">
+          <label for="duck-level">Volumen del original mientras suena la traducción</label>
+          <select id="duck-level">
+            <option value="0.05" selected>5 %: se nota que hablan y se entiende la traducción</option>
+            <option value="0.1">10 %</option>
+            <option value="0.2">20 %</option>
+            <option value="1">100 %: sin bajarlo</option>
+          </select>
+        </div>
+      </section>
+
+      <section class="settings-section" id="settings-engine">
+        <h2>Reconocimiento y traducción</h2>
+        <div class="form-group">
+          <label for="stt-engine">Motor</label>
+          <select id="stt-engine">
+            <option value="local">Local: sin conexión, privado y sin claves</option>
+            <option value="gemini_35_transcribe" selected>Gemini 3.5 Transcribe</option>
+            <option value="whisper_groq">Groq Whisper</option>
+            <option value="gemini_live">Gemini Live: de voz a voz</option>
+            <option value="webspeech">Web Speech</option>
+          </select>
+        </div>
+        <div class="form-group" id="local-ai-group" style="display: none;">
+          <label for="translation-mode">Traducción con el motor local</label>
+          <select id="translation-mode">
+            <option value="auto" selected>En la nube si hay red; si no, en el equipo</option>
+            <option value="local">Siempre en el equipo: el texto no sale de aquí</option>
+          </select>
+          <p class="hint" id="local-ai-status">Comprobando los modelos…</p>
+        </div>
+        <div class="form-group" id="groq-key-group">
+          <div class="label-row">
+            <label for="groq-key">Clave de Groq</label>
+            <a href="#" id="link-get-groq-key" class="link">Conseguir una gratis</a>
+          </div>
+          <input type="password" id="groq-key" placeholder="gsk_..." autocomplete="off"
+            value="gsk_dummy_replace_with_your_groq_api_key_000000000000">
+          <a href="#" id="link-get-groq-key-bottom" hidden></a>
+        </div>
+        <div class="form-group" id="gemini-key-group" style="display: none;">
+          <div class="label-row">
+            <label for="gemini-key">Clave de Gemini</label>
+            <a href="#" id="link-get-gemini-key" class="link">Conseguirla en Google AI Studio</a>
+          </div>
+          <input type="password" id="gemini-key" placeholder="AIzaSy..." autocomplete="off" value="">
+          <a href="#" id="link-get-gemini-key-bottom" hidden></a>
+        </div>
+        <div class="form-group" id="gemini-voice-group" style="display: none;">
+          <label for="gemini-voice">Voz de Gemini Live</label>
+          <select id="gemini-voice">
+            <option value="Puck">Puck: masculina, dinámica</option>
+            <option value="Charon">Charon: masculina, sobria</option>
+            <option value="Kore">Kore: femenina, cálida</option>
+            <option value="Fenrir">Fenrir: masculina, grave</option>
+            <option value="Aoede">Aoede: femenina, profesional</option>
+          </select>
+        </div>
+        <div class="form-group" id="vocabulary-group">
+          <label for="custom-vocabulary">Vocabulario propio</label>
+          <textarea id="custom-vocabulary" class="vocabulary-input" rows="3" spellcheck="false"
+            placeholder="Andrews = Andrés&#10;proyecto fénix = Proyecto Phoenix"></textarea>
+          <p class="hint">Nombres y siglas de tu equipo, uno por línea: cómo lo escribe el reconocedor = cómo debe quedar. Los términos de Microsoft 365, SharePoint, Power Platform, Azure y .NET ya vienen incluidos. Se aplica al empezar a traducir.</p>
+        </div>
+      </section>
+
+      <section class="settings-section" id="settings-tools">
+        <h2>Herramientas</h2>
+        <div class="action-row">
+          <div>
+            <p class="row-title">Validador de hardware</p>
+            <p class="hint">Comprueba el procesador, la memoria, el audio y la conexión.</p>
+          </div>
+          <button type="button" class="btn" id="btn-hardware-check">Abrir</button>
+        </div>
+
+        <details class="tool" id="lab-card">
+          <summary>Laboratorio de pruebas</summary>
+          <p class="hint">Graba una sesión para ver dónde mejorar: cada frase queda con su audio, lo que se entendió, la traducción y los tiempos.
+            Para simular la reunión, reproduce un vídeo en inglés con «Traducir también lo que dicen los demás» activado.</p>
+          <label class="check-row"><input type="checkbox" id="lab-save-audio" checked> Guardar el audio de cada frase (solo motor local)</label>
+          <label class="check-row"><input type="checkbox" id="lab-mute-voice" checked> Sin voz sintetizada para tu micrófono durante la prueba</label>
+          <div class="row-actions">
+            <button type="button" class="btn" id="lab-toggle-btn"><span id="lab-toggle-text">Iniciar sesión de prueba</span></button>
+            <button type="button" class="link-btn" id="lab-open-btn">Abrir sesiones</button>
+          </div>
+          <p class="hint" id="lab-status">Sin sesión en curso.</p>
+          <div class="lab-flag-row">
+            <input type="text" id="lab-note" placeholder="¿Qué falló en la última frase? (opcional)" disabled>
+            <button type="button" class="btn" id="lab-flag-btn" disabled>Marcar la última frase</button>
+          </div>
+          <pre class="lab-summary" id="lab-summary" style="display: none;"></pre>
+        </details>
+
+        <details class="tool">
+          <summary>Registro de eventos</summary>
+          <div class="row-actions">
+            <button type="button" class="link-btn" id="btn-clear-logs">Limpiar</button>
+            <button type="button" class="link-btn" id="btn-open-devtools">Herramientas de desarrollo</button>
+          </div>
+          <div id="log-container" class="log-terminal">
+            <div class="log-entry system">[SISTEMA] Registro listo.</div>
+          </div>
+        </details>
+
+        <div class="action-row">
+          <div>
+            <p class="row-title">Exportar la sesión</p>
+            <p class="hint">La conversación y el registro, en un archivo de texto.</p>
+          </div>
+          <button type="button" class="btn" id="btn-export-all">Exportar</button>
+        </div>
+      </section>
+
+      <section class="settings-section" id="settings-window">
+        <h2>Ventana</h2>
+        <div class="action-row">
+          <p class="row-title">Tema</p>
+          <button type="button" class="btn" id="btn-theme-toggle">Cambiar a oscuro</button>
+        </div>
+        <div class="action-row">
+          <div>
+            <p class="row-title">Mini-ventana</p>
+            <p class="hint">Pequeña, en una esquina y siempre encima de la reunión.</p>
+          </div>
+          <button type="button" class="btn" id="btn-pip-toggle">Activar</button>
+        </div>
+      </section>
 
     </div>
-  </main>
+  </section>
 
-  <!-- Modal: Validador de Hardware y Diagnóstico de Sistema -->
+  <!-- Validador de hardware -->
   <div class="modal-backdrop" id="hardware-modal" style="display: none;">
-    <div class="hardware-modal-content">
+    <div class="modal-content hardware-modal-content" role="dialog" aria-modal="true" aria-labelledby="hw-modal-title">
       <div class="modal-header">
-        <div class="modal-title-wrap">
-          <span class="modal-icon">🖥️</span>
-          <div>
-            <h2 class="modal-title">Validador de Hardware y Diagnóstico</h2>
-            <p class="modal-subtitle">Análisis en tiempo real de recursos, aceleración y drivers de audio</p>
-          </div>
+        <div>
+          <h2 class="modal-title" id="hw-modal-title">Validador de hardware</h2>
+          <p class="modal-subtitle">Recursos del equipo, audio y conexión, en tiempo real.</p>
         </div>
-        <button type="button" class="btn-close-modal" id="btn-close-hw-modal" title="Cerrar">✕</button>
+        <button type="button" class="icon-btn btn-close-modal" id="btn-close-hw-modal" title="Cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+        </button>
       </div>
 
       <div class="modal-body">
-        <!-- Veredicto / Score Global -->
         <div class="hw-verdict-card" id="hw-verdict-card">
-          <div class="verdict-icon-wrap">
-            <span class="verdict-icon" id="hw-verdict-icon">⚡</span>
-          </div>
+          <span class="verdict-icon" id="hw-verdict-icon" hidden></span>
           <div class="verdict-text-wrap">
-            <h3 class="verdict-title" id="hw-verdict-title">Analizando sistema...</h3>
-            <p class="verdict-desc" id="hw-verdict-desc">Comprobando capacidades de hardware para traducción
-              simultánea...</p>
+            <h3 class="verdict-title" id="hw-verdict-title">Analizando el equipo…</h3>
+            <p class="verdict-desc" id="hw-verdict-desc">Comprobando si puede traducir en tiempo real.</p>
           </div>
-          <div class="verdict-badge" id="hw-verdict-badge">ANALIZANDO</div>
+          <span class="verdict-badge" id="hw-verdict-badge">Analizando</span>
         </div>
 
-        <!-- 4 Grid Cards de Hardware -->
         <div class="hw-grid">
-          <!-- Card CPU & OS -->
           <div class="hw-card">
             <div class="hw-card-header">
-              <span class="hw-card-icon">⚡</span>
-              <span class="hw-card-title">Procesador y Sistema</span>
-              <span class="hw-status-badge green" id="hw-cpu-status">ÓPTIMO</span>
+              <span class="hw-card-title">Procesador y sistema</span>
+              <span class="hw-status-badge green" id="hw-cpu-status">Óptimo</span>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-item">
-                <span class="hw-label">CPU:</span>
-                <span class="hw-val" id="hw-cpu-model">Detectando...</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Núcleos / Hilos:</span>
-                <span class="hw-val" id="hw-cpu-cores">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Sistema Operativo:</span>
-                <span class="hw-val" id="hw-os-info">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Arquitectura:</span>
-                <span class="hw-val" id="hw-arch-info">-</span>
-              </div>
-            </div>
+            <dl class="hw-card-body">
+              <div class="hw-item"><dt class="hw-label">CPU</dt><dd class="hw-val" id="hw-cpu-model">Detectando…</dd></div>
+              <div class="hw-item"><dt class="hw-label">Núcleos / hilos</dt><dd class="hw-val" id="hw-cpu-cores">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Sistema operativo</dt><dd class="hw-val" id="hw-os-info">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Arquitectura</dt><dd class="hw-val" id="hw-arch-info">-</dd></div>
+            </dl>
           </div>
 
-          <!-- Card Memoria RAM -->
           <div class="hw-card">
             <div class="hw-card-header">
-              <span class="hw-card-icon">🧠</span>
-              <span class="hw-card-title">Memoria RAM</span>
-              <span class="hw-status-badge green" id="hw-ram-status">ÓPTIMO</span>
+              <span class="hw-card-title">Memoria</span>
+              <span class="hw-status-badge green" id="hw-ram-status">Óptimo</span>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-item">
-                <span class="hw-label">RAM Total:</span>
-                <span class="hw-val" id="hw-ram-total">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">RAM Disponible:</span>
-                <span class="hw-val" id="hw-ram-free">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Uso de Memoria:</span>
-                <span class="hw-val" id="hw-ram-pct">-</span>
-              </div>
-              <div class="hw-progress-track">
-                <div class="hw-progress-bar" id="hw-ram-bar" style="width: 0%;"></div>
-              </div>
-            </div>
+            <dl class="hw-card-body">
+              <div class="hw-item"><dt class="hw-label">Total</dt><dd class="hw-val" id="hw-ram-total">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Disponible</dt><dd class="hw-val" id="hw-ram-free">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">En uso</dt><dd class="hw-val" id="hw-ram-pct">-</dd></div>
+            </dl>
+            <div class="hw-progress-track"><div class="hw-progress-bar" id="hw-ram-bar" style="width: 0%;"></div></div>
           </div>
 
-          <!-- Card Audio & Drivers -->
           <div class="hw-card">
             <div class="hw-card-header">
-              <span class="hw-card-icon">🎙️</span>
-              <span class="hw-card-title">Audio y Cable Virtual</span>
-              <span class="hw-status-badge green" id="hw-audio-status">DETECTADO</span>
+              <span class="hw-card-title">Audio y cable virtual</span>
+              <span class="hw-status-badge green" id="hw-audio-status">Detectado</span>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-item">
-                <span class="hw-label">Driver VB-CABLE:</span>
-                <span class="hw-val" id="hw-cable-status">Verificando...</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Sample Rate WebAudio:</span>
-                <span class="hw-val" id="hw-sample-rate">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Micrófonos detectados:</span>
-                <span class="hw-val" id="hw-mics-count">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Salidas detectadas:</span>
-                <span class="hw-val" id="hw-outputs-count">-</span>
-              </div>
-            </div>
+            <dl class="hw-card-body">
+              <div class="hw-item"><dt class="hw-label">VB-CABLE</dt><dd class="hw-val" id="hw-cable-status">Verificando…</dd></div>
+              <div class="hw-item"><dt class="hw-label">Frecuencia de muestreo</dt><dd class="hw-val" id="hw-sample-rate">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Micrófonos</dt><dd class="hw-val" id="hw-mics-count">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Salidas</dt><dd class="hw-val" id="hw-outputs-count">-</dd></div>
+            </dl>
           </div>
 
-          <!-- Card GPU & Conectividad -->
           <div class="hw-card">
             <div class="hw-card-header">
-              <span class="hw-card-icon">🌐</span>
-              <span class="hw-card-title">GPU y Conectividad</span>
-              <span class="hw-status-badge green" id="hw-gpu-status">ONLINE</span>
+              <span class="hw-card-title">Gráficos y conexión</span>
+              <span class="hw-status-badge green" id="hw-gpu-status">En línea</span>
             </div>
-            <div class="hw-card-body">
-              <div class="hw-item">
-                <span class="hw-label">Aceleración GPU:</span>
-                <span class="hw-val" id="hw-gpu-info">WebGL 2.0 Activo</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Latencia API / Ping:</span>
-                <span class="hw-val" id="hw-ping-ms">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Entorno Electron:</span>
-                <span class="hw-val" id="hw-electron-ver">-</span>
-              </div>
-              <div class="hw-item">
-                <span class="hw-label">Chromium Core:</span>
-                <span class="hw-val" id="hw-chrome-ver">-</span>
-              </div>
-            </div>
+            <dl class="hw-card-body">
+              <div class="hw-item"><dt class="hw-label">Aceleración GPU</dt><dd class="hw-val" id="hw-gpu-info">WebGL 2.0</dd></div>
+              <div class="hw-item"><dt class="hw-label">Latencia de la API</dt><dd class="hw-val" id="hw-ping-ms">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Electron</dt><dd class="hw-val" id="hw-electron-ver">-</dd></div>
+              <div class="hw-item"><dt class="hw-label">Chromium</dt><dd class="hw-val" id="hw-chrome-ver">-</dd></div>
+            </dl>
           </div>
         </div>
 
-        <!-- Sección de Prueba de Hardware en Vivo -->
         <div class="hw-live-test-box">
+          <div class="hw-test-info">
+            <strong>Prueba del micrófono</strong>
+            <span>Habla y mira si la barra se mueve.</span>
+          </div>
           <div class="hw-test-row">
-            <div class="hw-test-info">
-              <strong>🎙️ Prueba de Entrada de Micrófono en Vivo</strong>
-              <span>Habla para comprobar la captura del micrófono físico en tiempo real</span>
-            </div>
-            <div class="hw-live-meter">
-              <div class="hw-meter-bar" id="hw-meter-bar"></div>
-            </div>
+            <div class="hw-live-meter"><div class="hw-meter-bar" id="hw-meter-bar"></div></div>
             <span class="hw-meter-text" id="hw-meter-text">0%</span>
           </div>
-
-          <div class="hw-test-actions">
-            <button type="button" class="btn-hw-action" id="btn-hw-test-cable">
-              <span>🔊 Emitir Tono de Prueba en CABLE Input</span>
-            </button>
-            <button type="button" class="btn-hw-action" id="btn-hw-test-speakers">
-              <span>🔊 Probar Altavoces Locales</span>
-            </button>
+          <div class="row-actions">
+            <button type="button" class="btn" id="btn-hw-test-cable">Tono de prueba por CABLE Input</button>
+            <button type="button" class="btn" id="btn-hw-test-speakers">Probar los altavoces</button>
           </div>
         </div>
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn-modal-secondary" id="btn-copy-hw-report">
-          <span>📋 Copiar Reporte</span>
-        </button>
-        <button type="button" class="btn-modal-primary" id="btn-retest-hw">
-          <span>🔄 Re-ejecutar Diagnóstico</span>
-        </button>
-        <button type="button" class="btn-modal-secondary" id="btn-close-hw-footer">
-          <span>Cerrar</span>
-        </button>
+        <button type="button" class="btn" id="btn-copy-hw-report">Copiar informe</button>
+        <button type="button" class="btn" id="btn-close-hw-footer">Cerrar</button>
+        <button type="button" class="btn btn-primary" id="btn-retest-hw">Repetir</button>
       </div>
     </div>
   </div>
 
-  <!-- Modal: Estudio de Grabación y Clonación de Voz (Fish Audio AI) -->
+  <!-- Estudio de clonación de voz (Fish Audio) -->
   <div class="modal-backdrop" id="voice-clone-modal" style="display: none;">
-    <div class="voice-clone-modal-content">
+    <div class="modal-content voice-clone-modal-content" role="dialog" aria-modal="true" aria-labelledby="clone-modal-title">
       <div class="modal-header">
-        <div class="modal-title-wrap">
-          <span class="modal-icon">🎙️</span>
-          <div>
-            <h2 class="modal-title">Estudio de Clonación de Voz IA (Fish Audio)</h2>
-            <p class="modal-subtitle">Graba de 15 a 45 segundos para clonar tu timbre de voz exacto para tus
-              videollamadas</p>
-          </div>
+        <div>
+          <h2 class="modal-title" id="clone-modal-title">Clonar tu voz</h2>
+          <p class="modal-subtitle">Graba entre 15 y 45 segundos para que la reunión te oiga con tu propia voz.</p>
         </div>
-        <button type="button" class="btn-close-modal" id="btn-close-clone-modal" title="Cerrar">✕</button>
+        <button type="button" class="icon-btn btn-close-modal" id="btn-close-clone-modal" title="Cerrar" aria-label="Cerrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+        </button>
       </div>
 
       <div class="modal-body clone-studio-body">
+        <ul class="tips-list">
+          <li><strong>Distancia.</strong> El micrófono a 10–15 cm de la boca, sin soplarle.</li>
+          <li><strong>Silencio.</strong> Sin ventiladores, teclado, televisión ni eco.</li>
+          <li><strong>Tono de reunión.</strong> Habla como en una videollamada, ni susurrando ni gritando.</li>
+          <li><strong>Duración.</strong> De 20 a 40 segundos cubren los sonidos clave.</li>
+        </ul>
 
-        <!-- Tarjeta de Recomendaciones y Buenas Prácticas -->
-        <div class="clone-tips-card">
-          <div class="tips-card-header">
-            <span class="tips-header-icon">💡</span>
-            <div>
-              <strong>Recomendaciones para una Clonación de Estudio Perfecta</strong>
-              <span>Sigue estos 4 pasos para que la IA capture exactamente tu timbre y naturalidad</span>
-            </div>
-          </div>
-          <div class="tips-grid">
-            <div class="tip-item">
-              <span class="tip-icon">🎯</span>
-              <div class="tip-content">
-                <strong>Distancia Correcta</strong>
-                <span>Mantén el micrófono a 10–15 cm de tu boca. Evita soplar directo a la cápsula.</span>
-              </div>
-            </div>
-            <div class="tip-item">
-              <span class="tip-icon">🤫</span>
-              <div class="tip-content">
-                <strong>Silencio Absoluto</strong>
-                <span>Graba sin ruido de ventiladores, teclado, televisores o eco en la habitación.</span>
-              </div>
-            </div>
-            <div class="tip-item">
-              <span class="tip-icon">🗣️</span>
-              <div class="tip-content">
-                <strong>Tono de Videollamada</strong>
-                <span>Habla con tu tono conversacional y volumen habitual de reunión (ni susurrando ni gritando).</span>
-              </div>
-            </div>
-            <div class="tip-item">
-              <span class="tip-icon">⏱️</span>
-              <div class="tip-content">
-                <strong>Tiempo Óptimo (20-40s)</strong>
-                <span>Un audio de 20 a 40 segundos cubre los fonemas clave para un clon ultranatural.</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Tarjeta de Texto Guía para Lectura con Pestañas de Plantilla -->
         <div class="prompt-reading-card">
-          <div class="prompt-card-header">
-            <div class="prompt-header-left">
-              <span class="prompt-card-tag">📖 TEXTOS FONÉTICOS SUGERIDOS</span>
-              <span class="prompt-card-hint">Selecciona una plantilla para leer en voz alta:</span>
-            </div>
-            <div class="prompt-templates-row">
-              <button type="button" class="btn-prompt-tpl active" data-tpl="phonetic">🏆 Fonético Completo</button>
-              <button type="button" class="btn-prompt-tpl" data-tpl="executive">💼 Ejecutivo / Negocios</button>
-              <button type="button" class="btn-prompt-tpl" data-tpl="bilingual">🌐 Bilingüe (ES + EN)</button>
-            </div>
+          <div class="label-row">
+            <span class="group-title">Texto para leer en voz alta</span>
+          </div>
+          <div class="prompt-templates-row" role="group" aria-label="Plantillas de texto">
+            <button type="button" class="btn-prompt-tpl active" data-tpl="phonetic">Fonético</button>
+            <button type="button" class="btn-prompt-tpl" data-tpl="executive">Negocios</button>
+            <button type="button" class="btn-prompt-tpl" data-tpl="bilingual">Bilingüe</button>
           </div>
           <div class="prompt-reading-text" id="prompt-reading-text">
             "Hola, mi nombre es Julian. Esta es una prueba de calibración y clonación de voz en alta fidelidad. A lo
@@ -806,100 +530,67 @@
           </div>
         </div>
 
-        <!-- Escenario de Grabación y Visualizador de Onda -->
         <div class="record-stage-card">
           <div class="record-timer-row">
-            <div class="record-status-dot" id="record-status-dot"></div>
+            <span class="record-status-dot" id="record-status-dot"></span>
             <span class="record-status-label" id="record-status-label">Micrófono listo</span>
             <span class="record-timer-badge" id="record-timer-badge">00:00 / 00:20</span>
           </div>
-
-          <!-- Visualizador de Ondas Animadas / VU -->
-          <div class="voice-wave-container" id="voice-wave-container">
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
-            <div class="wave-bar"></div>
+          <div class="voice-wave-container" id="voice-wave-container" aria-hidden="true">
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
+            <div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div><div class="wave-bar"></div>
           </div>
-
-          <!-- Botones de Control de Grabación -->
-          <div class="record-controls-row">
-            <button type="button" class="btn-record-main" id="btn-toggle-record">
-              <span class="rec-circle-icon"></span>
-              <span id="btn-record-text">Iniciar Grabación</span>
+          <div class="row-actions">
+            <button type="button" class="btn btn-primary btn-record-main" id="btn-toggle-record">
+              <span class="rec-circle-icon" aria-hidden="true"></span>
+              <span id="btn-record-text">Iniciar grabación</span>
             </button>
-            <button type="button" class="btn-record-aux" id="btn-play-preview" style="display: none;">
-              <span>▶️ Escuchar Muestra</span>
-            </button>
-            <button type="button" class="btn-record-aux danger" id="btn-discard-record" style="display: none;">
-              <span>🗑️ Descartar y Reintentar</span>
-            </button>
+            <button type="button" class="btn" id="btn-play-preview" style="display: none;">Escuchar la muestra</button>
+            <button type="button" class="btn btn-danger" id="btn-discard-record" style="display: none;">Descartar y repetir</button>
           </div>
-
           <audio id="clone-preview-audio" style="display: none;"></audio>
         </div>
 
-        <!-- Formulario de Configuración del Modelo -->
-        <div class="clone-form-grid">
+        <div class="field-pair">
           <div class="form-group">
-            <label for="clone-model-title">Nombre del Modelo de Voz</label>
-            <input type="text" id="clone-model-title" placeholder="Ej: Mi Voz - Julian" value="Mi Voz Principal">
+            <label for="clone-model-title">Nombre de la voz</label>
+            <input type="text" id="clone-model-title" placeholder="Mi voz" value="Mi Voz Principal">
           </div>
-
           <div class="form-group">
             <label for="clone-visibility">Visibilidad en Fish Audio</label>
             <select id="clone-visibility">
-              <option value="private" selected>🔒 Privado (Solo para mi cuenta)</option>
-              <option value="public">🌐 Público</option>
+              <option value="private" selected>Privada: solo tu cuenta</option>
+              <option value="public">Pública</option>
             </select>
           </div>
-
-          <div class="form-group full-width">
-            <label for="clone-sample-transcript">Transcripción de la Muestra (Para máxima precisión fonética)</label>
-            <textarea id="clone-sample-transcript"
-              rows="2">Hola, esta es una grabación de muestra de mi voz para la plataforma de traducción simultánea ViBeTranslate. Durante mis reuniones ejecutivas en Google Meet, Microsoft Teams y Zoom, la inteligencia artificial utilizará este modelo para que mis traducciones al inglés suenen exactamente con mi propio timbre, tono y naturalidad.</textarea>
-          </div>
+        </div>
+        <div class="form-group">
+          <label for="clone-sample-transcript">Lo que dices en la grabación</label>
+          <textarea id="clone-sample-transcript"
+            rows="3">Hola, esta es una grabación de muestra de mi voz para la plataforma de traducción simultánea ViBeTranslate. Durante mis reuniones ejecutivas en Google Meet, Microsoft Teams y Zoom, la inteligencia artificial utilizará este modelo para que mis traducciones al inglés suenen exactamente con mi propio timbre, tono y naturalidad.</textarea>
         </div>
 
-        <!-- Estado / Feedback del Entrenamiento con Loading Dinámico -->
         <div class="training-status-box" id="training-status-box" style="display: none;">
           <div class="training-spinner-wrap">
             <div class="training-spinner" id="training-spinner"></div>
-            <span class="training-status-icon" id="training-status-icon" style="display: none;">✨</span>
+            <span class="training-status-icon" id="training-status-icon" style="display: none;"></span>
           </div>
           <div class="training-text-wrap">
             <div class="training-title-row">
-              <strong id="training-status-title">Creando modelo en Fish Audio...</strong>
+              <strong id="training-status-title">Creando la voz en Fish Audio…</strong>
               <span class="training-badge-pill" id="training-badge-step">Paso 1 de 3</span>
             </div>
-            <span id="training-status-desc">Subiendo muestra de audio y generando clonación de voz neuronal...</span>
-            <div class="training-progress-track">
-              <div class="training-progress-fill" id="training-progress-fill"></div>
-            </div>
+            <span id="training-status-desc">Subiendo la muestra de audio…</span>
+            <div class="training-progress-track"><div class="training-progress-fill" id="training-progress-fill"></div></div>
           </div>
         </div>
-
       </div>
 
       <div class="modal-footer">
-        <button type="button" class="btn-modal-secondary" id="btn-close-clone-footer">
-          <span>Cancelar</span>
-        </button>
-        <button type="button" class="btn-modal-primary" id="btn-submit-voice-clone" disabled>
-          <span>✨ Entrenar y Crear Clon de Voz</span>
-        </button>
+        <button type="button" class="btn" id="btn-close-clone-footer">Cancelar</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-voice-clone" disabled>Crear mi voz</button>
       </div>
     </div>
   </div>

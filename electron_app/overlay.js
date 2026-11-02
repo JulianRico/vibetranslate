@@ -40,7 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
   ipcRenderer.on('DISPLAY_SUBTITLE', (event, payload) => {
     const { originalText, translatedText, direction } = payload;
 
-    const icon = direction === 'incoming' ? '👤' : '🎙️';
+    // Quién habla, con las mismas palabras que la conversación de la ventana principal
+    const icon = direction === 'incoming' ? 'Reunión:' : 'Tú:';
 
     // El texto oído puede llegar después de la traducción: solo se completa la línea superior
     if (payload.update) {
@@ -72,13 +73,11 @@ document.addEventListener('DOMContentLoaded', () => {
   ipcRenderer.on('DISPLAY_SPEECH_STATE', (event, { speaking }) => {
     if (statusBadgeText && statusDot) {
       if (speaking) {
-        statusBadgeText.textContent = '🟡 RECEPTOR HABLANDO (Espera...)';
-        statusDot.style.background = '#f59e0b';
-        statusDot.style.boxShadow = '0 0 6px #f59e0b';
+        statusBadgeText.textContent = 'Hablan en la reunión';
+        statusDot.style.background = '#ffd27a';
       } else {
-        statusBadgeText.textContent = '🟢 LIBRE (Tu turno para hablar)';
-        statusDot.style.background = '#10b981';
-        statusDot.style.boxShadow = '0 0 6px #10b981';
+        statusBadgeText.textContent = 'Tu turno';
+        statusDot.style.background = '#6ccb5f';
       }
     }
   });

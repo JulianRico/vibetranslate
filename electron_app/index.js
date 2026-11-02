@@ -14,6 +14,8 @@ const { thresholdFromNoiseGate } = require('./local-ai/segmenter');
 const { createTranslateRouter } = require('./local-ai/translate-route');
 const { parseVocabulary, formatVocabulary } = require('./vocabulary');
 const { createSlowDetector } = require('./local-ai/slow-detector');
+const { directionText, formatElapsed, readiness } = require('./ui-state');
+const { buildSessionReport } = require('./session-report');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
 class PcmStreamPlayer {
@@ -394,9 +396,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnCopyHwReport.addEventListener('click', () => {
       if (latestHwReportText) {
         navigator.clipboard.writeText(latestHwReportText).then(() => {
-          btnCopyHwReport.innerHTML = '<span>✅ ¡Reporte Copiado!</span>';
+          btnCopyHwReport.textContent = 'Copiado';
           setTimeout(() => {
-            btnCopyHwReport.innerHTML = '<span>📋 Copiar Reporte</span>';
+            btnCopyHwReport.textContent = 'Copiar informe';
           }, 2000);
         });
       }
@@ -424,7 +426,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentTheme = localStorage.getItem('vibetranslate_theme') || 'light';
   if (currentTheme === 'dark') {
     document.body.classList.add('dark-theme');
-    if (btnThemeToggle) btnThemeToggle.textContent = '☀️';
+    if (btnThemeToggle) btnThemeToggle.textContent = 'Cambiar a claro';
   }
 
   if (btnThemeToggle) {
@@ -432,9 +434,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const isDark = document.body.classList.toggle('dark-theme');
       const themeName = isDark ? 'dark' : 'light';
       localStorage.setItem('vibetranslate_theme', themeName);
-      btnThemeToggle.textContent = isDark ? '☀️' : '🌙';
-      btnThemeToggle.title = isDark ? 'Cambiar a Modo Claro' : 'Cambiar a Modo Oscuro';
-      appendLog('THEME', `Tema cambiado a: ${isDark ? 'Modo Oscuro (Dark Obsidian Glass)' : 'Modo Claro (Liquid Frosted Glass)'}`);
+      btnThemeToggle.textContent = isDark ? 'Cambiar a claro' : 'Cambiar a oscuro';
+      appendLog('THEME', `Tema cambiado a: ${isDark ? 'oscuro' : 'claro'}`);
     });
   }
 
@@ -445,14 +446,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         const isPip = await ipcRenderer.invoke('TOGGLE_PIP_MODE');
         if (isPip) {
           document.body.classList.add('pip-mode');
-          btnPipToggle.textContent = '🗖';
-          btnPipToggle.title = 'Restaurar a Modo Estudio Completo';
-          appendLog('WINDOW', 'Modo Mini-Player Flotante (PiP) activado.');
+          btnPipToggle.textContent = 'Desactivar';
+          closeSettings();
+          appendLog('WINDOW', 'Mini-ventana activada.');
         } else {
           document.body.classList.remove('pip-mode');
-          btnPipToggle.textContent = '🗗';
-          btnPipToggle.title = 'Modo Mini-Ventana Flotante (PiP)';
-          appendLog('WINDOW', 'Ventana restaurada a modo Estudio completo.');
+          btnPipToggle.textContent = 'Activar';
+          appendLog('WINDOW', 'Ventana normal restaurada.');
         }
       } catch (err) {
         console.warn('[PiP Toggle] Error:', err);
@@ -466,48 +466,38 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (btnExportAll) {
     btnExportAll.addEventListener('click', async () => {
-      appendLog('EXPORT', 'Generando reporte completo de sesión y transcripciones...');
+      appendLog('EXPORT', 'Generando el informe de la sesión...');
 
-      const now = new Date();
-      const exportReport = `=====================================================
-   ViBeTranslate Pro Studio - Reporte de Sesión
-=====================================================
-Fecha y Hora: ${now.toLocaleString()}
-Plataforma: ${activePlatform ? activePlatform.toUpperCase() : 'GOOGLE MEET'}
-Motor STT: ${sttEngineSelect?.value || 'whisper_groq'}
-Idioma Origen: ${sourceLangSelect?.value || 'es'}
-Idioma Destino: ${targetLangSelect?.value || 'en'}
-Driver VB-Cable: ${isVbCableDriverDetected ? 'CALIBRADO Y ACTIVO 🟢' : 'NO DETECTADO ⚠️'}
-
---- HISTORIAL DE TRADUCCIÓN SIMULTÁNEA (${conversationLog.size()} frases registradas) ---
-${conversationLog.size() > 0
-          ? conversationLog.toText()
-          : 'No se han registrado frases en esta sesión todavía.'}
-
---- REGISTRO DE EVENTOS Y TERMINAL DE LOGS (Últimos 40 eventos) ---
-${logHistoryArray.length > 0 ? logHistoryArray.slice(-40).join('\n') : 'Logs del sistema no disponibles.'}
-
-=====================================================
-Generado automáticamente por ViBeTranslate Desktop
-=====================================================`;
+      // Antes el informe usaba dos variables que no existían y el botón fallaba sin exportar nada
+      const exportReport = buildSessionReport({
+        now: new Date(),
+        engine: sttEngineSelect.value,
+        sourceLang: sourceLangSelect.value,
+        targetLang: targetLangSelect.value,
+        hasVirtualCable: deviceState.hasVirtualCable,
+        conversationSize: conversationLog.size(),
+        conversationText: conversationLog.toText(),
+        logs: logHistoryArray
+      });
+      const flash = (text) => {
+        btnExportAll.textContent = text;
+        setTimeout(() => { btnExportAll.textContent = 'Exportar'; }, 2500);
+      };
 
       try {
         const res = await ipcRenderer.invoke('EXPORT_SESSION_REPORT', { content: exportReport, format: 'txt' });
         if (res && res.success) {
-          btnExportAll.textContent = '✅';
-          appendLog('EXPORT', `Archivo guardado exitosamente en: ${res.filePath}`);
-          setTimeout(() => { btnExportAll.textContent = '📤'; }, 2500);
+          flash('Guardado');
+          appendLog('EXPORT', `Archivo guardado en: ${res.filePath}`);
         } else if (res && !res.canceled) {
           navigator.clipboard.writeText(exportReport);
-          btnExportAll.textContent = '📋';
-          appendLog('EXPORT', 'Reporte copiado al portapapeles.');
-          setTimeout(() => { btnExportAll.textContent = '📤'; }, 2500);
+          flash('Copiado');
+          appendLog('EXPORT', 'Informe copiado al portapapeles.');
         }
       } catch (e) {
         navigator.clipboard.writeText(exportReport);
-        btnExportAll.textContent = '📋';
-        appendLog('EXPORT', 'Reporte copiado al portapapeles.');
-        setTimeout(() => { btnExportAll.textContent = '📤'; }, 2500);
+        flash('Copiado');
+        appendLog('EXPORT', 'Informe copiado al portapapeles.');
       }
     });
   }
@@ -589,8 +579,8 @@ Generado automáticamente por ViBeTranslate Desktop
 
     const currentVal = spanishVoiceSelect.value;
     spanishVoiceSelect.innerHTML = `
-      <option value="auto">⚡ Auto (Mejor voz en Español detectada)</option>
-      <option value="google_tts">Google Español (Neutro Natural Online)</option>
+      <option value="auto">La mejor voz en español del equipo</option>
+      <option value="google_tts">Google, español neutro</option>
     `;
 
     spanishVoices.forEach(v => {
@@ -902,6 +892,127 @@ Generado automáticamente por ViBeTranslate Desktop
     }
   }
 
+  // ── Pantalla principal: la tecla grande, los idiomas, las comprobaciones y Ajustes ──
+  const viewMain = document.getElementById('view-main');
+  const viewSettings = document.getElementById('view-settings');
+  const settingsBody = document.getElementById('settings-body');
+  const btnOpenSettings = document.getElementById('btn-open-settings');
+  const btnCloseSettings = document.getElementById('btn-close-settings');
+  const btnMainToggle = document.getElementById('btn-main-toggle');
+  const mainToggleLabel = document.getElementById('main-toggle-label');
+  const directionTextEl = document.getElementById('direction-text');
+  const btnChangeLanguages = document.getElementById('btn-change-languages');
+  const liveTimer = document.getElementById('live-timer');
+  const setupNotice = document.getElementById('setup-notice');
+  const setupNoticeText = document.getElementById('setup-notice-text');
+  const setupNoticeAction = document.getElementById('setup-notice-action');
+  const btnExportConv = document.getElementById('btn-export-conv');
+  const btnPipExit = document.getElementById('btn-pip-exit');
+
+  const CHECK_ICONS = {
+    ok: '<svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>',
+    warn: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 9v4" /><path d="M12 17h.01" /><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /></svg>',
+    error: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" /></svg>'
+  };
+  const SETUP_HINT = 'En Meet, Teams o Zoom elige <strong>CABLE Output</strong> como micrófono.';
+
+  const deviceState = { micCount: 1, hasVirtualCable: true }; // hasta enumerar los dispositivos no se avisa de nada
+  let localAiState = null;
+  let startProblem = null; // por qué no pudo empezar la última vez; se borra al volver a intentarlo
+  let liveStartedAt = 0;
+  let liveTimerId = null;
+
+  function openSettings(sectionId) {
+    viewMain.hidden = true;
+    viewSettings.hidden = false;
+    const section = sectionId ? document.getElementById(sectionId) : null;
+    if (section) section.scrollIntoView({ block: 'start' });
+    else settingsBody.scrollTop = 0;
+    btnCloseSettings.focus();
+  }
+
+  function closeSettings() {
+    if (viewSettings.hidden) return;
+    viewSettings.hidden = true;
+    viewMain.hidden = false;
+    btnOpenSettings.focus();
+  }
+
+  function updateDirection() {
+    directionTextEl.textContent = directionText(sourceLangSelect.value, targetLangSelect.value);
+  }
+
+  function renderReadiness() {
+    const result = readiness({
+      micCount: deviceState.micCount,
+      hasVirtualCable: deviceState.hasVirtualCable,
+      engine: sttEngineSelect.value,
+      sourceLang: sourceLangSelect.value,
+      groqKey: groqKeyInput.value,
+      geminiKey: geminiKeyInput.value,
+      local: localAiState
+    });
+    for (const check of result.checks) {
+      const el = document.getElementById(`check-${check.id}`);
+      if (!el) continue;
+      el.dataset.state = check.state;
+      el.innerHTML = `${CHECK_ICONS[check.state]}<span>${check.label}</span>`;
+    }
+    const notice = startProblem ? { state: 'error', text: startProblem, action: null } : result.notice;
+    setupNotice.dataset.state = notice ? notice.state : 'info';
+    if (notice) setupNoticeText.textContent = notice.text;
+    else setupNoticeText.innerHTML = SETUP_HINT;
+    setupNoticeAction.hidden = !(notice && notice.action);
+    if (notice && notice.action) {
+      setupNoticeAction.textContent = notice.action.label;
+      setupNoticeAction.dataset.action = notice.action.id;
+    }
+  }
+
+  /** El aro de la tecla en directo crece con el volumen de tu voz (0 a 1). */
+  function setKeyLevel(level) {
+    btnMainToggle.style.setProperty('--level', String(Math.max(0, Math.min(1, level || 0))));
+  }
+
+  function tickLiveTimer() {
+    liveTimer.textContent = formatElapsed(Date.now() - liveStartedAt);
+  }
+
+  btnOpenSettings.addEventListener('click', () => openSettings());
+  btnCloseSettings.addEventListener('click', closeSettings);
+  btnChangeLanguages.addEventListener('click', () => openSettings('settings-languages'));
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const modalOpen = [...document.querySelectorAll('.modal-backdrop')].some((m) => m.style.display && m.style.display !== 'none');
+    if (!modalOpen) closeSettings();
+  });
+
+  setupNoticeAction.addEventListener('click', () => {
+    const action = setupNoticeAction.dataset.action;
+    if (action === 'install-cable') btnDownloadVbCable.click();
+    else if (action === 'open-audio') openSettings('settings-audio');
+    else if (action === 'open-languages') openSettings('settings-languages');
+    else if (action === 'open-engine') {
+      openSettings('settings-engine');
+      const visibleKey = [geminiKeyInput, groqKeyInput].find((input) => input.offsetParent !== null);
+      if (visibleKey) visibleKey.focus();
+    }
+  });
+
+  if (btnExportConv) btnExportConv.addEventListener('click', () => btnExportAll.click());
+  if (btnPipExit) btnPipExit.addEventListener('click', () => btnPipToggle.click());
+  // Al cambiar lo que impidió empezar, el aviso de ese fallo ya no vale
+  const recheck = () => {
+    startProblem = null;
+    renderReadiness();
+  };
+  [sourceLangSelect, targetLangSelect].forEach((el) => el.addEventListener('change', () => {
+    updateDirection();
+    recheck();
+  }));
+  sttEngineSelect.addEventListener('change', recheck);
+  [groqKeyInput, geminiKeyInput].forEach((el) => el.addEventListener('input', recheck));
+
   // ── Cargar Preferencias Iniciales ─────────────────────────────────
   appendLog('CONFIG', 'Iniciando sistema y cargando configuración...');
   const settings = await ipcRenderer.invoke('GET_SETTINGS');
@@ -919,17 +1030,22 @@ Generado automáticamente por ViBeTranslate Desktop
     await saveCurrentSettings();
 
     if (isLiveToggleActive) {
-      appendLog('CONTROL', 'Traducción Simultánea ACTIVADA desde switch superior 🟢');
+      appendLog('CONTROL', 'Traducción Simultánea ACTIVADA desde el botón principal');
+      startProblem = null;
+      renderReadiness();
       if (!isPipelineRunning) {
         await startTranslationPipeline();
       }
     } else {
-      appendLog('CONTROL', 'Switch superior DESACTIVADO ⚪');
+      appendLog('CONTROL', 'Traducción DESACTIVADA');
       if (!isTestBtnActive && isPipelineRunning) {
         stopTranslationPipeline();
       }
     }
   });
+
+  // La tecla grande es el interruptor: se registra después de él para que un clic nunca quede a medias
+  btnMainToggle.addEventListener('click', () => toggleActive.click());
 
   // Control 2: Switch del Recuadro Flotante de Subtítulos (Encender / Apagar)
   if (toggleOverlay) {
@@ -1027,10 +1143,10 @@ Generado automáticamente por ViBeTranslate Desktop
     btnToggleFishKey.addEventListener('click', () => {
       if (fishApiKeyInput.type === 'password') {
         fishApiKeyInput.type = 'text';
-        btnToggleFishKey.textContent = '🔒 Ocultar';
+        btnToggleFishKey.textContent = 'Ocultar';
       } else {
         fishApiKeyInput.type = 'password';
-        btnToggleFishKey.textContent = '👁️ Ver';
+        btnToggleFishKey.textContent = 'Ver';
       }
     });
   }
@@ -1044,9 +1160,9 @@ Generado automáticamente por ViBeTranslate Desktop
   if (btnRefreshFishVoices) {
     btnRefreshFishVoices.addEventListener('click', async () => {
       appendLog('FISH-AUDIO', 'Actualizando lista de voces y modelos...');
-      btnRefreshFishVoices.textContent = '⏳';
+      btnRefreshFishVoices.textContent = 'Actualizando…';
       await loadFishVoiceModels();
-      btnRefreshFishVoices.textContent = '🔄';
+      btnRefreshFishVoices.textContent = 'Actualizar';
     });
   }
 
@@ -1119,16 +1235,26 @@ Generado automáticamente por ViBeTranslate Desktop
     saveCurrentSettings();
   }
 
+  /** No se pudo empezar: la tecla vuelve a «Empezar» y la pantalla principal dice por qué. */
+  function failStart(reason) {
+    startProblem = reason;
+    turnOffAfterLocalFailure();
+    renderReadiness();
+  }
+
   async function refreshLocalAiStatus() {
     if (!localAiStatus) return;
     try {
       const status = await ipcRenderer.invoke('LOCAL_AI_STATUS');
+      localAiState = { ready: !!status.ready, missingBytes: status.missingBytes || 0 };
       localAiStatus.textContent = status.ready
-        ? '✅ Modelos listos en este equipo.'
-        : `Se descargarán ${(status.missingBytes / 1e6).toFixed(0)} MB la primera vez que lo actives.`;
+        ? 'Los modelos ya están en este equipo.'
+        : `Se descargarán ${(status.missingBytes / 1e6).toFixed(0)} MB la primera vez que empieces a traducir.`;
     } catch (err) {
+      localAiState = null;
       localAiStatus.textContent = `No se pudo comprobar el motor local: ${err.message}`;
     }
+    renderReadiness();
   }
 
   function updateEngineGroupsVisibility() {
@@ -1141,9 +1267,11 @@ Generado automáticamente por ViBeTranslate Desktop
   }
 
   function applySettingsToUI(s) {
-    toggleActive.checked = !!s.active;
-    isLiveToggleActive = !!s.active;
-    updateStatusBadge(!!s.active);
+    // Siempre abre apagada. Antes se restauraba el interruptor encendido sin arrancar la traducción: la pantalla
+    // decía «ACTIVO» y no traducía nada.
+    toggleActive.checked = false;
+    isLiveToggleActive = false;
+    updateStatusBadge(false);
     if (toggleOverlay) {
       toggleOverlay.checked = (s.showOverlay !== undefined) ? !!s.showOverlay : true;
       if (btnToggleOverlayHeader) {
@@ -1197,6 +1325,8 @@ Generado automáticamente por ViBeTranslate Desktop
     }
 
     updateEngineGroupsVisibility();
+    updateDirection();
+    renderReadiness();
   }
 
   async function saveCurrentSettings() {
@@ -1233,13 +1363,23 @@ Generado automáticamente por ViBeTranslate Desktop
     await ipcRenderer.invoke('SAVE_SETTINGS', newSettings);
   }
 
+  /** En directo, la tecla pasa a «Detener», arriba aparece el tiempo y la conversación gana el espacio. */
   function updateStatusBadge(active) {
+    document.body.classList.toggle('is-live', active);
+    liveBadge.classList.toggle('active', active);
+    statusText.textContent = active ? 'En directo' : 'Apagado';
+    btnMainToggle.setAttribute('aria-pressed', String(active));
+    mainToggleLabel.textContent = active ? 'Detener' : 'Empezar a traducir';
+    clearInterval(liveTimerId);
+    liveTimerId = null;
     if (active) {
-      liveBadge.classList.add('active');
-      statusText.textContent = 'ACTIVO (LIVE)';
+      if (!liveStartedAt) liveStartedAt = Date.now();
+      tickLiveTimer();
+      liveTimerId = setInterval(tickLiveTimer, 1000);
     } else {
-      liveBadge.classList.remove('active');
-      statusText.textContent = 'DESACTIVADO';
+      liveStartedAt = 0;
+      liveTimer.textContent = '';
+      setKeyLevel(0);
     }
   }
 
@@ -1280,6 +1420,9 @@ Generado automáticamente por ViBeTranslate Desktop
         if (driverMissingBanner) driverMissingBanner.style.display = 'block';
         if (driverReadyBanner) driverReadyBanner.style.display = 'none';
       }
+      deviceState.micCount = audioInputs.length;
+      deviceState.hasVirtualCable = hasVirtualCable;
+      renderReadiness();
 
       appendLog('AUDIO', `Detectados: ${audioInputs.length} micrófonos, ${audioOutputs.length} salidas. (Driver VB-Cable: ${hasVirtualCable ? 'LISTO 🟢' : 'NO DETECTADO ⚠️'})`, 'audio');
     } catch (err) {
@@ -1292,8 +1435,8 @@ Generado automáticamente por ViBeTranslate Desktop
     const session = ++pipelineSession;
     isPipelineRunning = true;
     previewBox.style.display = 'flex';
-    previewOrig.textContent = '🎙️ Escuchando tu voz con filtro de ruido activo...';
-    previewTrans.textContent = '⚡ Traducción simultánea en vivo lista...';
+    previewOrig.textContent = 'Escuchando…';
+    previewTrans.textContent = '';
 
     const engine = sttEngineSelect.value;
     const geminiKey = geminiKeyInput.value.trim();
@@ -1301,12 +1444,11 @@ Generado automáticamente por ViBeTranslate Desktop
 
     appendLog('PIPELINE', `Iniciando motor de traducción: ${engine.toUpperCase()}`);
 
+    // Sin la clave del motor no se puede empezar: antes la pantalla seguía diciendo «ACTIVO» sin traducir
     if (engine === 'gemini_35_transcribe') {
       if (!geminiKey || geminiKey.length < 5) {
         appendLog('GEMINI', '⚠️ Ingresa tu Gemini API Key en el campo de configuración.', 'warn');
-        previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
-        previewTrans.textContent = 'Obtén tu clave gratis en: aistudio.google.com/app/apikey';
-        stopTranslationPipeline();
+        failStart('Falta la clave de Gemini. Ponla en Ajustes, en «Reconocimiento y traducción».');
         return;
       }
       await startUnifiedAudioPipeline('gemini_35_transcribe', geminiKey);
@@ -1316,9 +1458,7 @@ Generado automáticamente por ViBeTranslate Desktop
     } else if (engine === 'gemini_live') {
       if (!geminiKey || geminiKey.length < 5) {
         appendLog('GEMINI', '⚠️ Ingresa tu Gemini API Key en el campo de configuración.', 'warn');
-        previewOrig.textContent = '⚠️ Ingresa tu clave de Gemini en el campo superior.';
-        previewTrans.textContent = 'Obtén tu clave gratis en: aistudio.google.com/app/apikey';
-        stopTranslationPipeline();
+        failStart('Falta la clave de Gemini. Ponla en Ajustes, en «Reconocimiento y traducción».');
         return;
       }
       await startUnifiedAudioPipeline('gemini_live', geminiKey);
@@ -1328,9 +1468,7 @@ Generado automáticamente por ViBeTranslate Desktop
     } else if (engine === 'whisper_groq') {
       if (!groqKey || groqKey.length < 5) {
         appendLog('GROQ', '⚠️ Ingresa tu Groq API Key en el campo de configuración.', 'warn');
-        previewOrig.textContent = '⚠️ Ingresa tu clave de Groq en el campo superior.';
-        previewTrans.textContent = 'Obtén tu clave gratis en: console.groq.com/keys';
-        stopTranslationPipeline();
+        failStart('Falta la clave de Groq. Ponla en Ajustes, en «Reconocimiento y traducción».');
         return;
       }
       await startUnifiedAudioPipeline('whisper_groq', groqKey);
@@ -1339,12 +1477,10 @@ Generado automáticamente por ViBeTranslate Desktop
       localPair = resolvePair(sourceLangSelect.value, targetLangSelect.value);
       if (!localPair) {
         appendLog('LOCAL-AI', '⚠️ El motor local necesita un idioma de origen fijo (Español o Inglés), no Auto.', 'warn');
-        previewOrig.textContent = '⚠️ Elige Español o Inglés como idioma de origen.';
-        previewTrans.textContent = 'El motor local no detecta el idioma automáticamente.';
-        turnOffAfterLocalFailure();
+        failStart('El motor local necesita saber en qué idioma hablas: elige español o inglés en Ajustes.');
         return;
       }
-      previewOrig.textContent = '⏳ Preparando el motor local...';
+      previewOrig.textContent = 'Preparando el motor local…';
       const prepared = await ipcRenderer.invoke('LOCAL_AI_PREPARE', {
         vadThreshold: thresholdFromNoiseGate(noiseGateSelect.value)
       });
@@ -1352,13 +1488,11 @@ Generado automáticamente por ViBeTranslate Desktop
       if (session !== pipelineSession || prepared.cancelled) return;
       if (!prepared.ok) {
         appendLog('LOCAL-AI', `No se pudo iniciar el motor local: ${prepared.error}`, 'error');
-        previewOrig.textContent = '⚠️ No se pudo iniciar el motor local.';
-        previewTrans.textContent = prepared.error;
-        turnOffAfterLocalFailure();
+        failStart(`No se pudo iniciar el motor local: ${prepared.error}`);
         return;
       }
       appendLog('LOCAL-AI', `🟢 Motor local listo en ${prepared.loadMs}ms (${localPair.source.toUpperCase()} ➔ ${localPair.target.toUpperCase()}).`, 'gemini');
-      previewOrig.textContent = '🎙️ Escuchando tu voz (motor local)...';
+      previewOrig.textContent = 'Escuchando…';
       refreshLocalAiStatus();
       slowDetector.reset();
       await startUnifiedAudioPipeline('local', null);
@@ -1380,7 +1514,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
     if (vadBadge) {
       vadBadge.className = 'vad-badge';
-      vadBadge.textContent = '⚪ SILENCIO';
+      vadBadge.textContent = 'Silencio';
     }
     if (vuBar) vuBar.style.width = '0%';
     if (vuValText) vuValText.textContent = '0%';
@@ -1430,7 +1564,7 @@ Generado automáticamente por ViBeTranslate Desktop
   function refreshLabInputs() {
     if (!labActive || !labStatus) return;
     if (!isPipelineRunning) {
-      labStatus.textContent = 'Grabando… falta activar la traducción con el interruptor de arriba.';
+      labStatus.textContent = 'Grabando… falta empezar a traducir con el botón grande.';
       return;
     }
     const meeting = isIncomingListening()
@@ -1476,7 +1610,7 @@ Generado automáticamente por ViBeTranslate Desktop
     labActive = true;
     labDir = started.dir;
     labPhrases = 0;
-    labToggleText.textContent = '⏹ Terminar sesión y generar informe';
+    labToggleText.textContent = 'Terminar y generar el informe';
     labToggleBtn.classList.add('recording');
     refreshLabInputs();
     labNote.disabled = false;
@@ -1488,7 +1622,7 @@ Generado automáticamente por ViBeTranslate Desktop
   async function stopLabSession() {
     labActive = false;
     const result = await ipcRenderer.invoke('TRACE_STOP');
-    labToggleText.textContent = '⏺ Iniciar sesión de prueba';
+    labToggleText.textContent = 'Iniciar sesión de prueba';
     labToggleBtn.classList.remove('recording');
     labNote.disabled = true;
     labFlagBtn.disabled = true;
@@ -1519,7 +1653,7 @@ Generado automáticamente por ViBeTranslate Desktop
     labFlagBtn.addEventListener('click', async () => {
       const flagged = await ipcRenderer.invoke('TRACE_FLAG', labNote.value.trim());
       if (!flagged) return;
-      labStatus.textContent = flagged.text ? `🚩 Marcada: «${flagged.text}»` : '🚩 Nota guardada (aún no se había oído ninguna frase).';
+      labStatus.textContent = flagged.text ? `Marcada: «${flagged.text}»` : 'Nota guardada (aún no se había oído ninguna frase).';
       labNote.value = '';
     });
   }
@@ -1541,7 +1675,12 @@ Generado automáticamente por ViBeTranslate Desktop
     row.className = `conversation-row ${entry.direction}`;
     const meta = document.createElement('span');
     meta.className = 'conv-meta';
-    meta.textContent = `${entry.time} · ${entry.speaker} · ${entry.from} ➔ ${entry.to}`;
+    const who = document.createElement('span');
+    who.className = 'conv-who';
+    who.textContent = entry.speaker;
+    const when = document.createElement('span');
+    when.textContent = entry.time;
+    meta.append(who, when);
     const translatedEl = document.createElement('span');
     translatedEl.className = 'conv-translated';
     translatedEl.textContent = entry.translated;
@@ -1624,7 +1763,7 @@ Generado automáticamente por ViBeTranslate Desktop
     if (translated === current) appendLog('TRANSLATE', `✔️ La nube [${res.engine}] coincide con la traducción local.`, 'translate');
     if (line && line.source === source && translated !== current) {
       showLine({ lineId, replace: true, direction: stream === 'mic' ? 'outgoing' : 'incoming', subtitleDirection: line.direction, original: source, translated, prefix: line.prefix });
-      previewTrans.textContent = `✨ ${translated}`;
+      previewTrans.textContent = `${translated}`;
       appendLog('TRANSLATE', `✨ Mejorada en la nube en ${Date.now() - started}ms [${res.engine}]: "${translated}"`, 'translate');
     }
     return translated;
@@ -1713,7 +1852,7 @@ Generado automáticamente por ViBeTranslate Desktop
     const earlier = joined && shownLines.has(lineId) ? (shownLines.get(lineId).hints || []) : [];
     const lineHints = [...earlier, ...hints.filter((h) => !earlier.some((e) => e.heard === h.heard))];
     showLine({ lineId, replace: joined, grows: joined, direction: stream === 'mic' ? 'outgoing' : 'incoming', subtitleDirection, from, to, original: lineSource, translated: lineTranslated, prefix, hints: lineHints });
-    previewTrans.textContent = `✨ ${lineTranslated}`;
+    previewTrans.textContent = `${lineTranslated}`;
 
     // Traducción local con red: la nube mejora la línea (subtítulo) y, si llega a tiempo, la voz
     const local = translation.engine === 'local' && segmentId !== null && pair;
@@ -1798,7 +1937,7 @@ Generado automáticamente por ViBeTranslate Desktop
     }
 
     appendLog('RECEPTOR', `✨ Traducido a Español en ${transElapsed}ms [${translation.engine || 'nube'}]: "${translatedText}"`, 'translate');
-    previewOrig.textContent = `👤 Receptor (Inglés): ${(line && line.translated ? line.text : text) || '…'}`;
+    previewOrig.textContent = `Reunión: ${(line && line.translated ? line.text : text) || '…'}`;
     const { joined, refine } = presentLine({
       stream: 'incoming', segmentId, line, translation, pair: { source: 'en', target: 'es' },
       subtitleDirection: 'incoming', from: 'en', to: 'es', prefix: 'Receptor: ', silent, hints
@@ -1835,7 +1974,7 @@ Generado automáticamente por ViBeTranslate Desktop
     if (msg.type === 'error') {
       appendLog('LOCAL-AI', msg.message, msg.fatal ? 'error' : 'warn');
       if (msg.fatal && isPipelineRunning) {
-        previewOrig.textContent = `⚠️ ${msg.message}`;
+        previewOrig.textContent = `${msg.message}`;
         turnOffAfterLocalFailure();
       }
       return;
@@ -1861,11 +2000,11 @@ Generado automáticamente por ViBeTranslate Desktop
     if (msg.type === 'partial') {
       if (msg.stream !== 'incoming') return;
       if (msg.translated) {
-        if (msg.heard) previewOrig.textContent = `👤 Receptor (Inglés): ${msg.heard} …`;
-        previewTrans.textContent = `✨ ${msg.text} …`;
+        if (msg.heard) previewOrig.textContent = `Reunión: ${msg.heard} …`;
+        previewTrans.textContent = `${msg.text} …`;
         ipcRenderer.send('DISPLAY_SUBTITLE', { originalText: msg.heard ? `Receptor: ${msg.heard}` : '', translatedText: msg.text, direction: 'incoming', isFinal: false });
       } else {
-        previewOrig.textContent = `👤 Receptor (Inglés): ${msg.text} …`;
+        previewOrig.textContent = `Reunión: ${msg.text} …`;
       }
       return;
     }
@@ -1884,7 +2023,7 @@ Generado automáticamente por ViBeTranslate Desktop
       }
       if (msg.stream === 'mic') {
         appendLog('VOICE', `Reconocido (Motor local) en ${msg.sttMs}ms: "${msg.text}"`, 'audio');
-        previewOrig.textContent = `🎙️ ${line && line.translated ? line.text : msg.text}`;
+        previewOrig.textContent = `Tú: ${line && line.translated ? line.text : msg.text}`;
         outputQueue.push(() => deliverOutgoing({
           recognizedText: msg.text, sttElapsed: msg.sttMs, voiceDurationMs: msg.durationMs,
           userSpeechStart: startedAt, segmentId: msg.id, pair, silent, preTranslated, line, hints
@@ -2224,11 +2363,11 @@ Generado automáticamente por ViBeTranslate Desktop
               lastAudioLogTime = now;
               appendLog('AUDIO', `Reproduciendo voz traducida en tiempo real (PCM 24kHz)...`, 'audio');
             }
-            previewTrans.textContent = '🔊 Transmitiendo voz traducida al inglés en vivo...';
+            previewTrans.textContent = 'Enviando tu voz traducida…';
           },
           onTextReceived: (text) => {
             appendLog('GEMINI', `Traducción: "${text}"`, 'translate');
-            previewTrans.textContent = `✨ ${text}`;
+            previewTrans.textContent = `${text}`;
             ipcRenderer.send('DISPLAY_SUBTITLE', {
               originalText: '🎙️ Mi voz en vivo',
               translatedText: text,
@@ -2237,7 +2376,7 @@ Generado automáticamente por ViBeTranslate Desktop
           },
           onError: (err) => {
             appendLog('GEMINI', `Error: ${err.message}`, 'error');
-            previewOrig.textContent = `⚠️ Error en Gemini Live: ${err.message}`;
+            previewOrig.textContent = `Error en Gemini Live: ${err.message}`;
           },
           onClose: ({ code, reason }) => {
             appendLog('GEMINI', `Conexión cerrada (Código: ${code} - ${reason || 'Normal'}).`, 'warn');
@@ -2300,10 +2439,11 @@ Generado automáticamente por ViBeTranslate Desktop
           continuousSpeechFrames = 0;
           if (vadBadge) {
             vadBadge.className = 'vad-badge noise';
-            vadBadge.textContent = '🔇 ECO BLOQUEADO';
+            vadBadge.textContent = 'Eco bloqueado';
           }
           if (vuBar) vuBar.style.width = '0%';
           if (vuValText) vuValText.textContent = '0%';
+          setKeyLevel(0);
           return;
         }
 
@@ -2323,6 +2463,8 @@ Generado automáticamente por ViBeTranslate Desktop
         const levelPct = Math.min(100, Math.round(rms * 900));
         if (vuBar) vuBar.style.width = `${levelPct}%`;
         if (vuValText) vuValText.textContent = `${levelPct}%`;
+        // Una voz normal ronda el 20-50 %: a partir del 50 % el aro de la tecla ya está en su máximo
+        if (isLiveToggleActive) setKeyLevel(levelPct / 50);
 
         const hwMeterBar = document.getElementById('hw-meter-bar');
         const hwMeterText = document.getElementById('hw-meter-text');
@@ -2343,7 +2485,7 @@ Generado automáticamente por ViBeTranslate Desktop
 
           if (vadBadge) {
             vadBadge.className = 'vad-badge speaking';
-            vadBadge.textContent = '🟢 VOZ DETECTADA';
+            vadBadge.textContent = 'Voz';
           }
         } else {
           if (speechHoldFrames > 0) {
@@ -2354,10 +2496,10 @@ Generado automáticamente por ViBeTranslate Desktop
             if (vadBadge) {
               if (rms > threshold * 0.35) {
                 vadBadge.className = 'vad-badge noise';
-                vadBadge.textContent = '🟡 RUIDO FILTRADO';
+                vadBadge.textContent = 'Ruido filtrado';
               } else {
                 vadBadge.className = 'vad-badge';
-                vadBadge.textContent = '⚪ SILENCIO';
+                vadBadge.textContent = 'Silencio';
               }
             }
           }
@@ -2441,7 +2583,7 @@ Generado automáticamente por ViBeTranslate Desktop
                 if (!isWhisperHallucination(recognizedText)) {
                   const modelTag = (result && result.model) ? result.model : (engine === 'gemini_35_transcribe' ? 'Gemini 3.5' : 'Groq');
                   appendLog('VOICE', `Reconocido (${modelTag}) en ${sttElapsed}ms: "${recognizedText}"`, 'audio');
-                  previewOrig.textContent = `🎙️ ${recognizedText}`;
+                  previewOrig.textContent = `Tú: ${recognizedText}`;
                   outputQueue.push(() => deliverOutgoing({
                     recognizedText, sttElapsed, voiceDurationMs, userSpeechStart
                   }));
@@ -2554,8 +2696,8 @@ Generado automáticamente por ViBeTranslate Desktop
     const verdictBadge = document.getElementById('hw-verdict-badge');
     const verdictCard = document.getElementById('hw-verdict-card');
 
-    if (verdictTitle) verdictTitle.textContent = 'Analizando hardware y drivers...';
-    if (verdictBadge) verdictBadge.textContent = 'ANALIZANDO';
+    if (verdictTitle) verdictTitle.textContent = 'Analizando el equipo…';
+    if (verdictBadge) verdictBadge.textContent = 'Analizando';
 
     try {
       const hwData = await ipcRenderer.invoke('CHECK_HARDWARE');
@@ -2612,12 +2754,12 @@ Generado automáticamente por ViBeTranslate Desktop
       const audioStatusBadge = document.getElementById('hw-audio-status');
 
       const cableFound = outputs.some(d => (d.label || '').toLowerCase().includes('cable') || (d.label || '').toLowerCase().includes('virtual'));
-      if (cableStatusEl) cableStatusEl.textContent = cableFound ? 'CABLE Input (VB-Audio) 🟢' : 'No detectado ⚠️';
+      if (cableStatusEl) cableStatusEl.textContent = cableFound ? 'CABLE Input (VB-Audio)' : 'No encontrado';
       if (sampleRateEl) sampleRateEl.textContent = `${Math.round(sampleRate / 1000)} kHz (${sampleRate} Hz)`;
       if (micsCountEl) micsCountEl.textContent = `${mics.length} micrófono(s) activos`;
       if (outputsCountEl) outputsCountEl.textContent = `${outputs.length} dispositivo(s) de salida`;
       if (audioStatusBadge) {
-        audioStatusBadge.textContent = cableFound ? 'CALIBRADO 🟢' : 'DRIVER PENDIENTE ⚠️';
+        audioStatusBadge.textContent = cableFound ? 'Listo' : 'Falta VB-CABLE';
         audioStatusBadge.className = cableFound ? 'hw-status-badge green' : 'hw-status-badge yellow';
       }
 
@@ -2638,7 +2780,7 @@ Generado automáticamente por ViBeTranslate Desktop
         verdictCard.className = isOptimal ? 'hw-verdict-card' : 'hw-verdict-card yellow-verdict';
       }
       if (verdictTitle) {
-        verdictTitle.textContent = isOptimal ? '✅ Sistema 100% Calibrado y Óptimo' : '⚠️ Sistema con Recomendaciones de Driver';
+        verdictTitle.textContent = isOptimal ? 'El equipo está listo' : 'Falta el cable virtual';
       }
       if (verdictDesc) {
         verdictDesc.textContent = isOptimal
@@ -2646,7 +2788,7 @@ Generado automáticamente por ViBeTranslate Desktop
           : 'Para transmitir a Meet/Teams sin que se escuche tu voz en español, instala el driver VB-Cable.';
       }
       if (verdictBadge) {
-        verdictBadge.textContent = isOptimal ? '100% ÓPTIMO' : 'ATENCIÓN';
+        verdictBadge.textContent = isOptimal ? 'Listo' : 'Revisar';
       }
 
       // Generar texto para reporte
@@ -2668,7 +2810,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
 
     } catch (err) {
       appendLog('HARDWARE', `Error en validación de hardware: ${err.message}`, 'error');
-      if (verdictTitle) verdictTitle.textContent = 'Error al ejecutar diagnóstico';
+      if (verdictTitle) verdictTitle.textContent = 'No se pudo hacer el diagnóstico';
       if (verdictDesc) verdictDesc.textContent = err.message;
     }
   }
@@ -2686,17 +2828,17 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       const userPrimaryVoiceId = '0356fc9e08b646ed91607baa54a847c3';
 
       fishVoiceSelect.innerHTML = `
-        <option value="default">⚡ Voz Estándar de Fish Audio</option>
+        <option value="default">Voz estándar de Fish Audio</option>
       `;
 
       // Grupo de Voces Clonadas
       const myGroup = document.createElement('optgroup');
-      myGroup.label = '⭐ Mis Voces Clonadas (IA)';
+      myGroup.label = 'Mis voces clonadas';
 
       // Incluir siempre el modelo principal del usuario
       const primaryOpt = document.createElement('option');
       primaryOpt.value = userPrimaryVoiceId;
-      primaryOpt.textContent = '🎙️ Mi Voz Principal (Clonada)';
+      primaryOpt.textContent = 'Mi voz principal (clonada)';
       myGroup.appendChild(primaryOpt);
 
       // Separar otros modelos de la cuenta
@@ -2706,14 +2848,14 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       myModels.forEach(m => {
         const opt = document.createElement('option');
         opt.value = m._id || m.id;
-        opt.textContent = `🎙️ ${m.title || 'Voz Clonada'}`;
+        opt.textContent = m.title || 'Voz clonada';
         myGroup.appendChild(opt);
       });
       fishVoiceSelect.appendChild(myGroup);
 
       if (communityModels.length > 0) {
         const commGroup = document.createElement('optgroup');
-        commGroup.label = '🌟 Voces de Alta Fidelidad y Estudio';
+        commGroup.label = 'Voces de estudio';
         communityModels.slice(0, 15).forEach(m => {
           const opt = document.createElement('option');
           opt.value = m._id || m.id;
@@ -2726,7 +2868,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
 
       const customOpt = document.createElement('option');
       customOpt.value = 'custom';
-      customOpt.textContent = '✏️ Ingresar ID de Modelo Manualmente...';
+      customOpt.textContent = 'Escribir el ID de un modelo…';
       fishVoiceSelect.appendChild(customOpt);
 
       // Seleccionar voz previa o la voz clonada principal
@@ -2754,12 +2896,12 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
     const apiKey = fishApiKeyInput.value.trim();
     if (!apiKey) {
       fishStatusPill.className = 'status-pill-fish amber';
-      fishStatusPill.textContent = 'Clave Pendiente';
+      fishStatusPill.textContent = 'Falta la clave';
       return;
     }
 
     fishStatusPill.className = 'status-pill-fish amber';
-    fishStatusPill.textContent = 'Verificando...';
+    fishStatusPill.textContent = 'Comprobando…';
 
     try {
       const result = await ipcRenderer.invoke('FISH_AUDIO_TEST_KEY', { apiKey });
@@ -2771,14 +2913,14 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
         }
       } else {
         fishStatusPill.className = 'status-pill-fish red';
-        fishStatusPill.textContent = 'Error de Clave';
+        fishStatusPill.textContent = 'Clave no válida';
         if (showNotification) {
           appendLog('FISH-AUDIO', `❌ Error validando API Key: ${result?.message || 'Revisa la clave'}`, 'error');
         }
       }
     } catch (e) {
       fishStatusPill.className = 'status-pill-fish red';
-      fishStatusPill.textContent = 'Sin Conexión';
+      fishStatusPill.textContent = 'Sin conexión';
     }
   }
 
@@ -2787,7 +2929,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
     appendLog('FISH-AUDIO', `Iniciando prueba de voz clonada: "${phrase}"...`);
 
     if (btnTestFishVoice) {
-      btnTestFishVoice.innerHTML = '<span class="btn-icon">⏳</span><span class="btn-text">Generando...</span>';
+      btnTestFishVoice.textContent = 'Generando…';
     }
 
     try {
@@ -2797,7 +2939,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       appendLog('FISH-AUDIO', `Error en prueba de voz: ${err.message}`, 'error');
     } finally {
       if (btnTestFishVoice) {
-        btnTestFishVoice.innerHTML = '<span class="btn-icon">🔊</span><span class="btn-text">Probar Mi Voz</span>';
+        btnTestFishVoice.textContent = 'Probar mi voz';
       }
     }
   }
@@ -2851,7 +2993,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
     if (btnSubmitVoiceClone) {
       btnSubmitVoiceClone.disabled = true;
       btnSubmitVoiceClone.classList.remove('btn-loading');
-      btnSubmitVoiceClone.innerHTML = '<span>✨ Entrenar y Crear Clon de Voz</span>';
+      btnSubmitVoiceClone.textContent = 'Crear mi voz';
     }
     if (trainingStatusBox) {
       trainingStatusBox.style.display = 'none';
@@ -3005,9 +3147,9 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       if (clonePreviewAudio) {
         clonePreviewAudio.currentTime = 0;
         clonePreviewAudio.play();
-        btnPlayPreview.innerHTML = '<span>🔊 Reproduciendo...</span>';
+        btnPlayPreview.textContent = 'Reproduciendo…';
         clonePreviewAudio.onended = () => {
-          btnPlayPreview.innerHTML = '<span>▶️ Escuchar Muestra</span>';
+          btnPlayPreview.textContent = 'Escuchar la muestra';
         };
       }
     });
@@ -3040,7 +3182,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       // ── Activar Estado de Carga (Loading) en Botón y Panel ──
       btnSubmitVoiceClone.disabled = true;
       btnSubmitVoiceClone.classList.add('btn-loading');
-      btnSubmitVoiceClone.innerHTML = '<div class="btn-spinner"></div> <span>Entrenando y Creando Modelo IA...</span>';
+      btnSubmitVoiceClone.textContent = 'Creando tu voz…';
 
       if (trainingStatusBox) {
         trainingStatusBox.className = 'training-status-box';
@@ -3094,12 +3236,12 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
           if (trainingSpinner) trainingSpinner.style.display = 'none';
           if (trainingStatusIcon) {
             trainingStatusIcon.style.display = 'block';
-            trainingStatusIcon.textContent = '✅';
+            trainingStatusIcon.textContent = '✓';
           }
           if (trainingBadgeStep) trainingBadgeStep.textContent = '¡Completado!';
           if (trainingStatusTitle) trainingStatusTitle.textContent = '¡Clon de Voz Creado con Éxito!';
           if (trainingStatusDesc) trainingStatusDesc.textContent = `Modelo ID: ${modelId}. Asignando como tu voz activa...`;
-          btnSubmitVoiceClone.innerHTML = '<span>🎉 ¡Voz Clonada con Éxito!</span>';
+          btnSubmitVoiceClone.textContent = 'Voz creada';
 
           // Recargar lista y seleccionar el nuevo modelo
           await loadFishVoiceModels(modelId);
@@ -3118,14 +3260,14 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
           if (trainingSpinner) trainingSpinner.style.display = 'none';
           if (trainingStatusIcon) {
             trainingStatusIcon.style.display = 'block';
-            trainingStatusIcon.textContent = '❌';
+            trainingStatusIcon.textContent = '✕';
           }
           if (trainingBadgeStep) trainingBadgeStep.textContent = 'Error';
           if (trainingStatusTitle) trainingStatusTitle.textContent = 'Error al crear modelo';
           if (trainingStatusDesc) trainingStatusDesc.textContent = result?.error || 'Verifica tu conexión y API Key.';
 
           btnSubmitVoiceClone.classList.remove('btn-loading');
-          btnSubmitVoiceClone.innerHTML = '<span>✨ Reintentar Entrenamiento</span>';
+          btnSubmitVoiceClone.textContent = 'Reintentar';
           btnSubmitVoiceClone.disabled = false;
         }
       } catch (err) {
@@ -3136,14 +3278,14 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
         if (trainingSpinner) trainingSpinner.style.display = 'none';
         if (trainingStatusIcon) {
           trainingStatusIcon.style.display = 'block';
-          trainingStatusIcon.textContent = '❌';
+          trainingStatusIcon.textContent = '✕';
         }
         if (trainingBadgeStep) trainingBadgeStep.textContent = 'Error';
         if (trainingStatusTitle) trainingStatusTitle.textContent = 'Error de conexión';
         if (trainingStatusDesc) trainingStatusDesc.textContent = err.message;
 
         btnSubmitVoiceClone.classList.remove('btn-loading');
-        btnSubmitVoiceClone.innerHTML = '<span>✨ Reintentar Entrenamiento</span>';
+        btnSubmitVoiceClone.textContent = 'Reintentar';
         btnSubmitVoiceClone.disabled = false;
       }
     });

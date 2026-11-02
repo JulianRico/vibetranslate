@@ -138,15 +138,18 @@ function saveSettings(settings) {
   }
 }
 
+const WINDOW_SIZE = { width: 440, height: 820, minWidth: 380, minHeight: 600 };
+
 function createControlWindow() {
   defaultLogger.info('UI', 'Creando Ventana del Panel de Control Principal...');
+  // Ventana estrecha y alta: cabe al lado de la reunión
   controlWindow = new BrowserWindow({
-    width: 1060,
-    height: 880,
-    minWidth: 860,
-    minHeight: 640,
+    width: WINDOW_SIZE.width,
+    height: WINDOW_SIZE.height,
+    minWidth: WINDOW_SIZE.minWidth,
+    minHeight: WINDOW_SIZE.minHeight,
     resizable: true,
-    title: 'ViBeTranslate Pro Studio',
+    title: 'ViBeTranslate',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -959,10 +962,11 @@ ipcMain.handle('TOGGLE_PIP_MODE', async () => {
   if (!controlWindow || controlWindow.isDestroyed()) return false;
   
   if (isPipMode) {
+    controlWindow.setMinimumSize(WINDOW_SIZE.minWidth, WINDOW_SIZE.minHeight);
     if (previousBounds) {
       controlWindow.setBounds(previousBounds);
     } else {
-      controlWindow.setSize(1060, 880);
+      controlWindow.setSize(WINDOW_SIZE.width, WINDOW_SIZE.height);
       controlWindow.center();
     }
     controlWindow.setAlwaysOnTop(false);
@@ -973,11 +977,13 @@ ipcMain.handle('TOGGLE_PIP_MODE', async () => {
     previousBounds = controlWindow.getBounds();
     const primaryDisplay = screen.getPrimaryDisplay();
     const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-    const pipWidth = 460;
-    const pipHeight = 360;
+    const pipWidth = 360;
+    const pipHeight = 340;
     const pipX = screenWidth - pipWidth - 24;
     const pipY = screenHeight - pipHeight - 24;
 
+    // Sin bajar antes el tamaño mínimo de la ventana, Windows no la deja tan pequeña
+    controlWindow.setMinimumSize(320, 260);
     controlWindow.setBounds({ x: pipX, y: pipY, width: pipWidth, height: pipHeight });
     controlWindow.setAlwaysOnTop(true, 'screen-saver');
     isPipMode = true;
