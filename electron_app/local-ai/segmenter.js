@@ -7,6 +7,12 @@ const MAX_SPEECH_SECONDS = 4; // a partir de aquí Silero corta en la siguiente 
 const SPEECH_LOOKBACK = 8000; // la voz empezó algo antes de que el detector la confirme
 const PRE_ROLL = 1600; // 100 ms previos al inicio detectado: con 150 ms o más el modelo empeora cuando hay ruido de fondo
 const HISTORY = 16000 * 8; // cubre el segmento más largo (6 s) más su margen
+// Una palabra corta seguida de pausa («Hi,», «Sí,», «Perdón,») no llega a los 400 ms de voz que pide el detector y la
+// frase empezaba en la palabra siguiente. Un segundo detector, sensible a 100 ms, marca esas ráfagas; si preceden a
+// la frase (con pausas de hasta 700 ms entre ellas) se le anteponen. En la entrevista de prueba recuperó la primera
+// palabra en 7 de 18 turnos sin perder ninguna, también con ruido rosa a 10 y 5 dB.
+const BURST_MAX_GAP = 16000 * 0.7;
+const BURST_MAX_LOOKBACK = 16000 * 1.5;
 
 /** Traduce el selector de sensibilidad del micrófono (umbral RMS antiguo) al umbral de probabilidad de Silero. */
 function thresholdFromNoiseGate(value) {
@@ -19,12 +25,12 @@ function thresholdFromNoiseGate(value) {
 }
 
 function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
-  const vad = new sherpa.Vad({
+  const makeVad = (minSpeechDuration, minSilenceDuration) => new sherpa.Vad({
     sileroVad: {
       model: modelPath,
       threshold,
-      minSilenceDuration: 0.35,
-      minSpeechDuration: 0.4,
+      minSilenceDuration,
+      minSpeechDuration,
       windowSize: WINDOW,
       maxSpeechDuration: MAX_SPEECH_SECONDS
     },
@@ -32,6 +38,9 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
     numThreads: 1,
     provider: 'cpu'
   }, 30);
+  const vad = makeVad(0.4, 0.35);
+  const burstVad = makeVad(0.1, 0.1); // solo marca dónde hubo voz, por corta que sea
+  let bursts = []; // [inicio, fin) de las ráfagas recientes
 
   let rest = new Float32Array(0);
 
@@ -56,13 +65,35 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
     return history.slice(start - oldest, to - oldest);
   }
 
+  function collectBursts() {
+    while (!burstVad.isEmpty()) {
+      const front = burstVad.front(false);
+      bursts.push([front.start, front.start + front.samples.length]);
+      burstVad.pop();
+    }
+    bursts = bursts.filter(([, end]) => end > fed - HISTORY);
+  }
+
+  /** Dónde empezó de verdad la frase que el detector da por empezada en `start`: incluye las ráfagas cortas previas. */
+  function speechOnset(start) {
+    let onset = start;
+    for (let i = bursts.length - 1; i >= 0; i--) {
+      const [from, to] = bursts[i];
+      if (from >= onset) continue;
+      if (to < onset - BURST_MAX_GAP || from < previousEnd || from < start - BURST_MAX_LOOKBACK) break;
+      onset = from;
+    }
+    return onset;
+  }
+
   function drain() {
+    collectBursts();
     const segments = [];
     while (!vad.isEmpty()) {
       // false: Electron no admite búferes externos
       const front = vad.front(false);
       const speech = Float32Array.from(front.samples);
-      const preRoll = recall(Math.max(front.start - PRE_ROLL, previousEnd), front.start);
+      const preRoll = recall(Math.max(speechOnset(front.start) - PRE_ROLL, previousEnd), front.start);
       const samples = new Float32Array(preRoll.length + speech.length);
       samples.set(preRoll);
       samples.set(speech, preRoll.length);
@@ -83,6 +114,7 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
       for (; i + WINDOW <= all.length; i += WINDOW) {
         const window = all.slice(i, i + WINDOW);
         remember(window);
+        burstVad.acceptWaveform(window);
         vad.acceptWaveform(window);
         if (!vad.isDetected()) speechStart = null;
         else if (speechStart === null) speechStart = Math.max(previousEnd, fed - SPEECH_LOOKBACK, 0);
@@ -91,6 +123,7 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
       return drain();
     },
     flush() {
+      burstVad.flush();
       vad.flush();
       rest = new Float32Array(0);
       const segments = drain();

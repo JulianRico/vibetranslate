@@ -182,3 +182,19 @@ test('dos frases completas seguidas no se unen', { skip: skipReason }, () => {
   assert.equal(segments.length, 2);
   assert.equal(segments[1].join, undefined, `"${segments[0].text}" + "${segments[1].text}"`);
 });
+
+// «Hi,» o «Sí,» seguidos de pausa no llegan a los 400 ms de voz que pide el detector: antes la frase empezaba en la
+// palabra siguiente (pasó en 9 de 18 turnos de la entrevista de prueba)
+for (const lang of ['en', 'es']) {
+  test(`la palabra corta del comienzo, seguida de una pausa, no se pierde (${lang})`, { skip: skipReason }, () => {
+    for (const phrase of phrases.shortStart[lang]) {
+      const speech = audio(phrase.id);
+      const samples = pinkNoise(16000 + speech.length, 4).map((v) => v * 0.02); // 1 s de sala antes de hablar
+      for (let i = 0; i < speech.length; i++) samples[16000 + i] += speech[i];
+      const heard = textOf(hear(samples, lang, `short-${phrase.id}`));
+      console.log(`  ${phrase.id}: "${heard}"`);
+      const firstWords = heard.toLowerCase().split(/\s+/).slice(0, 2).map((w) => w.replace(/[^\p{L}]/gu, ''));
+      assert.ok(firstWords.includes(phrase.first), `"${heard}" debería empezar por «${phrase.first}»`);
+    }
+  });
+}

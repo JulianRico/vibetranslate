@@ -13,6 +13,16 @@
     { "id": "en4", "text": "The customer wants a demonstration next week.", "keywordsEs": ["cliente", "semana"] },
     { "id": "en5", "text": "I think we should postpone the launch until next month.", "keywordsEs": ["mes"] }
   ],
+  "shortStart": {
+    "en": [
+      { "id": "en-short1", "text": "Hi, thanks for joining the call today.", "first": "hi" },
+      { "id": "en-short2", "text": "Great, let's start with the first topic.", "first": "great" }
+    ],
+    "es": [
+      { "id": "es-short1", "text": "Sí, claro, lo reviso mañana temprano.", "first": "sí" },
+      { "id": "es-short2", "text": "Perdón, no te escuché bien.", "first": "perdón" }
+    ]
+  },
   "idioms": {
     "en": [
       { "id": "en-idiom1", "text": "You are breaking up so I could not hear the last part.", "keywordsEs": ["parte"] }
