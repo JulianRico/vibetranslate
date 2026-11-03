@@ -1,0 +1,41 @@
+# ViBeTranslate Pro: Product Context
+Developer: Tikal Solutions, https://tikal.com.co/
+Updated: 2026-11-03
+Website: https://vibetranslate.tikal.com.co/
+
+## Purpose and Audience
+Windows 10/11 desktop application supporting Spanish-English communication in technical meetings, project presentations and client conversations. The user's expertise and judgement remain essential; translation is assistance, not a guarantee of correct communication.
+
+## Capabilities
+- Spanish-English translation with translated speech and subtitles on the user's PC.
+- Translated audio can be sent to Google Meet, Microsoft Teams or Zoom after configuring audio.
+- Subtitles are local. They do not automatically appear on other participants' screens.
+- A conversation log keeps original text and translation for review.
+- A Microsoft 365 technical dictionary supports terminology recognition. Users should test their own critical terms.
+- Optional cloud refinement may provide another formulation, subject to provider terms and company policies.
+
+## Availability and Pricing
+Access, delivered version, included capabilities and commercial terms are confirmed by email at vivian@tikal.com.co.
+The website's request form prepares an email draft. The user must review and send it in their email app. No automatic sending, checkout or public installer is provided by this workflow.
+USD 20/month is the website's reference price, pending confirmation. It is not a confirmed billing offer. Team quotes depend on the number of users and agreed terms. Do not invent a free trial, guarantee, discount, support SLA or delivery date.
+
+## Development Features
+The interview trainer and speaker separation are in development and testing. Confirm whether the delivered version includes them.
+Interview evaluation is an indicative score out of 10, not a guaranteed 10/10 or a hiring prediction. Real interview use requires written permission from the company. Speaker attribution must not be relied on to establish who made an agreement.
+
+## Privacy and Service Boundaries
+Local recognition runs on the PC. A cloud recognition provider may receive audio. Cloud translation, refinement and speech synthesis may receive text. Data handling depends on the selected engine and enabled services. Do not characterize the entire product as 100% offline or claim that only text can ever leave the PC.
+Review provider terms, model licenses and organizational policies before handling sensitive content.
+
+## FAQ: Installation
+Use Windows 10 or 11. Sending translated speech into a meeting requires configuring VB-CABLE and the meeting audio. Initial model downloads require internet. Optional cloud refinement requires appropriate provider credentials and is subject to that provider's limits and terms.
+Confirm installer version, licensing, model attribution and voice-service terms before distribution. A tested Mac version is not offered.
+
+## Limits of Claims
+Translation may contain errors. Confirm important figures, terms and agreements with participants. This is not certified interpretation or a replacement for required professional review.
+Do not assert perfect accuracy, universal language support, translation latency from voice to subtitle based solely on a translation-engine benchmark, or measured commercial improvements.
+No customer counts, testimonials, revenue, adoption or business outcomes have been verified for publication. Contextual photos are not customers or endorsements. Product images are development screenshots with sample conversations.
+
+## Website Experience
+The website offers Spanish content and an English client-side language switch. It does not currently generate a separate English search landing page.
+Scroll animations use GSAP ScrollTrigger; desktop product pinning is disabled on smaller screens. Reduced-motion preferences are respected. Images are served locally. The form does not store its answers.

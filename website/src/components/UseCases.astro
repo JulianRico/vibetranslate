@@ -1,0 +1,133 @@
+---
+import { t } from '../i18n';
+---
+<section id="casos" class="section-editorial problem-solution-section">
+  <div class="container">
+    <div class="section-header-editorial text-center">
+      <div class="section-label" data-i18n="uc-label">{t("uc-label")}</div>
+      <h2>
+        <span data-i18n="uc-title-a">{t("uc-title-a")}</span>
+        <span style="font-weight: 400;" data-i18n="uc-title-b">{t("uc-title-b")}</span>
+      </h2>
+    </div>
+    <div class="scenarios-grid">
+      <!-- Use case 1: engineering meetings -->
+      <article class="scenario-card" data-scroll-scene>
+        <figure class="scenario-media" data-scroll-reveal>
+          <img src="/images/equipo-ingenieria.webp" width="1400" height="1050" loading="lazy" decoding="async" alt={t("scene-engineering-alt")} data-i18n-alt="scene-engineering-alt" data-scroll-image />
+        </figure>
+        <div class="scenario-content" data-scroll-reveal>
+          <span class="scene-number" aria-hidden="true">01 / 03</span>
+          <h3 class="scenario-title" data-i18n="uc-1-title">{t("uc-1-title")}</h3>
+          <p class="scenario-desc" data-i18n="uc-1-desc">{t("uc-1-desc")}</p>
+          <div class="scenario-highlight" data-i18n="uc-1-hl">{t("uc-1-hl")}</div>
+        </div>
+      </article>
+      <!-- Use case 2: client and stakeholder meetings -->
+      <article class="scenario-card" data-scroll-scene>
+        <figure class="scenario-media" data-scroll-reveal>
+          <img src="/images/reunion-clientes.webp" width="1400" height="1050" loading="lazy" decoding="async" alt={t("scene-clients-alt")} data-i18n-alt="scene-clients-alt" data-scroll-image />
+        </figure>
+        <div class="scenario-content" data-scroll-reveal>
+          <span class="scene-number" aria-hidden="true">02 / 03</span>
+          <h3 class="scenario-title" data-i18n="uc-2-title">{t("uc-2-title")}</h3>
+          <p class="scenario-desc" data-i18n="uc-2-desc">{t("uc-2-desc")}</p>
+          <div class="scenario-highlight" data-i18n="uc-2-hl">{t("uc-2-hl")}</div>
+        </div>
+      </article>
+      <!-- Use case 3: interview preparation -->
+      <article class="scenario-card" data-scroll-scene>
+        <figure class="scenario-media" data-scroll-reveal>
+          <img src="/images/conversacion-profesional.webp" width="1400" height="1050" loading="lazy" decoding="async" alt={t("scene-practice-alt")} data-i18n-alt="scene-practice-alt" data-scroll-image />
+        </figure>
+        <div class="scenario-content" data-scroll-reveal>
+          <span class="scene-number" aria-hidden="true">03 / 03</span>
+          <h3 class="scenario-title" data-i18n="uc-3-title">{t("uc-3-title")}</h3>
+          <p class="scenario-desc" data-i18n="uc-3-desc">{t("uc-3-desc")}</p>
+          <div class="scenario-highlight" data-i18n="uc-3-hl">{t("uc-3-hl")}</div>
+        </div>
+      </article>
+    </div>
+  </div>
+  <hr class="hairline-divider" style="margin-top: var(--spacing-96);" />
+</section>
+
+<style>
+  .problem-solution-section {
+    background-color: var(--color-eggshell);
+  }
+
+  .text-center {
+    text-align: center;
+    max-width: 780px;
+    margin: 0 auto var(--spacing-64) auto;
+  }
+
+  .ps-subtitle {
+    margin-top: var(--spacing-16);
+    font-size: 16.5px;
+    line-height: var(--leading-body);
+    color: var(--color-smoke);
+  }
+
+  .scenarios-grid {
+    display: grid;
+    gap: 96px;
+  }
+
+  .scenario-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 64px;
+  }
+
+  .scenario-media {
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    background: #dce5df;
+  }
+
+  .scenario-media img { display: block; width: 100%; height: 100%; object-fit: cover; }
+  .scenario-card:nth-child(even) .scenario-media { order: 2; }
+  .scene-number { font-family: var(--font-mono); color: #527060; font-size: 12px; margin-bottom: 12px; }
+
+  .scenario-content {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .scenario-title {
+    font-family: var(--font-serif);
+    font-size: 38px;
+    line-height: 1.15;
+    font-weight: 400;
+    color: var(--color-ink);
+  }
+
+  .scenario-desc {
+    font-size: 16px;
+    line-height: 1.75;
+    color: var(--color-smoke);
+  }
+
+  .scenario-highlight {
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-graphite);
+    border-left: 2px solid #347757;
+    padding: 0 0 0 16px;
+    width: fit-content;
+    margin-top: 8px;
+  }
+
+  @media (max-width: 860px) {
+    .scenarios-grid { gap: 56px; }
+    .scenario-card { grid-template-columns: minmax(0, 1fr); gap: 28px; }
+    .scenario-card:nth-child(even) .scenario-media { order: 0; }
+    .scenario-title { font-size: 30px; }
+    .scenario-desc { font-size: 15px; }
+  }
+</style>

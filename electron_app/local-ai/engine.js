@@ -11,6 +11,8 @@ const { createTranscriber } = require('./transcriber');
 const { createEchoDetector } = require('./echo-detector');
 const { createSentenceJoiner } = require('./sentence-joiner');
 const { otherLanguage } = require('./languages');
+const { createSpeakerEmbedder } = require('./speaker-embedder');
+const { createSpeakerTracker } = require('./speaker-tracker');
 
 const MIN_SEGMENT_SAMPLES = 6400; // 400 ms: por debajo el modelo inventa palabras
 const KEEP_SEGMENTS = 8; // audio que se conserva para traducir sin traductor de texto
@@ -19,6 +21,9 @@ const DEFAULT_THRESHOLD = 0.5;
 const PARTIAL_MIN_SAMPLES = 24000; // texto provisional a partir de 1,5 s de frase
 const PARTIAL_STEP_SAMPLES = 24000; // y luego cada 1,5 s de audio nuevo
 const PARTIAL_MAX_LAG_MS = 600; // si el motor va con más retraso que esto, no hay tiempo para provisionales
+// Misma persona si su huella se parece al menos esto. En la prueba de panel (tres voces) las de una misma persona
+// quedaron por encima de 0,65 y las de personas distintas por debajo de 0,51: funcionaba igual entre 0,45 y 0,8.
+const SPEAKER_THRESHOLD = 0.6;
 const NOISE_CHECK_WORDS = 3; // frases del micrófono de hasta 3 palabras: ahí es donde el ruido se oye como palabras
 
 /**
@@ -45,11 +50,15 @@ const wordCount = (text) => text.split(/\s+/).filter(Boolean).length;
 function createEngine({
   sherpa, paths, post, vadThreshold = 0.5, idBase = 1, captureAudio = false, now = Date.now, translator = null,
   glossary = null, makeSegmenter = createSegmenter, makeTranscriber = createTranscriber,
-  makeEchoDetector = createEchoDetector, makeJoiner = createSentenceJoiner
+  makeEchoDetector = createEchoDetector, makeJoiner = createSentenceJoiner,
+  makeSpeakerEmbedder = createSpeakerEmbedder, makeSpeakerTracker = createSpeakerTracker
 }) {
   const transcriber = makeTranscriber({ sherpa, paths });
   const echoDetector = makeEchoDetector();
   const joiner = makeJoiner();
+  // Quién habla en la reunión: solo el flujo de la reunión, y solo si está el modelo de huella
+  const embedder = makeSpeakerEmbedder({ sherpa, paths });
+  const speakers = makeSpeakerTracker({ threshold: SPEAKER_THRESHOLD });
   const streams = new Map();
   const kept = new Map();
   let nextId = idBase;
@@ -59,7 +68,9 @@ function createEngine({
   function streamFor(name, lang) {
     if (!streams.has(name)) {
       streams.set(name, {
-        segmenter: makeSegmenter({ sherpa, modelPath: paths.vad, threshold: thresholds[name] ?? DEFAULT_THRESHOLD }),
+        // El corte en pausas dentro de un segmento separa a dos personas de la reunión; en el micrófono solo hablas tú
+        // y partir la frase empeoraba la jerga del comienzo («rollback» → «el Y Back»)
+        segmenter: makeSegmenter({ sherpa, modelPath: paths.vad, threshold: thresholds[name] ?? DEFAULT_THRESHOLD, splitQuiet: name === 'incoming' }),
         speaking: false,
         lang,
         target: null,
@@ -169,9 +180,16 @@ function createEngine({
         if (state.lastEnd !== null) gapMs = Math.max(0, Math.round((segment.start - state.lastEnd) / 16));
         state.lastEnd = segment.start + segment.samples.length;
       }
-      const piece = joiner.add({ stream: name, id, lang, text, gapMs });
+      let who = null;
+      if (name === 'incoming' && embedder) who = speakers.assign(embedder.compute(segment.samples), segment.samples.length / 16000);
+      const speaker = who ? who.id : null;
+      const piece = joiner.add({ stream: name, id, lang, text, gapMs, speaker });
 
       const message = { type: 'segment', id, stream: name, lang, text, durationMs, sttMs: ms, gapMs };
+      if (speaker !== null) {
+        message.speaker = speaker;
+        message.speakerScore = who.similarity === null ? null : Math.round(who.similarity * 100) / 100;
+      }
       if (heard) message.heard = heard; // lo que escribió el reconocedor antes de corregir los términos
       if (hints.length > 0) message.hints = hints;
       if (piece.joined) message.join = { lineId: piece.lineId, text: piece.text };
@@ -271,6 +289,7 @@ function createEngine({
         streams.clear();
         kept.clear();
         joiner.reset();
+        speakers.reset();
       }
     }
   };

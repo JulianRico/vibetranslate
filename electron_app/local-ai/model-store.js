@@ -46,6 +46,15 @@ const MODEL_FILES = [
     size: 53555,
     sha256: '2dae6fc7815f9640645e0c765522b278ee0cef49b482d91f6913e334628d3e77'
   },
+  // Huella de voz para saber quién habla en la reunión (NeMo TitaNet small): en la prueba de panel separó a las tres
+  // personas sin un fallo, frente al 70 % de wespeaker ResNet34
+  {
+    id: 'speaker',
+    file: 'nemo_en_titanet_small.onnx',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/nemo_en_titanet_small.onnx',
+    size: 40257283,
+    sha256: 'ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e'
+  },
   // `size` y `sha256` son del archivo ya descomprimido; `downloadSize`, de lo que llega por la red
   {
     id: 'mtEnEs',

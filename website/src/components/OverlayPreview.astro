@@ -1,0 +1,212 @@
+---
+---
+<section id="overlay" class="section-editorial">
+  <div class="container">
+    <div class="overlay-editorial-grid">
+      <!-- Left Column: Copy & Details -->
+      <div class="overlay-editorial-info">
+        <div class="section-label" data-i18n="ov-label">Subtítulos flotantes</div>
+        <h2 data-i18n="ov-title">La traducción aparece <span style="font-weight: 400;">sobre tu reunión</span>.</h2>
+        <p class="overlay-editorial-desc" data-i18n="ov-desc">
+          Una ventana de subtítulos encima de tu videollamada. Muestra lo que dices en español y su traducción al inglés.
+        </p>
+        <div class="overlay-features-stack">
+          <div class="feature-item">
+            <span class="feature-kbd-badge">Ctrl + Shift + T</span>
+            <div class="feature-item-text">
+              <strong data-i18n="ov-f1-title">Atajo de teclado</strong>
+              <p data-i18n="ov-f1-desc">Muestra u oculta los subtítulos con Ctrl+Shift+T.</p>
+            </div>
+          </div>
+          <div class="feature-item">
+            <span class="feature-icon-bullet">•</span>
+            <div class="feature-item-text">
+              <strong data-i18n="ov-f2-title">Registro de la conversación</strong>
+              <p data-i18n="ov-f2-desc">Cada frase queda en el registro con su traducción, para repasarla al terminar.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Right Column: real app screenshot (dark theme, phone size) -->
+      <div class="overlay-editorial-mockup">
+        <img class="overlay-app-shot" src="/images/m07-en-vivo-oscuro.png" width="440" height="820" loading="lazy" alt="Captura de ViBeTranslate Pro en modo oscuro durante una traducción en vivo, con subtítulos y el registro de la conversación" data-i18n-alt="shot-m07-alt" />
+      </div>
+    </div>
+  </div>
+  <hr class="hairline-divider" style="margin-top: var(--spacing-96);" />
+</section>
+<style>
+  .overlay-editorial-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+
+  @media (max-width: 900px) {
+    .overlay-editorial-grid {
+      grid-template-columns: 1fr;
+      gap: 36px;
+    }
+  }
+
+  .overlay-editorial-desc {
+    margin-top: var(--spacing-16);
+    margin-bottom: var(--spacing-32);
+    font-size: 16px;
+    line-height: var(--leading-body);
+  }
+
+  .overlay-features-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .feature-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .feature-kbd-badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-ink);
+    background-color: var(--color-warm-taupe);
+    border: 1px solid var(--color-stone);
+    padding: 4px 8px;
+    border-radius: var(--radius-small);
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+
+  .feature-icon-bullet {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--color-smoke);
+    margin-top: 2px;
+  }
+
+  .feature-item-text strong {
+    font-family: var(--font-body);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--color-ink);
+    display: block;
+    margin-bottom: 2px;
+  }
+
+  .feature-item-text p {
+    font-size: 13.5px;
+    line-height: 1.45;
+    color: var(--color-graphite);
+    margin: 0;
+  }
+
+  /* Mockup HUD Box */
+  .subtitle-hud-card {
+    background-color: #ffffff;
+    border: 1px solid var(--color-stone);
+    border-radius: var(--radius-cards);
+    padding: var(--spacing-24);
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.06);
+  }
+
+  .hud-bar-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .hud-brand-tag {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    color: var(--color-smoke);
+  }
+
+  .hud-indicator-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: #22c55e;
+  }
+
+  .hud-actions-mini {
+    display: flex;
+    gap: 6px;
+  }
+
+  .hud-mini-btn {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    padding: 2px 6px;
+    background-color: var(--color-warm-taupe);
+    border-radius: 4px;
+    color: var(--color-smoke);
+  }
+
+  .hud-dialogue-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background-color: var(--color-eggshell);
+    border-radius: var(--radius-small);
+    padding: var(--spacing-16);
+  }
+
+  .dialogue-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .dialogue-speaker {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--color-ash);
+    letter-spacing: 0.04em;
+  }
+
+  .dialogue-quote {
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--color-ink);
+    margin: 0;
+  }
+
+  .highlight-en .dialogue-quote {
+    font-weight: 500;
+    color: #0d9488;
+  }
+
+  .hud-bar-bottom {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11.5px;
+    color: var(--color-smoke);
+    padding-top: 8px;
+    border-top: 1px solid var(--color-stone);
+  }
+
+  .overlay-app-shot {
+    display: block;
+    width: 100%;
+    max-width: 340px;
+    height: auto;
+    margin: 0 auto;
+    border-radius: 28px;
+    border: 1px solid var(--color-stone);
+  }
+</style>

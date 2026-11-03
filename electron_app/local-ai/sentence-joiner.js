@@ -52,21 +52,23 @@ function createSentenceJoiner({ maxGapMs = MAX_GAP_MS, maxGapAfterPeriodMs = MAX
   return {
     /**
      * Registra un trozo y dice qué hay que traducir para el subtítulo.
-     * @param {{ stream: string, id: *, lang: string, text: string, gapMs?: number|null }} piece
+     * @param {{ stream: string, id: *, lang: string, text: string, gapMs?: number|null, speaker?: *|null }} piece
      *   `gapMs`: silencio entre el final del trozo anterior del mismo flujo y el comienzo de este.
+     *   `speaker`: quién habla, si se sabe (huella de voz): dos personas distintas nunca comparten línea.
      * @returns {{ joined: boolean, lineId: *, text: string }} `text` es la frase completa hasta ahora.
      */
-    add({ stream, id, lang, text, gapMs = null }) {
+    add({ stream, id, lang, text, gapMs = null, speaker = null }) {
       const prev = open.get(stream);
-      const fits = prev && prev.lang === lang && gapMs !== null && gapMs <= maxGapMs &&
+      const samePerson = !prev || prev.speaker === null || speaker === null || prev.speaker === speaker;
+      const fits = prev && samePerson && prev.lang === lang && gapMs !== null && gapMs <= maxGapMs &&
         prev.parts < maxParts && wordCount(prev.text) + wordCount(text) <= maxWords;
       const link = fits ? continues(prev.text, text, lang) : false;
       if (link === 'strong' || (link === 'weak' && gapMs <= maxGapAfterPeriodMs)) {
-        const merged = { lineId: prev.lineId, lang, text: joinText(prev.text, text), parts: prev.parts + 1 };
+        const merged = { lineId: prev.lineId, lang, speaker: prev.speaker === null ? speaker : prev.speaker, text: joinText(prev.text, text), parts: prev.parts + 1 };
         open.set(stream, merged);
         return { joined: true, lineId: merged.lineId, text: merged.text };
       }
-      open.set(stream, { lineId: id, lang, text: text.trim(), parts: 1 });
+      open.set(stream, { lineId: id, lang, speaker, text: text.trim(), parts: 1 });
       return { joined: false, lineId: id, text: text.trim() };
     },
     /** Olvida la frase en curso (al parar o al cambiar de idioma): lo siguiente empieza línea nueva. */

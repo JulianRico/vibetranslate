@@ -12,6 +12,7 @@ const http = require('http');
 const { userGlossary } = require('./glossary');
 const { createTechGlossary } = require('./local-ai/tech-glossary');
 const { createCloudTranslator } = require('./cloud-translator');
+const { createInterviewer } = require('./training-interviewer');
 const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
 const { FishAudioService } = require('./fish-audio-service');
@@ -27,7 +28,7 @@ defaultLogger.info('SYSTEM', '🚀 Iniciando MeetTranslate Desktop App (Proceso 
 
 // Instancia de servicio Fish Audio
 const fishAudioService = new FishAudioService({
-  apiKey: '00000000000000000000000000000000',
+  apiKey: '',
   model: 's2.1-pro-free'
 });
 
@@ -78,8 +79,8 @@ const traceRecorder = createTraceRecorder({ baseDir: traceSessionsDir });
 
 const DEFAULT_SETTINGS = {
   geminiApiKey: '',
-  groqApiKey: 'gsk_dummy_replace_with_your_groq_api_key_000000000000',
-  fishApiKey: '00000000000000000000000000000000',
+  groqApiKey: '',
+  fishApiKey: '',
   fishVoiceModelId: '0356fc9e08b646ed91607baa54a847c3',
   fishModel: 's2.1-pro-free',
   fishLatency: 'balanced',
@@ -311,6 +312,21 @@ ipcMain.handle('SAVE_SETTINGS', async (event, newSettings) => {
 const cloudTranslator = createCloudTranslator({
   getGroqKey: () => (loadSavedSettings().groqApiKey || ''),
   logger: (message) => defaultLogger.warn('TRANSLATE', message)
+});
+
+// Practicar una entrevista: el entrevistador es un LLM de Groq que habla en inglés y evalúa al final
+const interviewer = createInterviewer({ getGroqKey: () => (loadSavedSettings().groqApiKey || '') });
+
+ipcMain.handle('TRAINING_NEXT', async (event, { setup, history }) => {
+  const r = await interviewer.next({ setup, history });
+  if (!r.ok) defaultLogger.warn('PRÁCTICA', r.error);
+  return r;
+});
+
+ipcMain.handle('TRAINING_EVALUATE', async (event, { setup, history }) => {
+  const r = await interviewer.evaluate({ setup, history });
+  if (!r.ok) defaultLogger.warn('PRÁCTICA', r.error);
+  return r;
 });
 
 async function translateWithGoogleDict(text, sl, tl) {
@@ -733,7 +749,7 @@ ipcMain.on('TRACE_OPEN', (event, dir) => {
 ipcMain.handle('FISH_AUDIO_SYNTHESIZE', async (event, { text, voiceModelId, model, format = 'mp3', latency = 'balanced', apiKey = null }) => {
   try {
     const settings = loadSavedSettings();
-    const effectiveKey = apiKey || settings.fishApiKey || '00000000000000000000000000000000';
+    const effectiveKey = apiKey || settings.fishApiKey || '';
     fishAudioService.setApiKey(effectiveKey);
 
     const activeModel = model || settings.fishModel || 's2.1-pro-free';
@@ -766,7 +782,7 @@ ipcMain.handle('FISH_AUDIO_SYNTHESIZE', async (event, { text, voiceModelId, mode
 ipcMain.handle('FISH_AUDIO_LIST_MODELS', async (event, { apiKey = null, selfOnly = false, pageSize = 30 } = {}) => {
   try {
     const settings = loadSavedSettings();
-    const effectiveKey = apiKey || settings.fishApiKey || '00000000000000000000000000000000';
+    const effectiveKey = apiKey || settings.fishApiKey || '';
     fishAudioService.setApiKey(effectiveKey);
 
     const models = await fishAudioService.listVoiceModels({ selfOnly, pageSize });
@@ -780,7 +796,7 @@ ipcMain.handle('FISH_AUDIO_LIST_MODELS', async (event, { apiKey = null, selfOnly
 ipcMain.handle('FISH_AUDIO_CREATE_MODEL', async (event, { title, audioBase64, audioMimeType = 'audio/wav', sampleText = '', description = '', visibility = 'private', apiKey = null }) => {
   try {
     const settings = loadSavedSettings();
-    const effectiveKey = apiKey || settings.fishApiKey || '00000000000000000000000000000000';
+    const effectiveKey = apiKey || settings.fishApiKey || '';
     fishAudioService.setApiKey(effectiveKey);
 
     const audioBuffer = Buffer.from(audioBase64, 'base64');

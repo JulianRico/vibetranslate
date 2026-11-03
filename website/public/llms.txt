@@ -1,0 +1,29 @@
+# ViBeTranslate Pro
+> Traduccion entre espanol e ingles para reuniones tecnicas y con clientes. Aplicacion de escritorio para Windows 10 y 11, desarrollada por Tikal Solutions.
+
+## Producto
+- Voz traducida para intervenir en Google Meet, Microsoft Teams y Zoom, con el audio configurado.
+- Subtitulos locales en el PC del usuario. No se comparten automaticamente con los demas participantes.
+- Registro del original y su traduccion para consultar una frase.
+- Diccionario de apoyo para terminos de Microsoft 365. No garantiza precision perfecta.
+- Refinamiento opcional en la nube, sujeto a las condiciones del proveedor.
+
+## Acceso y precio
+El acceso, la version y las condiciones se consultan por correo en vivian@tikal.com.co. El portal prepara un borrador que el visitante debe enviar. No procesa compras ni entrega una descarga automatica.
+USD 20/mes es un precio de referencia pendiente de confirmacion, no una oferta de facturacion confirmada. Para equipos se consulta una cotizacion segun el numero de usuarios.
+
+## Estado y limites
+El entrenador de entrevistas y la separacion de hablantes estan en desarrollo. Su disponibilidad depende de la version entregada. Una evaluacion sobre 10 es orientativa, no una nota garantizada ni una prediccion de contratacion.
+La traduccion puede contener errores. No es interpretacion certificada ni sustituye un interprete profesional en situaciones que lo requieren.
+Las fotografias del portal son contextuales, no clientes ni testimonios. Las capturas son de desarrollo con conversaciones de ejemplo.
+
+## Privacidad
+El reconocimiento local se ejecuta en el PC. Los servicios de reconocimiento en la nube pueden enviar audio; traduccion, refinamiento y voz en la nube pueden enviar texto al proveedor. No afirmar funcionamiento exclusivamente local o sin nube.
+
+## FAQ de instalacion
+Se requiere Windows 10 u 11. Para enviar la voz traducida a la reunion se configura VB-CABLE. La descarga inicial de modelos requiere internet. Revisar requisitos, licencias y servicios de la version entregada antes de distribuir o instalar.
+
+## Enlaces
+- Web: https://vibetranslate.tikal.com.co/
+- Desarrollador: https://tikal.com.co/
+- Contexto completo: /llms-full.txt

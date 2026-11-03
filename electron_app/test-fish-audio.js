@@ -1,6 +1,6 @@
 const https = require('https');
 
-const API_KEY = '00000000000000000000000000000000';
+const API_KEY = process.env.FISH_API_KEY || '';
 
 async function testFishAudio() {
   console.log('--- Probando Fish Audio API ---');

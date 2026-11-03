@@ -10,13 +10,14 @@ function createConversationLog({ max = 500, clock = () => new Date().toLocaleTim
 
   return {
     /** Registra una frase traducida y devuelve la entrada; sin traducción no hay nada que mostrar y devuelve null. */
-    add({ direction, from, to, original, translated }) {
+    add({ direction, from, to, original, translated, speakerId = null, speaker = null }) {
       if (!translated || !String(translated).trim()) return null;
       const entry = {
         n: ++count,
         time: clock(),
         direction,
-        speaker: SPEAKERS[direction] || SPEAKERS.incoming,
+        ...(speakerId !== null ? { speakerId } : {}),
+        speaker: speaker || SPEAKERS[direction] || SPEAKERS.incoming,
         from: String(from || '').toUpperCase(),
         to: String(to || '').toUpperCase(),
         original: String(original || '').trim(),
@@ -40,6 +41,10 @@ function createConversationLog({ max = 500, clock = () => new Date().toLocaleTim
       if (original !== undefined) entry.original = String(original || '').trim();
       if (translated !== undefined && String(translated).trim()) entry.translated = String(translated).trim();
       return true;
+    },
+    /** El nombre de una voz de la reunión cambió: sus frases lo llevan también en la exportación. */
+    renameSpeaker(speakerId, name) {
+      for (const e of items) if (e.speakerId === speakerId) e.speaker = name;
     },
     entries: () => items.slice(),
     tail: (n) => items.slice(-n),

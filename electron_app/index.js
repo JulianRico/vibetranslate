@@ -16,6 +16,8 @@ const { parseVocabulary, formatVocabulary } = require('./vocabulary');
 const { createSlowDetector } = require('./local-ai/slow-detector');
 const { directionText, formatElapsed, readiness } = require('./ui-state');
 const { buildSessionReport } = require('./session-report');
+const { createAnswerCollector, answerReady, ttsChunks, formatScore, formatReport } = require('./training-session');
+const { nameFromIntroduction, createSpeakerNames } = require('./speaker-names');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
 class PcmStreamPlayer {
@@ -463,6 +465,54 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 3. Exportar Historial de Transcripciones y Reporte
   const logHistoryArray = [];
   const conversationLog = createConversationLog();
+  // Cómo se llama cada voz de la reunión: «Persona N», su presentación («I'm Sarah») o lo que escribas
+  const speakerNames = createSpeakerNames();
+
+  function renameSpeaker(id, name) {
+    speakerNames.rename(id, name);
+    const label = speakerNames.label(id);
+    conversationLog.renameSpeaker(id, label);
+    document.querySelectorAll(`.conv-who[data-speaker="${id}"]`).forEach((el) => { el.textContent = label; });
+    appendLog('UI', `La voz ${id} ahora se llama «${label}».`);
+  }
+
+  /** Un clic (o Enter) en el nombre de una voz lo convierte en un campo para escribir otro. */
+  function editSpeakerName(whoEl) {
+    const id = Number(whoEl.dataset.speaker);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'conv-who-edit';
+    input.value = speakerNames.label(id).startsWith('Persona ') ? '' : speakerNames.label(id);
+    input.placeholder = speakerNames.label(id);
+    input.setAttribute('aria-label', `Nombre de ${speakerNames.label(id)}`);
+    let done = false;
+    const finish = (save) => {
+      if (done) return;
+      done = true;
+      input.replaceWith(whoEl);
+      if (save) renameSpeaker(id, input.value);
+      whoEl.focus();
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish(true);
+      if (e.key === 'Escape') { e.stopPropagation(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+    whoEl.replaceWith(input);
+    input.focus();
+  }
+
+  if (conversationLogEl) {
+    conversationLogEl.addEventListener('click', (e) => {
+      const who = e.target.closest('.conv-who[data-speaker]');
+      if (who) editSpeakerName(who);
+    });
+    conversationLogEl.addEventListener('keydown', (e) => {
+      const who = e.target.closest && e.target.closest('.conv-who[data-speaker]');
+      if (who && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); editSpeakerName(who); }
+    });
+  }
+
 
   if (btnExportAll) {
     btnExportAll.addEventListener('click', async () => {
@@ -634,12 +684,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   let isAppSpeaking = false;
   let lastAppSpeakingEndTime = 0;
 
+  // Al empezar otra frase se cancela la reapertura pendiente de la anterior: si no, el micrófono se abría a mitad
+  // de la frase siguiente y la app se oía a sí misma
+  let appSpeakingEndTimer = null;
+
   function markAppSpeakingStart() {
+    clearTimeout(appSpeakingEndTimer);
     isAppSpeaking = true;
   }
 
   function markAppSpeakingEnd(delayMs = 450) {
-    setTimeout(() => {
+    clearTimeout(appSpeakingEndTimer);
+    appSpeakingEndTimer = setTimeout(() => {
       isAppSpeaking = false;
       lastAppSpeakingEndTime = Date.now();
     }, delayMs);
@@ -924,6 +980,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function openSettings(sectionId) {
     viewMain.hidden = true;
+    viewTraining.hidden = true;
     viewSettings.hidden = false;
     const section = sectionId ? document.getElementById(sectionId) : null;
     if (section) section.scrollIntoView({ block: 'start' });
@@ -984,7 +1041,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     const modalOpen = [...document.querySelectorAll('.modal-backdrop')].some((m) => m.style.display && m.style.display !== 'none');
-    if (!modalOpen) closeSettings();
+    if (modalOpen) return;
+    closeSettings();
+    // Escape nunca corta una entrevista en curso: solo cierra la pantalla de práctica si no hay ninguna
+    if (!viewTraining.hidden && !(training && training.active)) closeTraining();
   });
 
   setupNoticeAction.addEventListener('click', () => {
@@ -1012,6 +1072,422 @@ document.addEventListener('DOMContentLoaded', async () => {
   }));
   sttEngineSelect.addEventListener('change', recheck);
   [groqKeyInput, geminiKeyInput].forEach((el) => el.addEventListener('input', recheck));
+
+  // ── Practicar una entrevista: un entrevistador en inglés (LLM) y tus respuestas en español a través de la app ──
+  const viewTraining = document.getElementById('view-training');
+  const btnOpenTraining = document.getElementById('btn-open-training');
+  const btnCloseTraining = document.getElementById('btn-close-training');
+  const trainingPanels = {
+    setup: document.getElementById('training-setup'),
+    live: document.getElementById('training-live'),
+    result: document.getElementById('training-result')
+  };
+  const trainingRole = document.getElementById('training-role');
+  const trainingLength = document.getElementById('training-length');
+  const trainingVoice = document.getElementById('training-voice');
+  const trainingTurn = document.getElementById('training-turn');
+  const trainingNotice = document.getElementById('training-notice');
+  const trainingNoticeText = document.getElementById('training-notice-text');
+  const trainingNoticeAction = document.getElementById('training-notice-action');
+  const btnTrainingStart = document.getElementById('btn-training-start');
+  const trainingProgress = document.getElementById('training-progress');
+  const trainingState = document.getElementById('training-state');
+  const trainingQuestionEn = document.getElementById('training-question-en');
+  const trainingQuestionEs = document.getElementById('training-question-es');
+  const trainingAnswerEs = document.getElementById('training-answer-es');
+  const trainingAnswerEn = document.getElementById('training-answer-en');
+  const btnTrainingDone = document.getElementById('btn-training-done');
+  const btnTrainingStop = document.getElementById('btn-training-stop');
+  const btnTrainingSave = document.getElementById('btn-training-save');
+  const btnTrainingAgain = document.getElementById('btn-training-again');
+
+  const TRAINING_PREFS = 'vibetranslate_training';
+  const RECOMMENDATION_ES = { hire: 'Contratar', maybe: 'Dudoso', 'no hire': 'No contratar' };
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  let training = null; // la entrevista en curso o la última terminada
+  let trainingAudio = null;
+  let lastMicVoiceAt = 0;
+
+  function noteMicVoice() {
+    lastMicVoiceAt = Date.now();
+  }
+
+  function showTrainingPanel(which) {
+    for (const [name, el] of Object.entries(trainingPanels)) el.hidden = name !== which;
+  }
+
+  function setTrainingState(text) {
+    trainingState.textContent = text;
+  }
+
+  function setTrainingAnswer(spanish, english) {
+    trainingAnswerEs.textContent = spanish;
+    trainingAnswerEn.textContent = english;
+  }
+
+  function loadTrainingPrefs() {
+    try {
+      const p = JSON.parse(localStorage.getItem(TRAINING_PREFS) || '{}');
+      if (p.role) trainingRole.value = p.role;
+      if (p.questions) trainingLength.value = String(p.questions);
+      if (p.voice) trainingVoice.value = p.voice;
+      if (p.turn) trainingTurn.value = p.turn;
+    } catch { /* preferencias dañadas: se usan las de la pantalla */ }
+  }
+
+  function renderTrainingNotice(problem = '') {
+    let text = problem;
+    let action = false;
+    if (!text && (isLiveToggleActive || isPipelineRunning)) text = 'Detén la traducción de la reunión para practicar: las dos usan tu micrófono.';
+    if (!text && translationModeSelect && translationModeSelect.value === 'local') {
+      text = 'Tu traducción está en «Siempre en el equipo»: el entrevistador recibirá la traducción local, que es menos precisa. Para la mejor calidad, elige «En la nube si hay red».';
+      action = true;
+    }
+    trainingNotice.hidden = !text;
+    trainingNotice.dataset.state = problem ? 'error' : 'warn';
+    trainingNoticeText.textContent = text;
+    trainingNoticeAction.hidden = !action;
+    btnTrainingStart.disabled = isLiveToggleActive || isPipelineRunning;
+  }
+
+  function openTraining() {
+    viewMain.hidden = true;
+    viewSettings.hidden = true;
+    viewTraining.hidden = false;
+    if (!training || !training.active) {
+      loadTrainingPrefs();
+      renderTrainingNotice();
+      if (!training) showTrainingPanel('setup');
+    }
+    btnCloseTraining.focus();
+  }
+
+  function closeTraining() {
+    if (training && training.active) abortTraining();
+    viewTraining.hidden = true;
+    viewMain.hidden = false;
+    btnOpenTraining.focus();
+  }
+
+  function endTrainingAudio() {
+    if (trainingAudio) {
+      try { trainingAudio.pause(); } catch { /* ya parado */ }
+      trainingAudio = null;
+    }
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  }
+
+  /** Detiene la práctica sin evaluar (volver atrás o un fallo). */
+  function abortTraining(problem = '') {
+    const t = training;
+    if (t) {
+      t.active = false;
+      clearInterval(t.timer);
+    }
+    training = null;
+    endTrainingAudio();
+    document.body.classList.remove('training-listening');
+    if (isPipelineRunning) stopTranslationPipeline();
+    showTrainingPanel('setup');
+    renderTrainingNotice(problem);
+  }
+
+  /** La traducción al español de lo que dice el entrevistador (la nube, y si no hay, el traductor local). */
+  async function translateForTraining(text) {
+    try {
+      const res = await ipcRenderer.invoke('TRANSLATE_TEXT', { text, sourceLang: 'en', targetLang: 'es' });
+      if (res && res.translated && res.engine !== 'none') return res.translated.trim();
+    } catch { /* sin nube: el traductor local */ }
+    try {
+      const res = await ipcRenderer.invoke('LOCAL_AI_TRANSLATE', { text, source: 'en', target: 'es' });
+      return res && res.translated ? String(res.translated).trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** Un trozo de voz en inglés desde la app; el micrófono no escucha mientras suena (bloqueo de eco). */
+  function playEnglishChunk(chunk) {
+    return new Promise((resolve) => {
+      const audio = new Audio(`https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(chunk)}&tl=en&client=tw-ob`);
+      audio.volume = Math.max(0.1, Math.min(1, currentSpanishVolume));
+      trainingAudio = audio;
+      let limit = null;
+      const done = (ok) => {
+        clearTimeout(limit);
+        markAppSpeakingEnd(ok ? 450 : 0);
+        resolve(ok);
+      };
+      limit = setTimeout(() => done(false), 20000);
+      audio.onended = () => done(true);
+      audio.onerror = () => done(false);
+      markAppSpeakingStart();
+      audio.play().catch(() => done(false));
+    });
+  }
+
+  /** Sin voz en línea, la voz de Windows en inglés. */
+  function speakEnglishWithSystem(text) {
+    return new Promise((resolve) => {
+      if (!window.speechSynthesis) return resolve();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      const voice = window.speechSynthesis.getVoices().find((v) => v.lang && v.lang.toLowerCase().startsWith('en'));
+      if (voice) utterance.voice = voice;
+      utterance.onend = () => { markAppSpeakingEnd(450); resolve(); };
+      utterance.onerror = () => { markAppSpeakingEnd(0); resolve(); };
+      markAppSpeakingStart();
+      window.speechSynthesis.speak(utterance);
+    });
+  }
+
+  async function speakInterviewer(t, text, translated) {
+    if (t.setup.voice === 'none') return;
+    for (const chunk of ttsChunks(text)) {
+      if (training !== t || !t.active) return;
+      if (!(await playEnglishChunk(chunk))) {
+        await speakEnglishWithSystem(text);
+        break;
+      }
+    }
+    if (t.setup.voice === 'en-es' && training === t && t.active) {
+      const es = await translated;
+      if (es && training === t && t.active) await speakSpanishToUser(es, { inProcessOnly: true });
+    }
+  }
+
+  /** El entrevistador habla: pide su siguiente turno, lo muestra con la traducción y lo dice en voz alta. */
+  async function interviewerTurn(t) {
+    t.phase = 'thinking';
+    btnTrainingDone.disabled = true;
+    document.body.classList.remove('training-listening');
+    setTrainingState('El entrevistador piensa…');
+    const r = await ipcRenderer.invoke('TRAINING_NEXT', { setup: t.setup, history: t.history.map(({ role, text, original }) => ({ role, text, original })) });
+    if (training !== t || !t.active) return;
+    if (!r || !r.ok) {
+      abortTraining(`El entrevistador no pudo continuar: ${(r && r.error) || 'sin respuesta'}`);
+      return;
+    }
+    const entry = { role: 'interviewer', text: r.text, translated: '' };
+    t.history.push(entry);
+    if (!r.end) t.asked++;
+    trainingProgress.textContent = r.end ? 'Fin de la entrevista' : `Pregunta ${t.asked} de unas ${t.setup.questions}`;
+    trainingQuestionEn.textContent = r.text;
+    trainingQuestionEs.textContent = '…';
+    setTrainingAnswer('', '');
+    appendLog('PRÁCTICA', `Entrevistador: ${r.text}`);
+    const translated = translateForTraining(r.text).then((es) => {
+      entry.translated = es;
+      if (training === t) trainingQuestionEs.textContent = es;
+      return es;
+    });
+    t.phase = 'speaking';
+    setTrainingState('El entrevistador habla…');
+    await speakInterviewer(t, r.text, translated);
+    if (training !== t || !t.active) return;
+    if (r.end) {
+      await finishTraining(t);
+      return;
+    }
+    listenForAnswer(t);
+  }
+
+  function listenForAnswer(t) {
+    t.phase = 'listening';
+    t.answer.reset();
+    noteMicVoice();
+    setTrainingAnswer('', '');
+    btnTrainingDone.disabled = false;
+    document.body.classList.add('training-listening');
+    setTrainingState(t.setup.turn === 'pause'
+      ? 'Te escucha: responde en español. Al callarte 3 segundos, tu respuesta se envía.'
+      : 'Te escucha: responde en español y pulsa «Terminé mi respuesta».');
+    clearInterval(t.timer);
+    t.timer = setInterval(() => {
+      if (training !== t || t.phase !== 'listening') {
+        clearInterval(t.timer);
+        return;
+      }
+      const a = t.answer.get();
+      if (answerReady({ mode: t.setup.turn, now: Date.now(), lastVoiceAt: lastMicVoiceAt, lastLineAt: a.lastAt, count: a.count })) submitAnswer(t);
+    }, 250);
+  }
+
+  /** Tus frases llegan aquí desde showLine: nuevas, o mejoradas por la nube si ya eran de esta respuesta. */
+  function trainingOnLine({ lineId, replace, original, translated }) {
+    const t = training;
+    if (!t || !t.active || t.phase !== 'listening') return;
+    if (replace && !t.answer.has(lineId)) return;
+    t.answer.add({ lineId, original, translated });
+    const a = t.answer.get();
+    setTrainingAnswer(a.spanish, a.english);
+  }
+
+  async function submitAnswer(t, { manual = false } = {}) {
+    if (training !== t || t.phase !== 'listening') return;
+    t.phase = 'sending';
+    clearInterval(t.timer);
+    btnTrainingDone.disabled = true;
+    // Al pulsar «Terminé» justo al acabar de hablar, la última frase aún se está transcribiendo: se espera un poco
+    const deadline = Date.now() + (manual ? 4000 : 1500);
+    while (Date.now() < deadline && (Date.now() - lastMicVoiceAt < 900 || Date.now() - t.answer.get().lastAt < 1200)) await sleep(200);
+    if (training !== t || !t.active) return;
+    const a = t.answer.get();
+    if (!a.count || !a.english) {
+      setTrainingState('No te he oído todavía: responde en español.');
+      listenForAnswer(t);
+      return;
+    }
+    t.history.push({ role: 'candidate', text: a.english, original: a.spanish });
+    appendLog('PRÁCTICA', `Tu respuesta llegó así: ${a.english}`);
+    await interviewerTurn(t);
+  }
+
+  async function finishTraining(t) {
+    t.phase = 'evaluating';
+    clearInterval(t.timer);
+    btnTrainingDone.disabled = true;
+    document.body.classList.remove('training-listening');
+    if (isPipelineRunning) stopTranslationPipeline();
+    if (!t.history.some((h) => h.role === 'candidate')) {
+      abortTraining();
+      return;
+    }
+    setTrainingState('El entrevistador prepara tu evaluación…');
+    const r = await ipcRenderer.invoke('TRAINING_EVALUATE', { setup: t.setup, history: t.history.map(({ role, text, original }) => ({ role, text, original })) });
+    if (training !== t) return;
+    t.active = false;
+    if (!r || !r.ok) {
+      abortTraining(`No se pudo obtener la evaluación: ${(r && r.error) || 'sin respuesta'}`);
+      return;
+    }
+    t.evaluation = r.evaluation;
+    renderTrainingResult(t);
+    showTrainingPanel('result');
+  }
+
+  function bilingualItem(item) {
+    const li = document.createElement('li');
+    li.textContent = item.es;
+    if (item.en && item.en !== item.es) {
+      const en = document.createElement('small');
+      en.textContent = item.en;
+      li.append(en);
+    }
+    return li;
+  }
+
+  function renderTrainingResult(t) {
+    const e = t.evaluation;
+    document.getElementById('training-score').textContent = formatScore(e.overall);
+    const rec = document.getElementById('training-recommendation');
+    rec.textContent = RECOMMENDATION_ES[e.recommendation] || e.recommendation;
+    rec.dataset.rec = e.recommendation;
+    document.getElementById('training-verdict').textContent = e.verdict.es;
+    const cats = document.getElementById('training-categories');
+    cats.replaceChildren(...e.categories.map((c) => {
+      const li = document.createElement('li');
+      const head = document.createElement('div');
+      head.className = 'training-category-head';
+      const name = document.createElement('span');
+      name.textContent = c.name.es;
+      const score = document.createElement('span');
+      score.textContent = formatScore(c.score);
+      head.append(name, score);
+      const bar = document.createElement('div');
+      bar.className = 'training-category-bar';
+      const fill = document.createElement('i');
+      fill.style.width = `${c.score * 10}%`;
+      bar.append(fill);
+      const note = document.createElement('small');
+      note.textContent = c.note.es;
+      li.append(head, bar, note);
+      return li;
+    }));
+    for (const [id, items, empty] of [
+      ['training-strengths', e.strengths, 'Nada destacado.'],
+      ['training-improvements', e.improvements, 'Nada que mejorar.'],
+      ['training-translation', e.translationIssues, 'La traducción no estropeó ninguna respuesta.']
+    ]) {
+      const ul = document.getElementById(id);
+      ul.replaceChildren(...(items.length ? items.map(bilingualItem) : [bilingualItem({ es: empty, en: '' })]));
+    }
+    const transcript = document.getElementById('training-transcript');
+    transcript.replaceChildren(...t.history.map((h) => {
+      const p = document.createElement('p');
+      const who = document.createElement('b');
+      who.textContent = h.role === 'interviewer' ? 'Entrevistador: ' : 'Tú: ';
+      const main = document.createTextNode(h.role === 'interviewer' ? h.text : (h.original || ''));
+      const sub = document.createElement('small');
+      sub.textContent = h.role === 'interviewer' ? (h.translated || '') : `Lo que recibió: ${h.text}`;
+      sub.style.display = 'block';
+      sub.style.color = 'var(--faint)';
+      p.append(who, main, sub);
+      return p;
+    }));
+  }
+
+  async function startTraining() {
+    const setup = {
+      role: trainingRole.value.trim() || 'Senior SharePoint Online Developer',
+      questions: Number(trainingLength.value) || 8,
+      voice: trainingVoice.value,
+      turn: trainingTurn.value
+    };
+    localStorage.setItem(TRAINING_PREFS, JSON.stringify(setup));
+    const t = { active: true, setup, history: [], answer: createAnswerCollector(), phase: 'starting', timer: null, asked: 0 };
+    training = t;
+    showTrainingPanel('live');
+    trainingProgress.textContent = 'Empezando';
+    trainingQuestionEn.textContent = '';
+    trainingQuestionEs.textContent = '';
+    setTrainingAnswer('', '');
+    setTrainingState('Preparando tu micrófono y el reconocimiento de voz…');
+    appendLog('PRÁCTICA', `Entrevista de práctica: ${setup.role}, unas ${setup.questions} preguntas.`);
+    startProblem = null;
+    await startTranslationPipeline({ micOnly: true });
+    if (training !== t || !t.active) return;
+    if (!isPipelineRunning) {
+      abortTraining(startProblem || 'No se pudo iniciar el micrófono.');
+      return;
+    }
+    await interviewerTurn(t);
+  }
+
+  btnOpenTraining.addEventListener('click', openTraining);
+  btnCloseTraining.addEventListener('click', closeTraining);
+  btnTrainingStart.addEventListener('click', () => { startTraining(); });
+  btnTrainingDone.addEventListener('click', () => { if (training) submitAnswer(training, { manual: true }); });
+  btnTrainingStop.addEventListener('click', () => {
+    const t = training;
+    if (!t || !t.active) return;
+    endTrainingAudio();
+    const a = t.answer.get();
+    if (t.phase === 'listening' && a.count && a.english) t.history.push({ role: 'candidate', text: a.english, original: a.spanish });
+    finishTraining(t);
+  });
+  btnTrainingAgain.addEventListener('click', () => {
+    training = null;
+    renderTrainingNotice();
+    showTrainingPanel('setup');
+  });
+  btnTrainingSave.addEventListener('click', async () => {
+    if (!training || !training.evaluation) return;
+    const content = formatReport({ setup: training.setup, history: training.history, evaluation: training.evaluation });
+    try {
+      const res = await ipcRenderer.invoke('EXPORT_SESSION_REPORT', { content, format: 'txt' });
+      if (res && res.success) btnTrainingSave.textContent = 'Guardado';
+      else if (res && !res.canceled) { navigator.clipboard.writeText(content); btnTrainingSave.textContent = 'Copiado'; }
+    } catch {
+      navigator.clipboard.writeText(content);
+      btnTrainingSave.textContent = 'Copiado';
+    }
+    setTimeout(() => { btnTrainingSave.textContent = 'Guardar el informe'; }, 2500);
+  });
+  trainingNoticeAction.addEventListener('click', () => {
+    viewTraining.hidden = true;
+    openSettings('settings-engine');
+  });
 
   // ── Cargar Preferencias Iniciales ─────────────────────────────────
   appendLog('CONFIG', 'Iniciando sistema y cargando configuración...');
@@ -1431,8 +1907,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // ── Controlador Unificado de Sesión de Traducción ─────────────────
-  async function startTranslationPipeline() {
+  // micOnly: solo tu micrófono, sin el audio de la reunión (practicar una entrevista)
+  async function startTranslationPipeline({ micOnly = false } = {}) {
     const session = ++pipelineSession;
+    speakerNames.reset(); // otra reunión: las voces vuelven a ser Persona 1, 2…
     isPipelineRunning = true;
     previewBox.style.display = 'flex';
     previewOrig.textContent = 'Escuchando…';
@@ -1453,7 +1931,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       await startUnifiedAudioPipeline('gemini_35_transcribe', geminiKey);
       if (groqKey && groqKey.length > 5) {
-        await startIncomingAudioPipeline(groqKey);
+        if (!micOnly) await startIncomingAudioPipeline(groqKey);
       }
     } else if (engine === 'gemini_live') {
       if (!geminiKey || geminiKey.length < 5) {
@@ -1463,7 +1941,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       await startUnifiedAudioPipeline('gemini_live', geminiKey);
       if (groqKey && groqKey.length > 5) {
-        await startIncomingAudioPipeline(groqKey);
+        if (!micOnly) await startIncomingAudioPipeline(groqKey);
       }
     } else if (engine === 'whisper_groq') {
       if (!groqKey || groqKey.length < 5) {
@@ -1472,7 +1950,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       await startUnifiedAudioPipeline('whisper_groq', groqKey);
-      await startIncomingAudioPipeline(groqKey);
+      if (!micOnly) await startIncomingAudioPipeline(groqKey);
     } else if (engine === 'local') {
       localPair = resolvePair(sourceLangSelect.value, targetLangSelect.value);
       if (!localPair) {
@@ -1496,7 +1974,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       refreshLocalAiStatus();
       slowDetector.reset();
       await startUnifiedAudioPipeline('local', null);
-      await startIncomingAudioPipeline(null, 'local');
+      if (!micOnly) await startIncomingAudioPipeline(null, 'local');
     }
   }
 
@@ -1665,8 +2143,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const MAX_CONVERSATION_ROWS = 200;
 
   /** Añade la frase al historial y la pinta al final de la lista, sin mover la vista si el usuario está releyendo arriba. */
-  function recordConversation({ direction, from, to, original, translated }) {
-    const entry = conversationLog.add({ direction, from, to, original, translated });
+  function recordConversation({ direction, from, to, original, translated, speaker = null }) {
+    const voice = direction === 'incoming' && speaker !== null ? { speakerId: speaker, speaker: speakerNames.label(speaker) } : {};
+    const entry = conversationLog.add({ direction, from, to, original, translated, ...voice });
     if (!entry || !conversationLogEl) return null;
     if (conversationEmptyEl) conversationEmptyEl.remove();
 
@@ -1678,6 +2157,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const who = document.createElement('span');
     who.className = 'conv-who';
     who.textContent = entry.speaker;
+    if (voice.speakerId !== undefined) {
+      // Cada voz de la reunión con su color; un clic en el nombre lo cambia en todas sus frases
+      who.dataset.speaker = String(voice.speakerId);
+      who.classList.add(`spk-${((voice.speakerId - 1) % 6) + 1}`);
+      who.setAttribute('role', 'button');
+      who.tabIndex = 0;
+      who.title = 'Cambiar el nombre';
+    }
     const when = document.createElement('span');
     when.textContent = entry.time;
     meta.append(who, when);
@@ -1715,7 +2202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /** Muestra una línea nueva o reescribe la de `lineId` (subtítulo flotante e historial). */
-  function showLine({ lineId, replace, grows = false, direction, subtitleDirection, from, to, original, translated, prefix = '', hints = null }) {
+  function showLine({ lineId, replace, grows = false, direction, subtitleDirection, from, to, original, translated, prefix = '', hints = null, speaker = null }) {
     const known = lineId !== null && lineId !== undefined ? shownLines.get(lineId) : null;
     if (replace && known) {
       known.source = original;
@@ -1724,12 +2211,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       known.originalEl.textContent = original || '…';
       known.translatedEl.textContent = translated;
     } else {
-      const shown = recordConversation({ direction, from, to, original, translated });
+      const shown = recordConversation({ direction, from, to, original, translated, speaker });
       if (shown && lineId !== null && lineId !== undefined) {
-        shownLines.set(lineId, { n: shown.entry.n, originalEl: shown.originalEl, translatedEl: shown.translatedEl, source: original, direction: subtitleDirection, prefix, hints: hints || [] });
+        shownLines.set(lineId, { n: shown.entry.n, originalEl: shown.originalEl, translatedEl: shown.translatedEl, source: original, direction: subtitleDirection, prefix, hints: hints || [], speaker });
         while (shownLines.size > MAX_SHOWN_LINES) shownLines.delete(shownLines.keys().next().value);
       }
     }
+    // En la práctica, tus frases (y sus mejoras) forman la respuesta que recibe el entrevistador
+    if (direction === 'outgoing') trainingOnLine({ lineId, replace: !!(replace && known), original, translated });
     ipcRenderer.send('DISPLAY_SUBTITLE', {
       originalText: original ? `${prefix}${original}` : '',
       translatedText: translated,
@@ -1737,7 +2226,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       isFinal: true,
       lineId,
       replace: !!(replace && known),
-      grows: !!(grows && known)
+      grows: !!(grows && known),
+      // Quién habla en la reunión, si se sabe: los subtítulos lo muestran en vez de «Reunión»
+      speakerLabel: (() => { const id = known && known.speaker !== undefined && known.speaker !== null ? known.speaker : speaker; return id !== null && id !== undefined ? speakerNames.label(id) : null; })()
     });
   }
 
@@ -1841,7 +2332,7 @@ document.addEventListener('DOMContentLoaded', async () => {
    * Qué mostrar de una frase ya traducida: la línea (la frase entera si este trozo continúa otra) y, si hay red,
    * la mejora de la nube. Devuelve la promesa de la nube para que la voz pueda esperarla.
    */
-  function presentLine({ stream, segmentId, line, translation, pair, subtitleDirection, from, to, prefix, silent, hints = [] }) {
+  function presentLine({ stream, segmentId, line, translation, pair, subtitleDirection, from, to, prefix, silent, hints = [], speaker = null }) {
     const translatedText = translation.translated.trim();
     // Un trozo que continúa una frase reescribe su línea, si el motor tradujo la frase entera
     const joined = !!(line && line.translated);
@@ -1851,7 +2342,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Pistas de términos mal oídos («café» por Kafka) de todos los trozos de la frase
     const earlier = joined && shownLines.has(lineId) ? (shownLines.get(lineId).hints || []) : [];
     const lineHints = [...earlier, ...hints.filter((h) => !earlier.some((e) => e.heard === h.heard))];
-    showLine({ lineId, replace: joined, grows: joined, direction: stream === 'mic' ? 'outgoing' : 'incoming', subtitleDirection, from, to, original: lineSource, translated: lineTranslated, prefix, hints: lineHints });
+    showLine({ lineId, replace: joined, grows: joined, direction: stream === 'mic' ? 'outgoing' : 'incoming', subtitleDirection, from, to, original: lineSource, translated: lineTranslated, prefix, hints: lineHints, speaker });
     previewTrans.textContent = `${lineTranslated}`;
 
     // Traducción local con red: la nube mejora la línea (subtítulo) y, si llega a tiempo, la voz
@@ -1894,6 +2385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     if (silent) return; // frase cerrada al detener: solo subtítulo
+    if (training && training.active) return; // en la práctica no hay reunión: tu traducción no se dice en voz alta
     speakOrSkip(
       async () => {
         // La voz dice este trozo: la mejora de la nube si llega a tiempo (solo si el trozo es la línea entera)
@@ -1907,7 +2399,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     );
   }
 
-  async function deliverIncoming({ text, sttElapsed, voiceDurationMs, speechStartTime, segmentId = null, silent = false, preTranslated = null, line = null, hints = [] }) {
+  async function deliverIncoming({ text, sttElapsed, voiceDurationMs, speechStartTime, segmentId = null, silent = false, preTranslated = null, line = null, hints = [], speaker = null }) {
     const transStart = Date.now();
     const translation = preTranslated
       ? { original: text, translated: preTranslated.text, detectedLang: 'en', targetLang: 'es', elapsedMs: preTranslated.ms, engine: 'local' }
@@ -1937,10 +2429,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     appendLog('RECEPTOR', `✨ Traducido a Español en ${transElapsed}ms [${translation.engine || 'nube'}]: "${translatedText}"`, 'translate');
-    previewOrig.textContent = `Reunión: ${(line && line.translated ? line.text : text) || '…'}`;
+    // Quien se presenta («I'm Sarah Mitchell») pone nombre a su voz, salvo que ya la hayas renombrado
+    if (speaker !== null) speakerNames.suggest(speaker, nameFromIntroduction(text));
+    const who = speaker !== null ? speakerNames.label(speaker) : 'Reunión';
+    previewOrig.textContent = `${who}: ${(line && line.translated ? line.text : text) || '…'}`;
     const { joined, refine } = presentLine({
       stream: 'incoming', segmentId, line, translation, pair: { source: 'en', target: 'es' },
-      subtitleDirection: 'incoming', from: 'en', to: 'es', prefix: 'Receptor: ', silent, hints
+      subtitleDirection: 'incoming', from: 'en', to: 'es', prefix: '', silent, hints, speaker
     });
 
     // Por defecto la reunión va solo con subtítulos: sin voz no hay pausas al escuchar ni frases perdidas
@@ -1993,6 +2488,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (msg.type === 'vad') {
       if (msg.stream === 'incoming') ipcRenderer.send('DISPLAY_SPEECH_STATE', { speaking: msg.speaking });
+      if (msg.stream === 'mic') noteMicVoice(); // empezar o dejar de hablar: la práctica cuenta el silencio desde aquí
       return;
     }
 
@@ -2002,7 +2498,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (msg.translated) {
         if (msg.heard) previewOrig.textContent = `Reunión: ${msg.heard} …`;
         previewTrans.textContent = `${msg.text} …`;
-        ipcRenderer.send('DISPLAY_SUBTITLE', { originalText: msg.heard ? `Receptor: ${msg.heard}` : '', translatedText: msg.text, direction: 'incoming', isFinal: false });
+        ipcRenderer.send('DISPLAY_SUBTITLE', { originalText: msg.heard || '', translatedText: msg.text, direction: 'incoming', isFinal: false });
       } else {
         previewOrig.textContent = `Reunión: ${msg.text} …`;
       }
@@ -2032,7 +2528,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         appendLog('RECEPTOR', `Inglés (Motor local) en ${msg.sttMs}ms: "${msg.text}"`, 'audio');
         outputQueue.push(() => deliverIncoming({
           text: msg.text, sttElapsed: msg.sttMs, voiceDurationMs: msg.durationMs,
-          speechStartTime: startedAt, segmentId: msg.id, silent, preTranslated, line, hints
+          speechStartTime: startedAt, segmentId: msg.id, silent, preTranslated, line, hints,
+          speaker: msg.speaker !== undefined && msg.speaker !== null ? msg.speaker : null
         }));
       }
     }
@@ -2482,6 +2979,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           }
           speechHoldFrames = 3; // 3 frames (~384ms) de retención para corte rápido
           continuousSpeechFrames++;
+          noteMicVoice();
 
           if (vadBadge) {
             vadBadge.className = 'vad-badge speaking';

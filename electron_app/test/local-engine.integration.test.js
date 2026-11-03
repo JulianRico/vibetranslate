@@ -162,13 +162,20 @@ for (const [id, lang, target, fraction, key] of [['en4', 'en', 'es', 0.3, 'keywo
     const phrase = phrases[lang].find((p) => p.id === id);
     const segments = hear(splitAt(audio(id), fraction), lang, `split-${id}`, target);
     console.log(segments.map((s) => `  [${s.gapMs ?? '-'} ms] "${s.text}" → "${s.translated}"${s.join ? ` | frase: "${s.join.text}" → "${s.join.translated}"` : ''}`).join('\n'));
-    assert.equal(segments.length, 2, 'el detector de voz la corta en dos');
-    assert.ok(segments[1].join, 'el segundo trozo continúa la frase');
-    assert.equal(segments[1].join.lineId, segments[0].id);
+    // El detector también corta en las pausas naturales (la coma de «Buenos días a todos, …»): puede haber más de
+    // dos trozos, pero el que sigue a la pausa insertada continúa su frase y la frase llega entera
+    assert.ok(segments.length >= 2, 'el detector de voz la corta en la pausa');
+    const last = segments[segments.length - 1];
+    const before = segments[segments.length - 2];
+    assert.ok(last.join, 'el trozo tras la pausa continúa la frase');
+    assert.equal(last.join.lineId, before.id);
     // el detector cuenta el margen previo de cada frase: mide algo menos que los 500 ms de silencio insertados
-    assert.ok(segments[1].gapMs > 100 && segments[1].gapMs <= 500, `pausa medida ${segments[1].gapMs} ms`);
-    assert.ok(wordErrorRate(phrase.text, segments[1].join.text) <= 0.2, segments[1].join.text);
-    assert.ok(hasKeywords(segments[1].join.translated, phrase[key]), segments[1].join.translated);
+    assert.ok(last.gapMs > 100 && last.gapMs <= 500, `pausa medida ${last.gapMs} ms`);
+    const lines = [...segments.slice(0, -2).filter((sg) => !sg.join).map((sg) => sg), { text: last.join.text, translated: last.join.translated }];
+    const heard = lines.map((l) => l.text).join(' ');
+    assert.ok(wordErrorRate(phrase.text, heard) <= 0.2, heard);
+    const said = lines.map((l) => l.translated).join(' ');
+    assert.ok(hasKeywords(said, phrase[key]), said);
   });
 }
 

@@ -212,17 +212,22 @@ kbd {
 /* ── Estado en directo ──────────────────────────────────────────── */
 
 .live-status {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 8px;
   font-size: 13px;
   font-weight: 600;
   color: var(--live);
-  visibility: hidden;
 }
 
 body.is-live .live-status {
-  visibility: visible;
+  display: flex;
+}
+
+/* Lo que solo tiene sentido sin una reunión en curso (practicar una entrevista) */
+body.is-live .idle-only,
+body.pip-mode .idle-only {
+  display: none;
 }
 
 .status-dot {
@@ -619,6 +624,37 @@ body:not(.is-live) .now-line {
   color: var(--accent);
 }
 
+/* Cada voz de la reunión con su color; el nombre se puede cambiar con un clic */
+.conv-who[data-speaker] {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.conv-who[data-speaker]:hover {
+  text-decoration: underline;
+}
+
+.spk-1 { color: #2563a8; }
+.spk-2 { color: #1b7f4b; }
+.spk-3 { color: #b0510f; }
+.spk-4 { color: #7a3fb0; }
+.spk-5 { color: #0f7f86; }
+.spk-6 { color: #b02a63; }
+
+body.dark-theme .spk-1 { color: #7fb6f0; }
+body.dark-theme .spk-2 { color: #72d39b; }
+body.dark-theme .spk-3 { color: #f2a56b; }
+body.dark-theme .spk-4 { color: #c39af0; }
+body.dark-theme .spk-5 { color: #6fd3da; }
+body.dark-theme .spk-6 { color: #f08fb7; }
+
+.conv-who-edit {
+  width: 12em;
+  min-height: 22px;
+  padding: 1px 6px;
+  font-size: 12px;
+}
+
 .conv-translated {
   font-size: 14px;
   color: var(--ink);
@@ -631,7 +667,8 @@ body:not(.is-live) .now-line {
 
 /* ── Ajustes ────────────────────────────────────────────────────── */
 
-.view-settings .topbar {
+.view-settings .topbar,
+.view-training .topbar {
   justify-content: flex-start;
   padding-left: 10px;
   border-bottom: 1px solid var(--line);
@@ -967,6 +1004,196 @@ input[type="checkbox"]:not(.toggle) {
 
 .log-entry.warn {
   color: var(--warn-ink);
+}
+
+/* ── Practicar una entrevista ───────────────────────────────────── */
+
+.training-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.training-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px var(--pad) 28px;
+}
+
+.training-intro {
+  color: var(--muted);
+}
+
+.btn-wide {
+  width: 100%;
+  min-height: 40px;
+  font-size: 14px;
+}
+
+.training-progress {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.training-progress > span:first-child {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.training-state {
+  text-align: right;
+}
+
+.training-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.training-who {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.training-who span {
+  font-weight: 400;
+}
+
+.training-en {
+  font-family: var(--font-display);
+  font-size: 18px;
+  line-height: 1.35;
+}
+
+.training-es,
+.training-en-sub {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.training-es-main {
+  font-size: 15px;
+}
+
+.training-es-main:empty::before {
+  content: "…";
+  color: var(--faint);
+}
+
+/* Mientras te escucha, la tarjeta de tu respuesta se marca */
+body.training-listening .training-answer {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.training-score {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.training-score-value {
+  font-family: var(--font-display);
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.training-score-max {
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.training-recommendation {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: var(--subtle);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.training-recommendation[data-rec="hire"] {
+  color: var(--ok);
+}
+
+.training-recommendation[data-rec="no hire"] {
+  color: var(--error-ink);
+}
+
+.training-verdict {
+  font-size: 15px;
+}
+
+.training-categories {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.training-category-head {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.training-category-bar {
+  height: 6px;
+  margin: 4px 0;
+  border-radius: 3px;
+  background: var(--subtle);
+  overflow: hidden;
+}
+
+.training-category-bar i {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.training-block h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.training-block ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.training-block small,
+.training-categories small {
+  display: block;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.training-transcript p {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+
+.training-transcript b {
+  font-weight: 600;
 }
 
 /* ── Botones ────────────────────────────────────────────────────── */

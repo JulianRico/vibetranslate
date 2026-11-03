@@ -1,0 +1,199 @@
+---
+---
+<section id="comparison" class="section-editorial">
+  <div class="container">
+    <div class="section-header-editorial text-center">
+      <div class="section-label" data-i18n="comp-label">Resultados</div>
+      <h2>
+        <span data-i18n="comp-title-a">Velocidad y calidad,</span>
+        <span style="font-weight: 400;" data-i18n="comp-title-b">medidas con frases reales de trabajo.</span>
+      </h2>
+      <p class="comp-subtitle" data-i18n="comp-subtitle">
+        Son pruebas nuestras, no de terceros. Cada cifra dice exactamente qué medimos.
+      </p>
+    </div>
+
+    <!-- Three measured results, one sentence each -->
+    <div class="proof-grid">
+      <div class="card-taupe proof-card">
+        <div class="proof-value">45 ms</div>
+        <h3 class="proof-title" data-i18n="pr-1-title">Subtítulo en inglés, en tu PC</h3>
+        <p class="proof-desc" data-i18n="pr-1-desc">Tiempo que pasa desde que hablas hasta que aparece el subtítulo en inglés, con el motor local.</p>
+      </div>
+      <div class="card-taupe proof-card">
+        <div class="proof-value">75.8</div>
+        <h3 class="proof-title" data-i18n="pr-2-title">Calidad de la traducción local</h3>
+        <p class="proof-desc" data-i18n="pr-2-desc">En 61 frases reales de trabajo (chrF): nube 78.1, local 75.8 y Google 74.9. La diferencia es pequeña.</p>
+      </div>
+      <div class="card-taupe proof-card">
+        <div class="proof-value">Microsoft 365</div>
+        <h3 class="proof-title" data-i18n="pr-3-title">Menos errores con vocabulario de Microsoft 365</h3>
+        <p class="proof-desc" data-i18n="pr-3-desc">Errores de palabra en 18 entrevistas grabadas, con el diccionario técnico activo.</p>
+      </div>
+    </div>
+
+    <p class="comp-note" data-i18n="cmp-note">
+      Las diferencias de calidad son pequeñas. Por eso el subtítulo sale del motor local, y la nube solo mejora la frase poco después.
+    </p>
+
+    <!-- Measured chart (same numbers as the cards) -->
+    <figure class="comp-figure">
+      <img src="/images/02-grafico-latencia-calidad-1200x675.png" width="1200" height="675" loading="lazy" alt="Gráfico de barras: tiempo hasta el subtítulo y calidad del motor local, de Google y del modelo en la nube" data-i18n-alt="cmp-fig-alt" />
+      <figcaption data-i18n="cmp-fig-cap">Nuestras pruebas con 61 frases reales de trabajo. A la izquierda, tiempo hasta el subtítulo (menor es mejor). A la derecha, calidad chrF (mayor es mejor).</figcaption>
+    </figure>
+  </div>
+  <hr class="hairline-divider" style="margin-top: var(--spacing-96);" />
+</section>
+
+<style>
+  .comparison-table-card {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .table-responsive-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    min-width: 680px;
+  }
+
+  .comparison-table th,
+  .comparison-table td {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--color-stone);
+    font-size: 14px;
+  }
+
+  .comparison-table thead th {
+    background-color: var(--color-warm-taupe);
+    color: var(--color-ink);
+    font-family: var(--font-body);
+    font-weight: 600;
+  }
+
+  .th-feature {
+    width: 32%;
+  }
+
+  .th-vibe {
+    width: 24%;
+    background-color: rgba(0, 0, 0, 0.04) !important;
+  }
+
+  .vibe-brand-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .vibe-badge-top {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    color: #ffffff;
+    background-color: var(--color-ink);
+    padding: 2px 6px;
+    border-radius: var(--radius-pill);
+    width: fit-content;
+  }
+
+  .td-feature {
+    font-weight: 500;
+    color: var(--color-ink);
+  }
+
+  .highlight-col {
+    background-color: rgba(255, 255, 255, 0.5);
+    font-weight: 500;
+  }
+
+  .status-cell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    line-height: 1.4;
+  }
+
+  .icon-check {
+    color: var(--color-ink);
+    flex-shrink: 0;
+  }
+
+  .icon-cross {
+    color: var(--color-ash);
+    flex-shrink: 0;
+  }
+
+  .comp-note {
+    margin: var(--spacing-32) auto 0 auto;
+    max-width: 780px;
+    text-align: center;
+    font-size: 16px;
+    line-height: var(--leading-body);
+    color: var(--color-smoke);
+  }
+  .comp-figure {
+    margin: var(--spacing-48) auto 0 auto;
+    max-width: 900px;
+  }
+  .comp-figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 18px;
+    border: 1px solid var(--color-stone);
+  }
+  .comp-figure figcaption {
+    margin-top: 12px;
+    font-size: 14px;
+    line-height: var(--leading-body);
+    color: var(--color-smoke);
+    text-align: center;
+  }
+
+  .proof-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-bottom: var(--spacing-48);
+  }
+
+  @media (max-width: 980px) {
+    .proof-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .proof-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: var(--spacing-32);
+  }
+
+  .proof-value {
+    font-family: var(--font-serif);
+    font-size: 44px;
+    line-height: 1.05;
+    color: var(--color-ink);
+    letter-spacing: -0.02em;
+  }
+
+  .proof-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+
+  .proof-desc {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--color-smoke);
+  }
+</style>

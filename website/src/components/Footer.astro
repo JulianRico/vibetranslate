@@ -1,0 +1,117 @@
+---
+import { t } from '../i18n';
+---
+
+<footer class="footer-editorial">
+  <div class="container">
+    <div class="footer-row">
+      
+      <div class="footer-brand">
+        <span class="wordmark-footer">ViBeTranslate Pro</span>
+        <span class="footer-desc" data-i18n="footer-desc">{t("footer-desc")}</span>
+      </div>
+
+      <div class="footer-links-row">
+        <a href="#story" class="footer-link" data-i18n="nav-problem">{t("nav-problem")}</a>
+        <a href="#casos" class="footer-link" data-i18n="nav-uses">{t("nav-uses")}</a>
+        <a href="#how-it-works" class="footer-link" data-i18n="nav-how">{t("nav-how")}</a>
+        <a href="#demo" class="footer-link" data-i18n="nav-comp">{t("nav-comp")}</a>
+        <a href="#pricing" class="footer-link" data-i18n="nav-pricing">{t("nav-pricing")}</a>
+        <a href="https://tikal.com.co" target="_blank" rel="noopener noreferrer" class="footer-link tikal-link">Tikal Solutions</a>
+      </div>
+
+    </div>
+
+    <div class="footer-sub-row">
+      <div class="copyright-block">
+        <span class="copyright">© 2026 ViBeTranslate Pro. <span data-i18n="footer-made-by">{t("footer-made-by")}</span> <a href="https://tikal.com.co" target="_blank" rel="noopener noreferrer" class="tikal-brand-link">Tikal Solutions (tikal.com.co)</a>.</span>
+      </div>
+      <div class="footer-tags">
+        <span class="mono-tag" data-i18n="tag-ai-trans">{t("tag-ai-trans")}</span>
+        <span class="mono-tag" data-i18n="tag-virt-mic">{t("tag-virt-mic")}</span>
+        <span class="mono-tag">Windows 10 / 11</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer-editorial {
+    padding: var(--spacing-64) 0 var(--spacing-48) 0;
+    background-color: var(--color-eggshell);
+  }
+
+  .footer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: var(--spacing-32);
+    border-bottom: 1px solid var(--color-stone);
+  }
+
+  .footer-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .wordmark-footer {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--color-ink);
+  }
+
+  .footer-desc {
+    font-size: 13.5px;
+    color: var(--color-smoke);
+  }
+
+  .footer-links-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .footer-link {
+    font-size: 13.5px;
+    color: var(--color-smoke);
+    transition: color 0.2s ease;
+  }
+
+  .footer-link:hover {
+    color: var(--color-ink);
+  }
+
+  .tikal-link {
+    font-weight: 500;
+    color: var(--color-ink);
+  }
+
+  .footer-sub-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding-top: var(--spacing-28);
+  }
+
+  .copyright {
+    font-size: 13px;
+    color: var(--color-smoke);
+  }
+
+  .tikal-brand-link {
+    color: var(--color-ink);
+    font-weight: 600;
+  }
+
+  .footer-tags {
+    display: flex;
+    gap: 8px;
+  }
+</style>

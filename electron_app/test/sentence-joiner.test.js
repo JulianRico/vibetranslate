@@ -104,3 +104,16 @@ test('tras un punto, la minúscula solo une si la pausa es corta; una frase sin 
   j.add({ stream: 'mic', id: 5, lang: 'es', text: 'que hay implementamos el celerio para', gapMs: null });
   assert.equal(j.add({ stream: 'mic', id: 6, lang: 'es', text: 'para evitar es que', gapMs: 1100 }).joined, true);
 });
+
+test('dos personas distintas nunca se unen en una línea, aunque la frase anterior no estuviera cerrada', () => {
+  const joiner = createSentenceJoiner();
+  joiner.add({ stream: 'incoming', id: 1, lang: 'en', text: 'Solid approach, and a queue as the fallback,', gapMs: null, speaker: 2 });
+  const other = joiner.add({ stream: 'incoming', id: 2, lang: 'en', text: 'thank you, Andrea, those were clear answers.', gapMs: 300, speaker: 1 });
+  assert.equal(other.joined, false);
+  const same = joiner.add({ stream: 'incoming', id: 3, lang: 'en', text: 'and do you have any questions', gapMs: 300, speaker: 1 });
+  assert.equal(same.joined, true); // la misma persona sigue en minúscula con pausa corta: misma frase
+  // sin saber quién habla (motores en la nube o sin huella), todo sigue como antes
+  const unknown = createSentenceJoiner();
+  unknown.add({ stream: 'incoming', id: 1, lang: 'en', text: 'and a queue as the fallback,', gapMs: null });
+  assert.equal(unknown.add({ stream: 'incoming', id: 2, lang: 'en', text: 'thank you, Andrea.', gapMs: 300 }).joined, true);
+});

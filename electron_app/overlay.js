@@ -40,8 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
   ipcRenderer.on('DISPLAY_SUBTITLE', (event, payload) => {
     const { originalText, translatedText, direction } = payload;
 
-    // Quién habla, con las mismas palabras que la conversación de la ventana principal
-    const icon = direction === 'incoming' ? 'Reunión:' : 'Tú:';
+    // Quién habla, con las mismas palabras que la conversación de la ventana principal: el nombre de la voz si se sabe
+    const icon = payload.speakerLabel ? `${payload.speakerLabel}:` : (direction === 'incoming' ? 'Reunión:' : 'Tú:');
 
     // El texto oído puede llegar después de la traducción: solo se completa la línea superior
     if (payload.update) {

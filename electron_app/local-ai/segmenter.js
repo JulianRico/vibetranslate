@@ -13,6 +13,13 @@ const HISTORY = 16000 * 8; // cubre el segmento más largo (6 s) más su margen
 // palabra en 7 de 18 turnos sin perder ninguna, también con ruido rosa a 10 y 5 dB.
 const BURST_MAX_GAP = 16000 * 0.7;
 const BURST_MAX_LOOKBACK = 16000 * 1.5;
+// Silero no siempre cierra la frase en una pausa: tras varios segundos de voz, con un ruido de fondo tenue (-54 dBFS)
+// su probabilidad no baja de 0,35 y una pausa de 1 s entre dos personas («Sarah, over to you.» + «Thank you…»)
+// queda dentro del mismo segmento. Dentro de cada segmento se corta también donde el audio cae 20 dB por debajo de
+// la voz durante 350 ms, lo mismo que pide el detector, siempre que a cada lado quede al menos 0,6 s de audio.
+const QUIET_RATIO = 0.1;
+const MIN_QUIET = 16000 * 0.35;
+const MIN_PIECE = 16000 * 0.6;
 
 /** Traduce el selector de sensibilidad del micrófono (umbral RMS antiguo) al umbral de probabilidad de Silero. */
 function thresholdFromNoiseGate(value) {
@@ -24,7 +31,42 @@ function thresholdFromNoiseGate(value) {
   return 0.75;
 }
 
-function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
+/**
+ * Corta un segmento en sus pausas de verdad: tramos de al menos 350 ms donde el nivel cae 20 dB por debajo de la voz
+ * del propio segmento. Cada trozo conserva 100 ms de audio previo, como el primero.
+ */
+function splitAtQuiet(samples, start) {
+  const frames = Math.floor(samples.length / WINDOW);
+  if (frames < 2) return [{ samples, start }];
+  const rms = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) {
+    let e = 0;
+    for (let i = f * WINDOW; i < (f + 1) * WINDOW; i++) e += samples[i] * samples[i];
+    rms[f] = Math.sqrt(e / WINDOW);
+  }
+  const sorted = Float32Array.from(rms).sort();
+  const speechLevel = sorted[Math.floor(frames * 0.9)];
+  const pieces = [];
+  let pieceStart = 0;
+  let quietFrom = -1;
+  for (let f = 0; f <= frames; f++) {
+    const quiet = f < frames && rms[f] < speechLevel * QUIET_RATIO;
+    if (quiet && quietFrom < 0) quietFrom = f;
+    if (!quiet && quietFrom >= 0) {
+      const from = quietFrom * WINDOW;
+      const to = f * WINDOW;
+      if (f < frames && to - from >= MIN_QUIET && from - pieceStart >= MIN_PIECE && samples.length - to >= MIN_PIECE) {
+        pieces.push({ samples: samples.slice(pieceStart, from), start: start + pieceStart });
+        pieceStart = Math.max(from, to - PRE_ROLL);
+      }
+      quietFrom = -1;
+    }
+  }
+  pieces.push({ samples: samples.slice(pieceStart), start: start + pieceStart });
+  return pieces;
+}
+
+function createSegmenter({ sherpa, modelPath, threshold = 0.5, splitQuiet = false }) {
   const makeVad = (minSpeechDuration, minSilenceDuration) => new sherpa.Vad({
     sileroVad: {
       model: modelPath,
@@ -99,7 +141,9 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
       samples.set(speech, preRoll.length);
       previousEnd = front.start + speech.length;
       speechStart = null; // si se sigue hablando, la frase siguiente empieza donde terminó esta
-      segments.push({ samples, start: front.start - preRoll.length });
+      const start = front.start - preRoll.length;
+      if (splitQuiet) segments.push(...splitAtQuiet(samples, start));
+      else segments.push({ samples, start });
       vad.pop();
     }
     return segments;
@@ -140,4 +184,4 @@ function createSegmenter({ sherpa, modelPath, threshold = 0.5 }) {
   };
 }
 
-module.exports = { createSegmenter, thresholdFromNoiseGate };
+module.exports = { createSegmenter, thresholdFromNoiseGate, splitAtQuiet };

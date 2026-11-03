@@ -227,3 +227,44 @@ Medido repitiendo los 18 audios de la entrevista simulada (entrevistadora en ing
 - **Glosario antiguo:** las versiones anteriores guardaban una copia del glosario de fábrica en `settings.json` (con «real» → «React»); al cargar se descarta lo que coincide con esa copia. El vocabulario propio (nombres, siglas) se escribe en la interfaz: «cómo se oye = cómo se escribe».
 
 Lo que no arregla: palabras fundidas por el reconocedor («el lag volvió» → «lambolvió») y siglas deletreadas como «AWS» cuando el reconocedor pierde la primera letra.
+
+## 14. Quién habla en la reunión y práctica de entrevistas (2026-11-02)
+
+**Prueba de partida.** Una entrevista de panel con cuatro agentes: tres entrevistadores en inglés, con voces Kokoro distintas mezcladas en un solo canal de reunión, y una candidata en español. Todas las líneas de la reunión salían como «Reunión», y una juntó a dos personas: el «Sarah, over to you.» de Michael acabó dentro de la frase de Sarah.
+
+**Por qué se juntaban.** Era el detector de voz, no el arreglo de la primera palabra. Después de varios segundos de voz con un ruido de fondo tenue (−54 dBFS), Silero no baja de su umbral en una pausa de 1 s. Además, el corte forzado a los 4 s había abierto un segmento nuevo en mitad de la pausa de Michael.
+
+**Corte en pausas (`splitAtQuiet` en `segmenter.js`).**
+- **Regla:** dentro de un segmento se corta donde el nivel cae 20 dB por debajo de la voz del propio segmento durante al menos 350 ms. Cada lado debe quedar con al menos 0,6 s, y el trozo siguiente conserva 100 ms de margen.
+- **Solo en el flujo de la reunión.** En el micrófono habla una sola persona, y partir la frase en la pausa de la coma empeoraba la jerga del comienzo. La prueba «jerga técnica» falló 4 de 4 veces con el corte activo («rollback» → «el Y Back») y pasó 3 de 3 sin él.
+
+**Huella de voz (`speaker-embedder.js` + `speaker-tracker.js`).**
+- **Modelo:** NeMo TitaNet small (40 MB), en `model-store.js`.
+- **Asignación:** cada frase de la reunión va a la voz conocida más parecida si la similitud de coseno es al menos 0,6; si no, se crea una persona nueva, con un tope de 8.
+- **Frases cortas (menos de 1,5 s):** van a la voz conocida más parecida y nunca crean una persona. Así se acertó el 100 %; heredar la persona anterior daba el 96 %.
+- **Unidor de frases:** nunca une trozos de dos personas.
+
+| Modelo | Similitud misma persona (mínima) | Similitud personas distintas (máxima) | Acierto | CPU |
+|---|---|---|---|---|
+| TitaNet small | 0,655 | 0,509 | 100 % | ~0,1 s por frase |
+| 3D-Speaker ERes2Net | 0,50 | 0,47 | 100 % | 3–4 veces más lento |
+| wespeaker ResNet34 | — | hasta 0,89 | 68–71 % | descartado |
+
+**Resultado con el motor integrado.** Los 7 turnos del panel se procesaron como una sola reunión de 195 s:
+- se detectaron 3 personas, y cada una mantuvo su número de principio a fin;
+- 28 de 28 frases fueron atribuidas bien;
+- ninguna línea mezcló a dos personas.
+
+**Pendiente:** son voces sintéticas y muy distintas entre sí. Antes de confiar del todo hay que comprobarlo con una reunión real de al menos 3 personas, dos de ellas del mismo género y acento, y volver a calibrar el umbral.
+
+**En la interfaz.**
+- **Etiquetas:** cada voz aparece como «Persona N» con un color, en la conversación, en el recuadro flotante y en la exportación.
+- **Nombres:** quien se presenta («I'm Sarah Mitchell») pone nombre a su voz, y un clic en el nombre lo cambia en todas sus frases.
+- **Alcance:** solo funciona con el motor local; los motores en la nube no calculan huellas.
+
+**Práctica de entrevistas (`training-interviewer.js`, `training-session.js`).**
+- **El entrevistador:** gpt-oss-120b en Groq, con gpt-oss-20b de respaldo. Habla en inglés: su voz suena desde la app con el micrófono bloqueado, y su texto se muestra traducido.
+- **Tus respuestas:** pasan por el canal del micrófono, sin el audio de la reunión y sin voz hacia el cable virtual. El entrevistador solo recibe la traducción entregada.
+- **Fin de cada respuesta:** 3 s de silencio con la traducción ya estable, o el botón «Terminé».
+- **Final:** el entrevistador cierra con `[END]` y da una evaluación en JSON, en inglés y español: nota sobre 10, cuatro categorías, puntos fuertes, mejoras y lo que estropeó la traducción.
+- **Bloqueo de eco:** `markAppSpeakingEnd` cancelaba mal la reapertura del micrófono. Entre dos frases de voz seguidas, un temporizador antiguo lo abría a mitad de la segunda.

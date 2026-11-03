@@ -1,0 +1,90 @@
+---
+---
+
+<header class="top-nav-bar">
+  <div class="container">
+    <nav class="nav-content">
+      
+      <!-- Wordmark Logo (Restrained, pure black text) -->
+      <a href="#" class="nav-wordmark">
+        ViBeTranslate Pro
+      </a>
+
+      <!-- Navigation Links -->
+      <div class="nav-links">
+        <a href="#demo" class="nav-link">Demo</a>
+        <a href="#technology" class="nav-link">Tecnología</a>
+        <a href="#platforms" class="nav-link">Plataformas</a>
+        <a href="#overlay" class="nav-link">Subtítulos</a>
+        <a href="#downloads" class="nav-link">Descargas</a>
+        <a href="#faq" class="nav-link">FAQ</a>
+      </div>
+
+      <!-- Actions: Outline + Filled Pill Hierarchy -->
+      <div class="nav-actions">
+        <a href="https://tikal.com.co" target="_blank" rel="noopener noreferrer" class="btn-pill btn-pill-secondary">
+          Tikal Solutions
+        </a>
+        <a href="#downloads" class="btn-pill btn-pill-primary">
+          Descargar v1.0
+        </a>
+      </div>
+
+    </nav>
+  </div>
+  <hr class="hairline-divider" />
+</header>
+
+<style>
+  .top-nav-bar {
+    width: 100%;
+    background-color: var(--color-eggshell);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .nav-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 60px;
+  }
+
+  .nav-wordmark {
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-ink);
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+  }
+
+  .nav-link {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--color-smoke);
+    transition: color 0.15s ease;
+  }
+
+  .nav-link:hover {
+    color: var(--color-ink);
+  }
+
+  .nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  @media (max-width: 860px) {
+    .nav-links {
+      display: none;
+    }
+  }
+</style>

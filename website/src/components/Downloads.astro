@@ -1,0 +1,308 @@
+---
+import { t } from '../i18n';
+---
+<section id="downloads" class="section-editorial cta-final-section">
+  <div class="container">
+    <div class="request-layout">
+      <div class="request-context">
+        <div class="section-label" data-i18n="dl-label">{t("dl-label")}</div>
+        <h2 class="cta-final-title" data-i18n="dl-title">{t("dl-title")}</h2>
+        <p class="cta-final-subtitle" data-i18n="dl-subtitle">{t("dl-subtitle")}</p>
+        <ul class="request-requirements">
+          <li data-i18n="request-req-1">{t("request-req-1")}</li>
+          <li data-i18n="request-req-2">{t("request-req-2")}</li>
+          <li data-i18n="request-req-3">{t("request-req-3")}</li>
+        </ul>
+        <a href="#faq" class="request-faq" data-i18n="request-faq">{t("request-faq")}</a>
+      </div>
+      <form id="access-request" class="request-form" action="mailto:vivian@tikal.com.co" method="post" enctype="text/plain">
+        <fieldset>
+          <legend data-i18n="request-audience">{t("request-audience")}</legend>
+          <div class="request-segments">
+            <label><input type="radio" name="audience" value="individual" checked /><span data-i18n="request-individual">{t("request-individual")}</span></label>
+            <label><input type="radio" name="audience" value="team" /><span data-i18n="request-team">{t("request-team")}</span></label>
+          </div>
+        </fieldset>
+        <label class="request-field">
+          <span data-i18n="request-purpose">{t("request-purpose")}</span>
+          <select name="purpose">
+            <option value="technical" data-i18n="request-purpose-technical">{t("request-purpose-technical")}</option>
+            <option value="clients" data-i18n="request-purpose-clients">{t("request-purpose-clients")}</option>
+            <option value="practice" data-i18n="request-purpose-practice">{t("request-purpose-practice")}</option>
+          </select>
+        </label>
+        <label class="request-field" id="request-users-field" hidden>
+          <span data-i18n="request-users">{t("request-users")}</span>
+          <input type="number" name="users" min="2" max="10000" step="1" value="2" disabled />
+        </label>
+        <a id="request-email" href="mailto:vivian@tikal.com.co?subject=Acceso%20a%20ViBeTranslate%20Pro" class="btn-pill btn-pill-primary" data-i18n="request-submit">{t("request-submit")}</a>
+        <p class="request-note" data-i18n="request-note">{t("request-note")}</p>
+        <p id="request-status" role="status" hidden data-i18n="request-status">{t("request-status")}</p>
+        <a class="request-address" href="mailto:vivian@tikal.com.co">vivian@tikal.com.co</a>
+      </form>
+    </div>
+  </div>
+  <hr class="hairline-divider" style="margin-top: var(--spacing-96);" />
+</section>
+
+<style>
+  .cta-final-section { background: #eaf0f6; }
+  .request-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.85fr); gap: 64px; align-items: start; }
+  .request-context .cta-final-title { font-size: 40px; margin: 16px 0; letter-spacing: 0; }
+  .request-requirements { list-style: disc; padding-left: 20px; margin: 24px 0; display: grid; gap: 12px; color: #435465; font-size: 14px; line-height: 1.65; }
+  .request-faq { display: inline-block; font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; padding: 8px 0; }
+  .request-form { border: 1px solid #c7d4df; border-radius: 8px; background: #ffffff; padding: 28px; display: grid; gap: 20px; }
+  .request-form fieldset { min-width: 0; border: 0; }
+  .request-form legend, .request-field > span { display: block; font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .request-segments { display: flex; gap: 8px; }
+  .request-segments label { flex: 1; position: relative; cursor: pointer; }
+  .request-segments input { position: absolute; opacity: 0; }
+  .request-segments span { display: flex; justify-content: center; padding: 12px; border: 1px solid #b6c5d0; border-radius: 4px; font-size: 14px; }
+  .request-segments input:checked + span { background: #123d2e; border-color: #123d2e; color: #ffffff; }
+  .request-segments input:focus-visible + span { outline: 2px solid #176a9b; outline-offset: 3px; }
+  .request-field select, .request-field input { width: 100%; min-height: 46px; border: 1px solid #aebec9; border-radius: 4px; padding: 10px 12px; background: #ffffff; font: inherit; font-size: 14px; }
+  .request-form .btn-pill { white-space: normal; text-align: center; min-height: 48px; }
+  .request-note, #request-status { font-size: 12px; line-height: 1.6; color: #435465; }
+  .request-address { font-size: 14px; text-decoration: underline; overflow-wrap: anywhere; }
+  @media (max-width: 860px) {
+    .request-layout { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+    .request-context .cta-final-title { font-size: 32px; }
+    .request-form { padding: 24px 20px; }
+  }
+
+  .downloads-subtitle {
+    margin-top: var(--spacing-12);
+    max-width: 640px;
+  }
+
+  .downloads-editorial-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 32px;
+  }
+
+  @media (max-width: 860px) {
+    .downloads-editorial-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .download-editorial-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 42px 36px;
+    border-radius: 20px;
+    gap: 24px;
+    background-color: var(--color-warm-taupe);
+    border: 1px solid var(--color-stone);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .download-editorial-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.04);
+  }
+
+  @media (max-width: 768px) {
+    .download-editorial-card {
+      padding: 28px 24px;
+      gap: 20px;
+    }
+  }
+
+  .download-card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .platform-heading {
+    font-family: var(--font-body);
+    font-size: 26px;
+    font-weight: 600;
+    color: var(--color-ink);
+    margin-bottom: 8px;
+  }
+
+  .version-tag {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-smoke);
+    background-color: var(--color-eggshell);
+    border: 1px solid var(--color-stone);
+    padding: 4px 10px;
+    border-radius: var(--radius-small);
+  }
+
+  .download-desc {
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--color-graphite);
+  }
+
+  .download-btn-row {
+    margin: 10px 0 4px 0;
+  }
+
+  .btn-full {
+    width: 100%;
+    justify-content: center;
+    padding: 14px;
+    font-size: 14.5px;
+  }
+
+  .download-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--color-ash);
+  }
+
+  .requirements-box {
+    margin-top: 36px;
+    padding: 32px 36px;
+    border-radius: 20px;
+    background-color: var(--color-warm-taupe);
+    border: 1px solid var(--color-stone);
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 24px;
+  }
+
+  @media (max-width: 768px) {
+    .requirements-box {
+      padding: 24px 20px;
+    }
+  }
+
+  .req-col {
+    flex: 1;
+    min-width: 260px;
+  }
+
+  .req-title {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--color-ink);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+
+  .req-text {
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--color-smoke);
+    margin: 0;
+  }
+
+  .tikal-text-link {
+    color: var(--color-ink);
+    font-weight: 500;
+    text-decoration: underline;
+  }
+
+  .cta-final-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+    padding: var(--spacing-64) var(--spacing-32);
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  .cta-final-title {
+    font-family: var(--font-serif);
+    font-size: 40px;
+    line-height: 1.1;
+    font-weight: 400;
+    color: var(--color-ink);
+    letter-spacing: -0.02em;
+    max-width: 720px;
+  }
+
+  .cta-final-subtitle {
+    font-size: 16.5px;
+    line-height: var(--leading-body);
+    color: var(--color-smoke);
+    max-width: 620px;
+  }
+
+  .cta-final-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 8px;
+  }
+
+  .cta-final-note {
+    font-size: 13px;
+    color: var(--color-smoke);
+  }
+</style>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('#access-request');
+  const emailLink = document.querySelector<HTMLAnchorElement>('#request-email');
+  const usersField = document.querySelector<HTMLElement>('#request-users-field');
+  const usersInput = form?.querySelector<HTMLInputElement>('[name="users"]');
+  if (form && emailLink && usersField && usersInput) {
+    const requestForm = form;
+    const requestLink = emailLink;
+    const countField = usersField;
+    const countInput = usersInput;
+    function updateRequest() {
+      const english = document.documentElement.lang === 'en';
+      const values = new FormData(requestForm);
+      const team = values.get('audience') === 'team';
+      countField.hidden = !team;
+      countInput.disabled = !team;
+      countInput.required = team;
+      const purposes = english
+        ? { technical: 'Technical meetings', clients: 'Client meetings', practice: 'Interview practice' }
+        : { technical: 'Reuniones técnicas', clients: 'Reuniones con clientes', practice: 'Práctica de entrevistas' };
+      const purpose = String(values.get('purpose')) as keyof typeof purposes;
+      const subject = team
+        ? (english ? 'Team quote: ViBeTranslate Pro' : 'Cotización para equipo: ViBeTranslate Pro')
+        : (english ? 'Access to ViBeTranslate Pro' : 'Acceso a ViBeTranslate Pro');
+      const body = english
+        ? `Hello Tikal Solutions,\n\nI would like to check access to ViBeTranslate Pro ${team ? 'for my team' : 'for myself'}.\nUse case: ${purposes[purpose]}.\n${team ? `Users: ${countInput.value}.\n` : ''}\nPlease confirm availability, Windows version, included features, licenses and pricing before installation.\n\nThank you.`
+        : `Hola Tikal Solutions,\n\nMe gustaría consultar acceso a ViBeTranslate Pro ${team ? 'para mi equipo' : 'para mí'}.\nUso: ${purposes[purpose]}.\n${team ? `Usuarios: ${countInput.value}.\n` : ''}\nPor favor confirmen disponibilidad, versión para Windows, funciones incluidas, licencias y precio antes de instalar.\n\nGracias.`;
+      requestLink.href = `mailto:vivian@tikal.com.co?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      const status = document.getElementById('request-status');
+      if (status) status.hidden = true;
+    }
+    requestForm.addEventListener('change', updateRequest);
+    requestForm.addEventListener('input', updateRequest);
+    requestForm.addEventListener('submit', event => {
+      event.preventDefault();
+      if (requestForm.reportValidity()) requestLink.click();
+    });
+    requestLink.addEventListener('click', event => {
+      if (!requestForm.reportValidity()) {
+        event.preventDefault();
+        return;
+      }
+      const status = document.getElementById('request-status');
+      if (status) status.hidden = false;
+    });
+    document.querySelectorAll<HTMLAnchorElement>('[data-request-audience]').forEach(link => {
+      link.addEventListener('click', () => {
+        const radio = requestForm.querySelector<HTMLInputElement>(`input[value="${link.dataset.requestAudience}"]`);
+        if (radio) radio.checked = true;
+        updateRequest();
+      });
+    });
+    new MutationObserver(updateRequest).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
+    updateRequest();
+  }
+</script>

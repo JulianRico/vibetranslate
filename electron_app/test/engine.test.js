@@ -481,3 +481,60 @@ test('sin términos que corregir no se añade nada al mensaje', () => {
   assert.equal(seg.heard, undefined);
   assert.equal(seg.hints, undefined);
 });
+
+/** Motor con huellas de voz falsas: `voices` son las huellas que «oye» el modelo en cada frase, en orden. */
+function setupSpeakers({ queue = [], texts = [], voices = [] }) {
+  const posted = [];
+  const embedded = [];
+  const engine = createEngine({
+    sherpa: {},
+    paths: {},
+    post: (m) => posted.push(m),
+    makeSegmenter: () => ({ push: () => queue.shift() || [], flush: () => queue.shift() || [], isSpeaking: () => false }),
+    makeTranscriber: () => ({ transcribe: () => ({ text: texts.shift() ?? '', ms: 5 }), translate: () => ({ text: 'x', ms: 1 }) }),
+    makeSpeakerEmbedder: () => ({ compute: (samples) => { embedded.push(samples.length); return voices.shift() || null; } })
+  });
+  const audio = (stream = 'incoming', lang = 'en') => engine.handle({ type: 'audio', stream, lang, samples: new Float32Array(2048) });
+  return { posted, embedded, audio };
+}
+const VOICE_A = [1, 0, 0, 0.1];
+const VOICE_B = [0, 1, 0, 0.1];
+const at = (sec, ms) => ({ samples: new Float32Array(ms * 16), start: Math.round(sec * 16000) });
+
+test('las frases de la reunión llevan quién habla según su huella de voz', () => {
+  const t = setupSpeakers({ queue: [[at(0, 2000)], [at(3, 2000)], [at(6, 2000)]], texts: ['Hi, I am Sarah.', 'Hello, I am Michael.', 'Over to you.'], voices: [VOICE_A, VOICE_B, VOICE_A] });
+  t.audio(); t.audio(); t.audio();
+  assert.deepEqual(t.posted.map((m) => m.speaker), [1, 2, 1]);
+  assert.ok(t.posted.every((m) => typeof m.speakerScore === 'number' || m.speakerScore === null));
+});
+
+test('las frases de tu micrófono no llevan persona: tú ya eres «Tú»', () => {
+  const t = setupSpeakers({ queue: [[at(0, 2000)]], texts: ['Hola a todos.'], voices: [VOICE_A] });
+  t.audio('mic', 'es');
+  assert.equal(t.posted[0].speaker, undefined);
+  assert.deepEqual(t.embedded, []);
+});
+
+test('la frase de una persona nunca se une a la de otra, aunque la pausa sea corta', () => {
+  // «…as the fallback,» queda abierta: con la misma voz se uniría; con otra, empieza línea nueva
+  const t = setupSpeakers({
+    queue: [[at(0, 2000)], [at(2.3, 2000)], [at(4.6, 2000)]],
+    texts: ['Solid approach, and a queue as the fallback,', 'thank you, Andrea, those were clear answers,', 'and do you have any questions?'],
+    voices: [VOICE_A, VOICE_B, VOICE_B]
+  });
+  t.audio(); t.audio(); t.audio();
+  assert.equal(t.posted[1].join, undefined);
+  assert.equal(t.posted[2].join.lineId, t.posted[1].id);
+});
+
+test('el corte en pausas dentro de un segmento solo se usa en la reunión: tu micrófono es una sola voz', () => {
+  const options = [];
+  const engine = createEngine({
+    sherpa: {}, paths: {}, post: () => {},
+    makeSegmenter: (o) => { options.push(o); return { push: () => [], flush: () => [], isSpeaking: () => false }; },
+    makeTranscriber: () => ({ transcribe: () => ({ text: '', ms: 1 }), translate: () => ({ text: '', ms: 1 }) })
+  });
+  engine.handle({ type: 'audio', stream: 'mic', lang: 'es', samples: new Float32Array(1600) });
+  engine.handle({ type: 'audio', stream: 'incoming', lang: 'en', samples: new Float32Array(1600) });
+  assert.deepEqual(options.map((o) => o.splitQuiet), [false, true]);
+});

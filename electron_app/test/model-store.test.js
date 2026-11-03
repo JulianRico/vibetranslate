@@ -43,9 +43,9 @@ function fakeFetch(bodies, { failUrl = null, breakUrl = null, ignoreRange = fals
   return { impl, calls, ranges };
 }
 
-test('la lista real declara voz, transcripción y traducción EN↔ES con tamaño y suma', () => {
+test('la lista real declara voz, transcripción, huella de voz y traducción EN↔ES con tamaño y suma', () => {
   assert.deepEqual(MODEL_FILES.map((f) => f.id), [
-    'vad', 'encoder', 'decoder', 'tokens',
+    'vad', 'encoder', 'decoder', 'tokens', 'speaker',
     'mtEnEs', 'mtEnEsLex', 'mtEnEsVocab', 'mtEsEn', 'mtEsEnLex', 'mtEsEnVocab'
   ]);
   for (const f of MODEL_FILES) {

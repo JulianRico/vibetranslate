@@ -1,0 +1,15 @@
+{
+  "name": "vibetranslate-licencias",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Servidor de licencias de ViBeTranslate Pro (activación de 30 días por equipo)",
+  "main": "src/server.js",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test test/licenses.test.js"
+  },
+  "optionalDependencies": {
+    "nodemailer": "^6.9.0"
+  }
+}

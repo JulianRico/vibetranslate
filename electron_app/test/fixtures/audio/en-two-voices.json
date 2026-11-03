@@ -1,0 +1,17 @@
+{
+ "voices": [
+  {
+   "speaker": "michael",
+   "start": 0.6,
+   "end": 7.5756875,
+   "text": "Solid approach: Retry-After first, then backoff with Polly, and a queue as the fallback. Sarah, over to you."
+  },
+  {
+   "speaker": "sarah",
+   "start": 8.3256875,
+   "end": 13.94375,
+   "text": "Thank you, Andrea, those were really clear and thoughtful answers. Do you have any questions for the panel?"
+  }
+ ],
+ "source": "Kokoro int8 en v0_19 (sid 6, then sid 3) over pink noise x0.02, panel test 2026-11-02"
+}

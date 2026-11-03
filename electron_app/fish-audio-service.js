@@ -13,7 +13,7 @@ const { defaultLogger } = require('./logger');
 
 class FishAudioService {
   constructor(options = {}) {
-    this.apiKey = options.apiKey || '00000000000000000000000000000000';
+    this.apiKey = options.apiKey || '';
     this.defaultModel = options.model || 's2.1-pro-free';
     this.defaultVoiceId = options.voiceId || null;
     this.baseUrl = 'https://api.fish.audio';

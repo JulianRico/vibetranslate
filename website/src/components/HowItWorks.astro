@@ -1,0 +1,147 @@
+---
+import { t } from '../i18n';
+---
+<section id="how-it-works" class="section-editorial">
+  <div class="container">
+    <div class="section-header-editorial text-center">
+      <div class="section-label" data-i18n="hiw-label">{t("hiw-label")}</div>
+      <h2>
+        <span data-i18n="hiw-title-a">{t("hiw-title-a")}</span>
+        <span style="font-weight: 400;" data-i18n="hiw-title-b">{t("hiw-title-b")}</span>
+      </h2>
+      <p class="hiw-subtitle" data-i18n="hiw-subtitle">{t("hiw-subtitle")}</p>
+    </div>
+    <div class="steps-editorial-grid">
+      <!-- Step 1: install -->
+      <div class="step-editorial-card">
+        <div class="step-card-top">
+          <span class="step-badge-number">01</span>
+          <div class="step-icon-svg">
+          </div>
+        </div>
+        <h3 class="step-editorial-title" data-i18n="step-1-t">{t("step-1-t")}</h3>
+        <p class="step-editorial-desc" data-i18n="step-1-d">{t("step-1-d")}</p>
+        <div class="step-mini-tag" data-i18n="step-1-tag">{t("step-1-tag")}</div>
+      </div>
+      <!-- Step 2: join the meeting -->
+      <div class="step-editorial-card">
+        <div class="step-card-top">
+          <span class="step-badge-number">02</span>
+          <div class="step-icon-svg">
+          </div>
+        </div>
+        <h3 class="step-editorial-title" data-i18n="step-2-t">{t("step-2-t")}</h3>
+        <p class="step-editorial-desc" data-i18n="step-2-d">{t("step-2-d")}</p>
+        <div class="step-mini-tag" data-i18n="step-2-tag">{t("step-2-tag")}</div>
+      </div>
+      <!-- Step 3: choose the plan -->
+      <div class="step-editorial-card">
+        <div class="step-card-top">
+          <span class="step-badge-number">03</span>
+          <div class="step-icon-svg">
+          </div>
+        </div>
+        <h3 class="step-editorial-title" data-i18n="step-3-t">{t("step-3-t")}</h3>
+        <p class="step-editorial-desc" data-i18n="step-3-d">{t("step-3-d")}</p>
+        <div class="step-mini-tag" data-i18n="step-3-tag">{t("step-3-tag")}</div>
+      </div>
+    </div>
+  </div>
+  <hr class="hairline-divider" style="margin-top: var(--spacing-96);" />
+</section>
+
+<style>
+  .text-center {
+    text-align: center;
+    max-width: 760px;
+    margin: 0 auto var(--spacing-64) auto;
+  }
+
+  .hiw-subtitle {
+    margin-top: var(--spacing-16);
+    font-size: 16.5px;
+    line-height: var(--leading-body);
+    color: var(--color-smoke);
+  }
+
+  .steps-editorial-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+
+  @media (max-width: 960px) {
+    .steps-editorial-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .step-editorial-card {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 18px;
+    padding: 28px 8px;
+    border-radius: 0;
+    border-top: 1px solid #b7c9bd;
+    min-height: 220px;
+  }
+
+  @media (max-width: 768px) {
+    .step-editorial-card {
+      padding: 24px 0;
+    }
+  }
+
+  .step-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .step-badge-number {
+    font-family: var(--font-mono);
+    font-size: 32px;
+    font-weight: 500;
+    color: var(--color-ash);
+    letter-spacing: 0;
+  }
+
+  .step-icon-svg {
+    color: var(--color-graphite);
+  }
+
+  .step-editorial-title {
+    font-family: var(--font-body);
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+
+  .step-editorial-desc {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--color-smoke);
+    flex: 1;
+  }
+
+  .step-mini-tag {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--color-graphite);
+    padding: 0;
+    width: fit-content;
+  }
+
+  .app-shot-figure {
+    margin: var(--spacing-48) auto 0 auto;
+    max-width: 220px;
+  }
+  .app-shot-figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 18px;
+    border: 1px solid var(--color-stone);
+  }
+</style>

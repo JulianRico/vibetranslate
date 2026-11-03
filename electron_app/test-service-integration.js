@@ -4,7 +4,7 @@ async function testService() {
   console.log('=== Probando FishAudioService ===\n');
 
   const service = new FishAudioService({
-    apiKey: '00000000000000000000000000000000',
+    apiKey: process.env.FISH_API_KEY || '',
     model: 's2.1-pro-free'
   });
 

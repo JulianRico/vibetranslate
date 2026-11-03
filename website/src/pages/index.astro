@@ -1,0 +1,40 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Hero from '../components/Hero.astro';
+import LiveDemo from '../components/LiveDemo.astro';
+import ProblemSolution from '../components/ProblemSolution.astro';
+import UseCases from '../components/UseCases.astro';
+import HowItWorks from '../components/HowItWorks.astro';
+import FAQ from '../components/FAQ.astro';
+import Pricing from '../components/Pricing.astro';
+import Downloads from '../components/Downloads.astro';
+import Footer from '../components/Footer.astro';
+import ScrollMotion from '../components/ScrollMotion.astro';
+import '../styles/global.css';
+---
+
+<Layout>
+  <main>
+    <!-- 1. Hero: the problem solved for teams, two actions -->
+    <Hero />
+    <LiveDemo />
+
+    <!-- 2 and 3. Problem and what changes for the team -->
+    <ProblemSolution />
+
+    <!-- 4. Use cases for companies -->
+    <UseCases />
+    <Pricing />
+
+    <!-- 5. How a company starts -->
+    <HowItWorks />
+
+    <!-- 8. Questions from companies -->
+    <FAQ />
+
+    <!-- 10. Final call to action -->
+    <Downloads />
+  </main>
+  <Footer />
+  <ScrollMotion />
+</Layout>

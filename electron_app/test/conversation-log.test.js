@@ -78,3 +78,15 @@ test('una frase se reescribe entera cuando llega el resto o una traducción mejo
   assert.equal(log.update(99, { translated: 'x' }), false);
   assert.equal(log.size(), 1, 'no crea filas nuevas');
 });
+
+test('una frase de la reunión puede llevar quién la dijo, y renombrarlo cambia sus frases', () => {
+  const log = createConversationLog({ clock: () => '10:00:00' });
+  const a = log.add({ direction: 'incoming', from: 'en', to: 'es', original: 'Hi', translated: 'Hola', speakerId: 2, speaker: 'Persona 2' });
+  log.add({ direction: 'incoming', from: 'en', to: 'es', original: 'Ok', translated: 'Vale', speakerId: 3, speaker: 'Persona 3' });
+  assert.equal(a.speaker, 'Persona 2');
+  log.renameSpeaker(2, 'Sarah');
+  assert.deepEqual(log.entries().map((e) => e.speaker), ['Sarah', 'Persona 3']);
+  assert.match(log.toText(), /Sarah \[EN ➔ ES\]/);
+  const mine = log.add({ direction: 'outgoing', from: 'es', to: 'en', original: 'Hola', translated: 'Hi' });
+  assert.equal(mine.speaker, 'Tú');
+});

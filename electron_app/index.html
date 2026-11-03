@@ -18,6 +18,7 @@
         <span id="status-text">Apagado</span>
         <span class="live-timer" id="live-timer"></span>
       </div>
+      <button type="button" class="link-btn idle-only" id="btn-open-training">Practicar una entrevista</button>
       <div class="topbar-actions">
         <button type="button" class="icon-btn pip-only" id="btn-pip-exit" title="Volver a la ventana normal" aria-label="Volver a la ventana normal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
@@ -196,7 +197,7 @@
               </span>
             </div>
             <input type="password" id="fish-api-key" placeholder="sk-fish-..."
-              value="00000000000000000000000000000000">
+              value="">
             <p class="hint">Consíguela en <a href="#" id="link-get-fish-key" class="link">fish.audio</a>.<a href="#" id="link-get-fish-key-bottom" hidden></a></p>
           </div>
           <div class="form-group">
@@ -295,7 +296,7 @@
             <a href="#" id="link-get-groq-key" class="link">Conseguir una gratis</a>
           </div>
           <input type="password" id="groq-key" placeholder="gsk_..." autocomplete="off"
-            value="gsk_dummy_replace_with_your_groq_api_key_000000000000">
+            value="">
           <a href="#" id="link-get-groq-key-bottom" hidden></a>
         </div>
         <div class="form-group" id="gemini-key-group" style="display: none;">
@@ -387,6 +388,98 @@
         </div>
       </section>
 
+    </div>
+  </section>
+
+  <!-- Practicar una entrevista: un entrevistador en inglés y tus respuestas en español a través de la app -->
+  <section class="view view-training" id="view-training" aria-labelledby="training-title" hidden>
+    <header class="topbar">
+      <button type="button" class="icon-btn" id="btn-close-training" title="Volver" aria-label="Volver">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
+      </button>
+      <h1 class="settings-title" id="training-title">Practicar una entrevista</h1>
+    </header>
+
+    <div class="training-body">
+      <section class="training-panel" id="training-setup">
+        <p class="training-intro">Un entrevistador te entrevista en inglés y tú respondes en español. Como en una reunión real, solo recibe la traducción de la app. Al final te da una nota y te dice qué mejorar.</p>
+        <div class="form-group">
+          <label for="training-role">Puesto</label>
+          <input type="text" id="training-role" value="Senior SharePoint Online Developer">
+        </div>
+        <div class="field-pair">
+          <div class="form-group">
+            <label for="training-length">Duración</label>
+            <select id="training-length">
+              <option value="5">Corta: 5 preguntas</option>
+              <option value="8" selected>Normal: 8 preguntas</option>
+              <option value="12">Larga: 12 preguntas</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="training-voice">Voz del entrevistador</label>
+            <select id="training-voice">
+              <option value="en" selected>En inglés</option>
+              <option value="en-es">En inglés y luego en español</option>
+              <option value="none">Sin voz, solo texto</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="training-turn">Tu respuesta termina</label>
+          <select id="training-turn">
+            <option value="pause" selected>Al callarte 3 segundos o al pulsar «Terminé»</option>
+            <option value="button">Solo al pulsar «Terminé»</option>
+          </select>
+        </div>
+        <div class="notice" data-state="warn" id="training-notice" hidden>
+          <p id="training-notice-text"></p>
+          <button type="button" class="btn btn-small" id="training-notice-action" hidden>Abrir Ajustes</button>
+        </div>
+        <button type="button" class="btn btn-primary btn-wide" id="btn-training-start">Empezar la entrevista</button>
+      </section>
+
+      <section class="training-panel" id="training-live" hidden>
+        <div class="training-progress">
+          <span id="training-progress">Pregunta 1</span>
+          <span class="training-state" id="training-state" aria-live="polite"></span>
+        </div>
+        <div class="training-turn training-question">
+          <p class="training-who">Entrevistador</p>
+          <p class="training-en" id="training-question-en"></p>
+          <p class="training-es" id="training-question-es"></p>
+        </div>
+        <div class="training-turn training-answer">
+          <p class="training-who">Tu respuesta <span>y lo que recibe el entrevistador</span></p>
+          <p class="training-es-main" id="training-answer-es"></p>
+          <p class="training-en-sub" id="training-answer-en"></p>
+        </div>
+        <div class="row-actions">
+          <button type="button" class="btn btn-primary" id="btn-training-done" disabled>Terminé mi respuesta</button>
+          <button type="button" class="link-btn" id="btn-training-stop">Terminar la entrevista</button>
+        </div>
+      </section>
+
+      <section class="training-panel" id="training-result" hidden>
+        <div class="training-score">
+          <span class="training-score-value" id="training-score"></span>
+          <span class="training-score-max">/ 10</span>
+          <span class="training-recommendation" id="training-recommendation"></span>
+        </div>
+        <p class="training-verdict" id="training-verdict"></p>
+        <ul class="training-categories" id="training-categories"></ul>
+        <div class="training-block"><h2>Lo mejor</h2><ul id="training-strengths"></ul></div>
+        <div class="training-block"><h2>Para mejorar</h2><ul id="training-improvements"></ul></div>
+        <div class="training-block"><h2>Lo que no llegó bien por la traducción</h2><ul id="training-translation"></ul></div>
+        <details class="tool">
+          <summary>La entrevista completa</summary>
+          <div class="training-transcript" id="training-transcript"></div>
+        </details>
+        <div class="row-actions">
+          <button type="button" class="btn" id="btn-training-save">Guardar el informe</button>
+          <button type="button" class="btn btn-primary" id="btn-training-again">Practicar otra vez</button>
+        </div>
+      </section>
     </div>
   </section>
 
