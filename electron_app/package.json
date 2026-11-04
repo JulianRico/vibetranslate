@@ -66,6 +66,9 @@
       "createStartMenuShortcut": true,
       "shortcutName": "ViBeTranslate Pro Studio"
     },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}-${os}.${ext}"
+    },
     "mac": {
       "target": [
         {
