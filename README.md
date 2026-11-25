@@ -5,7 +5,7 @@
 [![Electron](https://img.shields.io/badge/Electron-44.7-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.12-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-0f6cbd.svg)](electron_app/package.json)
-[![Build](https://github.com/jaquintero/translate/actions/workflows/build.yml/badge.svg)](https://github.com/jaquintero/translate/actions/workflows/build.yml)
+[![Build](https://github.com/JulianRico/vibetranslate/actions/workflows/build.yml/badge.svg)](https://github.com/JulianRico/vibetranslate/actions/workflows/build.yml)
 
 **English** · **[Español](README.es.md)** · **[Contributing Guide](CONTRIBUTING.md)**
 
@@ -49,7 +49,7 @@ It combines two complementary workflows in a single studio:
 ## Architecture & Repository Structure
 
 ```text
-translate/
+vibetranslate/
 ├── electron_app/            # Main Electron desktop app (core product & test suite)
 │   ├── main.js              # Electron main process, IPC channels, cloud/local orchestration
 │   ├── index.html / .js     # Main studio window, audio pipelines, Practice Studio UI
@@ -83,8 +83,8 @@ translate/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/jaquintero/translate.git
-cd translate/electron_app
+git clone https://github.com/JulianRico/vibetranslate.git
+cd vibetranslate/electron_app
 
 # 2. Install dependencies
 npm install

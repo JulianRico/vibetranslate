@@ -5,7 +5,7 @@
 [![Electron](https://img.shields.io/badge/Electron-44.7-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D22.12-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![Licencia: MIT](https://img.shields.io/badge/Licencia-MIT-0f6cbd.svg)](electron_app/package.json)
-[![Build](https://github.com/jaquintero/translate/actions/workflows/build.yml/badge.svg)](https://github.com/jaquintero/translate/actions/workflows/build.yml)
+[![Build](https://github.com/JulianRico/vibetranslate/actions/workflows/build.yml/badge.svg)](https://github.com/JulianRico/vibetranslate/actions/workflows/build.yml)
 
 **[English](README.md)** · **Español** · **[Guía de Contribución](CONTRIBUTING.md)**
 
@@ -49,7 +49,7 @@ Reúne dos flujos complementarios en un solo espacio:
 ## Arquitectura y estructura del repositorio
 
 ```text
-translate/
+vibetranslate/
 ├── electron_app/            # App principal de escritorio Electron (núcleo y pruebas)
 │   ├── main.js              # Proceso principal, IPC y orquestación nube/local
 │   ├── index.html / .js     # Ventana principal, pipelines de audio y Estudio de Práctica
@@ -83,8 +83,8 @@ translate/
 
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/jaquintero/translate.git
-cd translate/electron_app
+git clone https://github.com/JulianRico/vibetranslate.git
+cd vibetranslate/electron_app
 
 # 2. Instalar dependencias
 npm install

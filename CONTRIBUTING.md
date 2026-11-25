@@ -13,8 +13,8 @@ Thank you for your interest in contributing to **ViBeTranslate Pro Studio**! Eve
 
 1. Fork the repository and clone your fork:
    ```bash
-   git clone https://github.com/<your-username>/translate.git
-   cd translate/electron_app
+   git clone https://github.com/<your-username>/vibetranslate.git
+   cd vibetranslate/electron_app
    npm install
    ```
 2. Copy the environment template:
@@ -72,8 +72,8 @@ From `electron_app/`:
 
 1. Haz un fork del repositorio y clónalo:
    ```bash
-   git clone https://github.com/<tu-usuario>/translate.git
-   cd translate/electron_app
+   git clone https://github.com/<tu-usuario>/vibetranslate.git
+   cd vibetranslate/electron_app
    npm install
    ```
 2. Crea tu archivo local `.env` a partir de la plantilla:

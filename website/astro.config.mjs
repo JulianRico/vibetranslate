@@ -3,7 +3,7 @@ import tailwind from '@astrojs/tailwind';
 
 // https://astro.build/config
 export default defineConfig({
-  site: 'https://jaquintero.github.io/translate',
+  site: 'https://julianrico.github.io/vibetranslate',
   integrations: [
     tailwind({
       applyBaseStyles: false,
