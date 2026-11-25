@@ -3,9 +3,10 @@
 .env.*
 !.env.example
 
-# Registros, modelos locales y salidas de compilación
+# Registros, documentos personales, modelos locales y salidas de compilación
 *.log
 logs/
+doc/
 node_modules/
 dist/
 .models/
