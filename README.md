@@ -121,8 +121,6 @@ Configure your keys in `electron_app/.env` (see [electron_app/.env.example](elec
 | `VIBE_MODELS_DIR` | Dev/Test | Override directory for local ONNX/Bergamot models |
 | `VIBE_SESSIONS_DIR` | Dev/Test | Override directory for trace lab recorded sessions |
 
-> [!CAUTION]
-> **Never commit `.env` or hardcode API keys.** `.env` is ignored by Git, excluded from `electron-builder` installers (`package.json`), and enforced by automated secret-leak tests in `electron_app/test/env.test.js`.
 
 ---
 
