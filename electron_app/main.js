@@ -10,6 +10,7 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const { userGlossary } = require('./glossary');
+const { loadEnv, applyEnvFallbacks } = require('./env');
 const { createTechGlossary } = require('./local-ai/tech-glossary');
 const { createCloudTranslator } = require('./cloud-translator');
 const { createInterviewer } = require('./training-interviewer');
@@ -22,14 +23,20 @@ const { createPrepare } = require('./local-ai/prepare');
 const { createTraceRecorder } = require('./local-ai/trace-recorder');
 const { createAudioDucker } = require('./audio-ducker');
 
+// Cargar variables de entorno desde .env (en desarrollo desde el proyecto; instalada, si existe junto al ejecutable)
+const envFilePath = app.isPackaged
+  ? path.join(path.dirname(process.execPath), '.env')
+  : path.join(__dirname, '.env');
+loadEnv({ filePath: envFilePath });
+
 // Inicializar logs en disco
 defaultLogger.clear();
 defaultLogger.info('SYSTEM', '🚀 Iniciando MeetTranslate Desktop App (Proceso Principal)...');
 
 // Instancia de servicio Fish Audio
 const fishAudioService = new FishAudioService({
-  apiKey: '',
-  model: 's2.1-pro-free'
+  apiKey: process.env.FISH_API_KEY || '',
+  model: process.env.FISH_MODEL || 's2.1-pro-free'
 });
 
 // Configuración de Chromium para optimizar rendimiento y evitar bloqueos de caché en Windows
@@ -81,7 +88,7 @@ const DEFAULT_SETTINGS = {
   geminiApiKey: '',
   groqApiKey: '',
   fishApiKey: '',
-  fishVoiceModelId: '0356fc9e08b646ed91607baa54a847c3',
+  fishVoiceModelId: 'default',
   fishModel: 's2.1-pro-free',
   fishLatency: 'balanced',
   fishVolume: 95,
@@ -118,7 +125,7 @@ function loadSavedSettings() {
   try {
     if (fs.existsSync(settingsFilePath)) {
       const data = fs.readFileSync(settingsFilePath, 'utf8');
-      const loaded = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+      const loaded = applyEnvFallbacks({ ...DEFAULT_SETTINGS, ...JSON.parse(data) });
       // Las versiones anteriores guardaban una copia del glosario de fábrica (con 'real' → 'React'): se quita
       loaded.glossary = userGlossary(loaded.glossary);
       defaultLogger.info('CONFIG', 'Configuración cargada correctamente desde disco.');
@@ -127,7 +134,7 @@ function loadSavedSettings() {
   } catch (err) {
     defaultLogger.warn('CONFIG', 'Error leyendo settings.json, usando valores por defecto:', err.message);
   }
-  return DEFAULT_SETTINGS;
+  return applyEnvFallbacks(DEFAULT_SETTINGS);
 }
 
 function saveSettings(settings) {
@@ -314,8 +321,18 @@ const cloudTranslator = createCloudTranslator({
   logger: (message) => defaultLogger.warn('TRANSLATE', message)
 });
 
-// Practicar una entrevista: el entrevistador es un LLM de Groq que habla en inglés y evalúa al final
-const interviewer = createInterviewer({ getGroqKey: () => (loadSavedSettings().groqApiKey || '') });
+// Practicar entrevistas y reuniones internacionales: genera libreto, conduce en inglés y evalúa (Groq + respaldo Gemini)
+const interviewer = createInterviewer({
+  getGroqKey: () => (loadSavedSettings().groqApiKey || ''),
+  getGeminiKey: () => (loadSavedSettings().geminiApiKey || '')
+});
+
+ipcMain.handle('TRAINING_GENERATE_PLAYBOOK', async (event, { setup, refineNote = '' }) => {
+  const r = await interviewer.generatePlaybook({ setup, refineNote });
+  if (!r.ok) defaultLogger.warn('PRÁCTICA', r.error);
+  else defaultLogger.success('PRÁCTICA', `Libreto generado (${r.model}) con ${r.playbook.turns.length} turnos.`);
+  return r;
+});
 
 ipcMain.handle('TRAINING_NEXT', async (event, { setup, history }) => {
   const r = await interviewer.next({ setup, history });
@@ -604,6 +621,8 @@ Output ONLY the final transcribed text without quotes, notes, markdown or explan
       if (!response.ok) {
         const errTxt = await response.text();
         defaultLogger.warn('GEMINI', `Aviso ${model} HTTP ${response.status}: ${errTxt.substring(0, 100)}`);
+        // Clave inválida o sin saldo en la cuenta: los demás modelos compartirían el mismo fallo
+        if (response.status === 401 || response.status === 402 || response.status === 403) break;
         continue;
       }
 
@@ -785,8 +804,22 @@ ipcMain.handle('FISH_AUDIO_LIST_MODELS', async (event, { apiKey = null, selfOnly
     const effectiveKey = apiKey || settings.fishApiKey || '';
     fishAudioService.setApiKey(effectiveKey);
 
-    const models = await fishAudioService.listVoiceModels({ selfOnly, pageSize });
-    return models;
+    if (selfOnly) {
+      return await fishAudioService.listVoiceModels({ selfOnly: true, pageSize });
+    }
+
+    // Combinar primero los modelos propios (self=true) y después las voces de estudio del catálogo público
+    const [ownData, publicData] = await Promise.all([
+      fishAudioService.listVoiceModels({ selfOnly: true, pageSize: 30 }),
+      fishAudioService.listVoiceModels({ selfOnly: false, pageSize })
+    ]);
+    const ownItems = (ownData && Array.isArray(ownData.items) ? ownData.items : []).map((m) => ({ ...m, isSelf: true }));
+    const seen = new Set(ownItems.map((m) => m._id || m.id).filter(Boolean));
+    const pubItems = (publicData && Array.isArray(publicData.items) ? publicData.items : []).filter((m) => !seen.has(m._id || m.id));
+    return {
+      total: ownItems.length + (publicData?.total || pubItems.length),
+      items: [...ownItems, ...pubItems]
+    };
   } catch (err) {
     defaultLogger.error('FISH-AUDIO', `Error en listado de modelos IPC: ${err.message}`);
     return { total: 0, items: [] };

@@ -114,11 +114,7 @@ CRITICAL SMART TRANSCRIPTION RULES:
         setup: {
           model: this.model,
           generationConfig: {
-            responseModalities: ["TEXT"],
-            mediaResolution: "MEDIA_RESOLUTION_MEDIUM",
-            thinkingConfig: {
-              thinkingBudget: 0
-            }
+            responseModalities: ["TEXT"]
           },
           contextWindowCompression: {
             triggerTokens: "104857",
@@ -132,11 +128,16 @@ CRITICAL SMART TRANSCRIPTION RULES:
         }
       };
     } else {
+      const targetStyle = tgt === 'Spanish'
+        ? 'fluent, natural, idiomatic neutral Latin American Spanish'
+        : (tgt === 'English'
+          ? 'fluent, natural, idiomatic North American English with a native American business tone'
+          : `fluent, natural, idiomatic ${tgt}`);
       const systemPrompt = `You are a professional simultaneous interpreter for executive corporate video calls.
-Translate spoken ${src} into fluent, natural, idiomatic North American English with a native American business tone.
+Translate spoken ${src} into ${targetStyle}.
 CRITICAL RULES:
 1. Translate smoothly and idiomatically. Avoid awkward, literal, or robotic translations.
-2. Output ONLY the direct translated spoken audio in clear native English.
+2. Output ONLY the direct translated spoken audio in clear native ${tgt}.
 3. Zero commentary, zero internal monologue, zero markdown, zero explanations.${vocabList}
 4. If unintelligible or background noise, output absolute silence.`;
 
@@ -216,10 +217,15 @@ CRITICAL RULES:
 
   disconnect() {
     if (this.ws) {
-      try {
-        this.ws.close();
-      } catch (e) {}
+      const sock = this.ws;
       this.ws = null;
+      this.isConnected = false;
+      try {
+        sock.removeAllListeners();
+        sock.on('error', () => {});
+        if (sock.readyState === WebSocket.OPEN) sock.close();
+        else sock.terminate();
+      } catch (e) {}
     }
     this.isConnected = false;
   }

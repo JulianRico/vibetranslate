@@ -1,11 +1,14 @@
+const { loadEnv } = require('./env');
 const { FishAudioService } = require('./fish-audio-service');
+
+loadEnv();
 
 async function testService() {
   console.log('=== Probando FishAudioService ===\n');
 
   const service = new FishAudioService({
     apiKey: process.env.FISH_API_KEY || '',
-    model: 's2.1-pro-free'
+    model: process.env.FISH_MODEL || 's2.1-pro-free'
   });
 
   // 1. Probar testConnection

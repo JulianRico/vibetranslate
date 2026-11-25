@@ -16,7 +16,19 @@ const { parseVocabulary, formatVocabulary } = require('./vocabulary');
 const { createSlowDetector } = require('./local-ai/slow-detector');
 const { directionText, formatElapsed, readiness } = require('./ui-state');
 const { buildSessionReport } = require('./session-report');
-const { createAnswerCollector, answerReady, ttsChunks, formatScore, formatReport } = require('./training-session');
+const { createAnswerCollector, answerReady, ttsChunks, formatScore, formatReport, formatPlaybookReport, RECOMMENDATION } = require('./training-session');
+const {
+  SECTORS,
+  getSectorById,
+  getTopicsFor,
+  resolveSectorLabel,
+  createEmptyTurn,
+  updatePlaybookTurn,
+  addPlaybookTurn,
+  removePlaybookTurn,
+  mergeVocabularyText,
+  upsertRecentPlaybook
+} = require('./training-catalog');
 const { nameFromIntroduction, createSpeakerNames } = require('./speaker-names');
 
 // ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
@@ -366,7 +378,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnRefreshDevices) {
     btnRefreshDevices.addEventListener('click', async () => {
       appendLog('AUDIO', 'Re-escaneando dispositivos de audio...');
-      await enumerateAudioDevices();
+      await enumerateAudioDevices(micInputSelect.value, virtualCableSelect.value);
     });
   }
 
@@ -1073,47 +1085,230 @@ document.addEventListener('DOMContentLoaded', async () => {
   sttEngineSelect.addEventListener('change', recheck);
   [groqKeyInput, geminiKeyInput].forEach((el) => el.addEventListener('input', recheck));
 
-  // ── Practicar una entrevista: un entrevistador en inglés (LLM) y tus respuestas en español a través de la app ──
+  // ── Práctica de entrevista y reunión internacional (Libreto IA + En vivo + Evaluación) ──
   const viewTraining = document.getElementById('view-training');
+  const trainingBody = document.getElementById('training-body');
   const btnOpenTraining = document.getElementById('btn-open-training');
   const btnCloseTraining = document.getElementById('btn-close-training');
+  const trainingStepsList = document.getElementById('training-steps');
   const trainingPanels = {
     setup: document.getElementById('training-setup'),
+    playbook: document.getElementById('training-playbook'),
     live: document.getElementById('training-live'),
     result: document.getElementById('training-result')
   };
+  const trainingPanelHeadings = {
+    setup: document.getElementById('training-setup-heading'),
+    playbook: document.getElementById('playbook-heading'),
+    live: document.getElementById('training-live-heading'),
+    result: document.getElementById('training-result-heading')
+  };
+  const trainingSetupForm = document.getElementById('training-setup-form');
+  const trainingModeRadios = document.querySelectorAll('input[name="training-mode"]');
+  const trainingSector = document.getElementById('training-sector');
+  const trainingSectorCustomGroup = document.getElementById('training-sector-custom-group');
+  const trainingSectorCustom = document.getElementById('training-sector-custom');
+  const trainingSectorCustomErr = document.getElementById('training-sector-custom-err');
+  const trainingTopic = document.getElementById('training-topic');
+  const trainingTopicErr = document.getElementById('training-topic-err');
+  const trainingTopicChips = document.getElementById('training-topic-chips');
   const trainingRole = document.getElementById('training-role');
+  const trainingLevel = document.getElementById('training-level');
   const trainingLength = document.getElementById('training-length');
+  const trainingContext = document.getElementById('training-context');
   const trainingVoice = document.getElementById('training-voice');
   const trainingTurn = document.getElementById('training-turn');
   const trainingNotice = document.getElementById('training-notice');
   const trainingNoticeText = document.getElementById('training-notice-text');
   const trainingNoticeAction = document.getElementById('training-notice-action');
+  const btnTrainingGenerate = document.getElementById('btn-training-generate');
   const btnTrainingStart = document.getElementById('btn-training-start');
+  const trainingRecentSection = document.getElementById('training-recent-section');
+  const trainingRecentList = document.getElementById('training-recent-list');
+
+  // Paso 2: Libreto IA
+  const playbookModeBadge = document.getElementById('playbook-mode-badge');
+  const playbookSectorBadge = document.getElementById('playbook-sector-badge');
+  const playbookHeading = document.getElementById('playbook-heading');
+  const playbookPersona = document.getElementById('playbook-persona');
+  const playbookBriefEs = document.getElementById('playbook-brief-es');
+  const playbookBriefEn = document.getElementById('playbook-brief-en');
+  const playbookCulturalBox = document.getElementById('playbook-cultural-box');
+  const playbookCulturalEs = document.getElementById('playbook-cultural-es');
+  const playbookCulturalEn = document.getElementById('playbook-cultural-en');
+  const playbookTurnsAccordion = document.getElementById('playbook-turns-accordion');
+  const playbookTurnsList = document.getElementById('playbook-turns-list');
+  const btnPlaybookToggleAll = document.getElementById('btn-playbook-toggle-all');
+  const btnPlaybookAddTurn = document.getElementById('btn-playbook-add-turn');
+  const playbookVocabCount = document.getElementById('playbook-vocab-count');
+  const playbookVocabList = document.getElementById('playbook-vocab-list');
+  const btnApplyPlaybookVocab = document.getElementById('btn-apply-playbook-vocab');
+  const playbookRefineNote = document.getElementById('playbook-refine-note');
+  const btnPlaybookRegenerate = document.getElementById('btn-playbook-regenerate');
+  const playbookNotice = document.getElementById('playbook-notice');
+  const playbookNoticeText = document.getElementById('playbook-notice-text');
+  const btnPlaybookStartLive = document.getElementById('btn-playbook-start-live');
+  const btnPlaybookExport = document.getElementById('btn-playbook-export');
+  const btnPlaybookBack = document.getElementById('btn-playbook-back');
+
+  // Paso 3: En vivo + Coach + Texto opcional
   const trainingProgress = document.getElementById('training-progress');
   const trainingState = document.getElementById('training-state');
+  const trainingCounterpartLabel = document.getElementById('training-counterpart-label');
   const trainingQuestionEn = document.getElementById('training-question-en');
   const trainingQuestionEs = document.getElementById('training-question-es');
+  const trainingLiveCoach = document.getElementById('training-live-coach');
+  const coachIntent = document.getElementById('coach-intent');
+  const coachHow = document.getElementById('coach-how');
+  const coachPhrases = document.getElementById('coach-phrases');
+  const coachSampleEn = document.getElementById('coach-sample-en');
+  const coachSampleEs = document.getElementById('coach-sample-es');
   const trainingAnswerEs = document.getElementById('training-answer-es');
   const trainingAnswerEn = document.getElementById('training-answer-en');
+  const trainingTextAnswer = document.getElementById('training-text-answer');
+  const btnTrainingSendText = document.getElementById('btn-training-send-text');
   const btnTrainingDone = document.getElementById('btn-training-done');
   const btnTrainingStop = document.getElementById('btn-training-stop');
+
+  // Paso 4: Evaluación
+  const btnTrainingRepeatPlaybook = document.getElementById('btn-training-repeat-playbook');
   const btnTrainingSave = document.getElementById('btn-training-save');
   const btnTrainingAgain = document.getElementById('btn-training-again');
 
   const TRAINING_PREFS = 'vibetranslate_training';
-  const RECOMMENDATION_ES = { hire: 'Contratar', maybe: 'Dudoso', 'no hire': 'No contratar' };
+  const TRAINING_RECENTS = 'vibetranslate_recent_playbooks';
+  const TRAINING_STEP_ORDER = ['setup', 'playbook', 'live', 'result'];
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  let training = null; // la entrevista en curso o la última terminada
+  let training = null; // la sesión en curso o la última terminada
+  let draftSetup = null; // configuración actual del libreto en Paso 2
+  let draftPlaybook = null; // libreto editable generado por IA
   let trainingAudio = null;
   let lastMicVoiceAt = 0;
+  let isGeneratingPlaybook = false;
 
   function noteMicVoice() {
     lastMicVoiceAt = Date.now();
   }
 
-  function showTrainingPanel(which) {
-    for (const [name, el] of Object.entries(trainingPanels)) el.hidden = name !== which;
+  function getSelectedTrainingMode() {
+    const checked = Array.from(trainingModeRadios).find((r) => r.checked);
+    return checked ? checked.value : 'interview';
+  }
+
+  function setSelectedTrainingMode(mode) {
+    const target = mode === 'meeting' ? 'meeting' : 'interview';
+    trainingModeRadios.forEach((r) => { r.checked = r.value === target; });
+  }
+
+  function populateTrainingSectors() {
+    if (!trainingSector || trainingSector.options.length > 0) return;
+    SECTORS.forEach((sector) => {
+      const opt = document.createElement('option');
+      opt.value = sector.id;
+      opt.textContent = sector.label;
+      trainingSector.appendChild(opt);
+    });
+  }
+
+  function updateTopicChips() {
+    if (!trainingTopicChips) return;
+    const mode = getSelectedTrainingMode();
+    const sectorId = trainingSector ? trainingSector.value : 'm365';
+    const topics = getTopicsFor(mode, sectorId);
+    const current = (trainingTopic ? trainingTopic.value : '').trim();
+
+    trainingTopicChips.replaceChildren(...topics.map((topic) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'topic-chip';
+      btn.textContent = topic;
+      btn.setAttribute('aria-pressed', String(current === topic));
+      btn.addEventListener('click', () => {
+        if (trainingTopic) {
+          trainingTopic.value = topic;
+          clearFieldError(trainingTopic, trainingTopicErr);
+        }
+        updateTopicChips();
+      });
+      return btn;
+    }));
+  }
+
+  function setFieldError(input, errEl, message) {
+    if (!input || !errEl) return;
+    input.setAttribute('aria-invalid', 'true');
+    errEl.textContent = message;
+    errEl.hidden = false;
+  }
+
+  function clearFieldError(input, errEl) {
+    if (!input || !errEl) return;
+    input.removeAttribute('aria-invalid');
+    errEl.textContent = '';
+    errEl.hidden = true;
+  }
+
+  function validateTrainingSetup({ focusOnError = false } = {}) {
+    let firstInvalid = null;
+    if (trainingSector && trainingSector.value === 'custom' && trainingSectorCustom) {
+      if (!trainingSectorCustom.value.trim()) {
+        setFieldError(trainingSectorCustom, trainingSectorCustomErr, 'Escribe el nombre de tu sector o elige uno de la lista.');
+        firstInvalid = firstInvalid || trainingSectorCustom;
+      } else {
+        clearFieldError(trainingSectorCustom, trainingSectorCustomErr);
+      }
+    }
+    if (trainingTopic && !trainingTopic.value.trim()) {
+      setFieldError(trainingTopic, trainingTopicErr, 'Elige un tema sugerido o escribe la situación que quieres practicar.');
+      firstInvalid = firstInvalid || trainingTopic;
+    } else {
+      clearFieldError(trainingTopic, trainingTopicErr);
+    }
+    if (firstInvalid && focusOnError) firstInvalid.focus();
+    return !firstInvalid;
+  }
+
+  function readSetupFromForm(includePlaybook = false) {
+    const mode = getSelectedTrainingMode();
+    const sectorId = trainingSector ? trainingSector.value : 'm365';
+    const customSector = trainingSectorCustom ? trainingSectorCustom.value.trim() : '';
+    const sectorInfo = getSectorById(sectorId);
+    const topic = (trainingTopic ? trainingTopic.value.trim() : '') || (getTopicsFor(mode, sectorId)[0] || '');
+    return {
+      mode,
+      sectorId,
+      customSector,
+      sector: resolveSectorLabel(sectorId, customSector),
+      topic,
+      role: (trainingRole ? trainingRole.value.trim() : '') || sectorInfo.defaultRole,
+      level: trainingLevel ? trainingLevel.value : 'senior',
+      questions: Number(trainingLength ? trainingLength.value : 5) || 5,
+      context: trainingContext ? trainingContext.value.trim() : '',
+      voice: trainingVoice ? trainingVoice.value : 'en',
+      turn: trainingTurn ? trainingTurn.value : 'pause',
+      ...(includePlaybook && draftPlaybook ? { playbook: draftPlaybook } : {})
+    };
+  }
+
+  function updateStepIndicator(which) {
+    if (!trainingStepsList) return;
+    const activeIdx = TRAINING_STEP_ORDER.indexOf(which);
+    Array.from(trainingStepsList.children).forEach((li, idx) => {
+      li.classList.toggle('step-done', idx < activeIdx);
+      if (idx === activeIdx) li.setAttribute('aria-current', 'step');
+      else li.removeAttribute('aria-current');
+    });
+  }
+
+  function showTrainingPanel(which, { focusHeading = false } = {}) {
+    for (const [name, el] of Object.entries(trainingPanels)) {
+      if (el) el.hidden = name !== which;
+    }
+    updateStepIndicator(which);
+    if (trainingBody) trainingBody.scrollTop = 0;
+    if (focusHeading && trainingPanelHeadings[which]) {
+      trainingPanelHeadings[which].focus();
+    }
   }
 
   function setTrainingState(text) {
@@ -1125,14 +1320,90 @@ document.addEventListener('DOMContentLoaded', async () => {
     trainingAnswerEn.textContent = english;
   }
 
+  function setLiveTextInputEnabled(enabled) {
+    if (trainingTextAnswer) trainingTextAnswer.disabled = !enabled;
+    if (btnTrainingSendText) btnTrainingSendText.disabled = !enabled;
+  }
+
+  function loadRecentPlaybooksList() {
+    try {
+      const list = JSON.parse(localStorage.getItem(TRAINING_RECENTS) || '[]');
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function persistRecentPlaybook(setup, playbook) {
+    try {
+      const id = `${setup.mode}:${setup.sector}:${setup.topic}`.toLowerCase().slice(0, 120);
+      const updated = upsertRecentPlaybook(loadRecentPlaybooksList(), {
+        id,
+        savedAt: new Date().toISOString(),
+        setup: { ...setup, playbook: undefined },
+        playbook
+      });
+      localStorage.setItem(TRAINING_RECENTS, JSON.stringify(updated));
+      renderRecentPlaybooks();
+    } catch { /* almacenamiento lleno: no bloquea */ }
+  }
+
+  function renderRecentPlaybooks() {
+    if (!trainingRecentSection || !trainingRecentList) return;
+    const recents = loadRecentPlaybooksList();
+    trainingRecentSection.hidden = recents.length === 0;
+    if (recents.length === 0) return;
+
+    trainingRecentList.replaceChildren(...recents.map((item) => {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'recent-item-btn';
+      const title = document.createElement('span');
+      title.className = 'recent-item-title';
+      title.textContent = (item.playbook.scenarioTitle && item.playbook.scenarioTitle.es) || item.setup.topic;
+      const meta = document.createElement('span');
+      meta.className = 'recent-item-meta';
+      const modeTag = item.setup.mode === 'meeting' ? 'Reunión' : 'Entrevista';
+      meta.textContent = `${modeTag} · ${item.setup.sector} · ${(item.playbook.turns || []).length} turnos`;
+      btn.append(title, meta);
+      btn.addEventListener('click', () => {
+        draftSetup = { ...item.setup };
+        draftPlaybook = JSON.parse(JSON.stringify(item.playbook));
+        renderPlaybookView();
+        showTrainingPanel('playbook', { focusHeading: true });
+      });
+      li.appendChild(btn);
+      return li;
+    }));
+  }
+
   function loadTrainingPrefs() {
+    populateTrainingSectors();
     try {
       const p = JSON.parse(localStorage.getItem(TRAINING_PREFS) || '{}');
-      if (p.role) trainingRole.value = p.role;
-      if (p.questions) trainingLength.value = String(p.questions);
-      if (p.voice) trainingVoice.value = p.voice;
-      if (p.turn) trainingTurn.value = p.turn;
+      if (p.mode) setSelectedTrainingMode(p.mode);
+      if (p.sectorId && Array.from(trainingSector.options).some((o) => o.value === p.sectorId)) {
+        trainingSector.value = p.sectorId;
+      }
+      if (trainingSectorCustomGroup) trainingSectorCustomGroup.hidden = trainingSector.value !== 'custom';
+      if (p.customSector && trainingSectorCustom) trainingSectorCustom.value = p.customSector;
+      if (p.topic && trainingTopic) trainingTopic.value = p.topic;
+      if (p.role && trainingRole) trainingRole.value = p.role;
+      if (p.level && trainingLevel) trainingLevel.value = p.level;
+      if (p.questions && trainingLength && Array.from(trainingLength.options).some((o) => o.value === String(p.questions))) {
+        trainingLength.value = String(p.questions);
+      }
+      if (p.context !== undefined && trainingContext) trainingContext.value = p.context;
+      if (p.voice && trainingVoice) trainingVoice.value = p.voice;
+      if (p.turn && trainingTurn) trainingTurn.value = p.turn;
     } catch { /* preferencias dañadas: se usan las de la pantalla */ }
+    if (trainingTopic && !trainingTopic.value.trim()) {
+      const suggestions = getTopicsFor(getSelectedTrainingMode(), trainingSector.value);
+      if (suggestions[0]) trainingTopic.value = suggestions[0];
+    }
+    updateTopicChips();
+    renderRecentPlaybooks();
   }
 
   function renderTrainingNotice(problem = '') {
@@ -1140,14 +1411,295 @@ document.addEventListener('DOMContentLoaded', async () => {
     let action = false;
     if (!text && (isLiveToggleActive || isPipelineRunning)) text = 'Detén la traducción de la reunión para practicar: las dos usan tu micrófono.';
     if (!text && translationModeSelect && translationModeSelect.value === 'local') {
-      text = 'Tu traducción está en «Siempre en el equipo»: el entrevistador recibirá la traducción local, que es menos precisa. Para la mejor calidad, elige «En la nube si hay red».';
+      text = 'Tu traducción está en «Siempre en el equipo»: el interlocutor recibirá la traducción local, que es menos precisa. Para la mejor calidad, elige «En la nube si hay red».';
       action = true;
     }
     trainingNotice.hidden = !text;
     trainingNotice.dataset.state = problem ? 'error' : 'warn';
     trainingNoticeText.textContent = text;
     trainingNoticeAction.hidden = !action;
-    btnTrainingStart.disabled = isLiveToggleActive || isPipelineRunning;
+    const busy = isLiveToggleActive || isPipelineRunning || isGeneratingPlaybook;
+    if (btnTrainingStart) btnTrainingStart.disabled = busy;
+    if (btnTrainingGenerate) btnTrainingGenerate.disabled = busy;
+  }
+
+  function showPlaybookError(message = '') {
+    if (!playbookNotice || !playbookNoticeText) return;
+    playbookNotice.hidden = !message;
+    playbookNoticeText.textContent = message;
+  }
+
+  function syncPlaybookToggleAllButton() {
+    if (!btnPlaybookToggleAll || !playbookTurnsList) return;
+    const items = Array.from(playbookTurnsList.querySelectorAll(':scope > details'));
+    const allOpen = items.length > 0 && items.every((d) => d.open);
+    btnPlaybookToggleAll.setAttribute('aria-expanded', String(allOpen));
+    btnPlaybookToggleAll.textContent = allOpen ? 'Contraer todo' : 'Expandir todo';
+  }
+
+  function renderPlaybookView() {
+    if (!draftPlaybook || !draftSetup) return;
+    showPlaybookError('');
+    const pb = draftPlaybook;
+    const isMeeting = draftSetup.mode === 'meeting';
+
+    playbookModeBadge.textContent = isMeeting ? 'Reunión internacional' : 'Entrevista';
+    playbookSectorBadge.textContent = draftSetup.sector || 'Internacional';
+    playbookHeading.textContent = (pb.scenarioTitle && pb.scenarioTitle.es) || draftSetup.topic;
+
+    const p = pb.interlocutor || {};
+    const personaParts = [p.name, p.role, p.location].filter(Boolean);
+    playbookPersona.textContent = `${personaParts.join(' · ')}${p.style ? ` — ${p.style}` : ''}`;
+    playbookBriefEs.textContent = (pb.brief && pb.brief.es) || '';
+    playbookBriefEn.textContent = (pb.brief && pb.brief.en && pb.brief.en !== pb.brief.es) ? pb.brief.en : '';
+
+    if (pb.culturalTip && (pb.culturalTip.es || pb.culturalTip.en)) {
+      playbookCulturalBox.hidden = false;
+      playbookCulturalEs.textContent = pb.culturalTip.es;
+      playbookCulturalEn.textContent = pb.culturalTip.en !== pb.culturalTip.es ? pb.culturalTip.en : '';
+    } else {
+      playbookCulturalBox.hidden = true;
+    }
+
+    // Renderizar acordeón de turnos editables (sin headings dentro de <summary>)
+    const turns = Array.isArray(pb.turns) ? pb.turns : [];
+    playbookTurnsList.replaceChildren(...turns.map((turn, idx) => {
+      const details = document.createElement('details');
+      details.className = 'playbook-turn';
+      if (idx === 0) details.open = true;
+
+      const summary = document.createElement('summary');
+      const num = document.createElement('span');
+      num.className = 'turn-summary-num';
+      num.textContent = String(idx + 1);
+      const summaryText = document.createElement('span');
+      summaryText.className = 'turn-summary-text';
+      summaryText.textContent = (turn.question && (turn.question.en || turn.question.es)) || `Turno ${idx + 1}`;
+      summary.append(num, summaryText);
+
+      const body = document.createElement('div');
+      body.className = 'playbook-turn-body';
+
+      const qWrap = document.createElement('div');
+      const qLabel = document.createElement('label');
+      qLabel.className = 'turn-edit-label';
+      const qId = `pb-turn-q-${idx}`;
+      qLabel.htmlFor = qId;
+      qLabel.textContent = isMeeting ? 'Intervención / pregunta en inglés (editable)' : 'Pregunta en inglés (editable)';
+      const qInput = document.createElement('textarea');
+      qInput.id = qId;
+      qInput.className = 'turn-edit-input';
+      qInput.rows = 2;
+      qInput.value = (turn.question && turn.question.en) || '';
+      qInput.addEventListener('input', () => {
+        draftPlaybook = updatePlaybookTurn(draftPlaybook, idx, { question: { en: qInput.value } });
+        summaryText.textContent = qInput.value.trim() || `Turno ${idx + 1}`;
+      });
+      qWrap.append(qLabel, qInput);
+      if (turn.question && turn.question.es) {
+        const qEs = document.createElement('p');
+        qEs.className = 'turn-sub-es';
+        qEs.textContent = turn.question.es;
+        qWrap.appendChild(qEs);
+      }
+      body.appendChild(qWrap);
+
+      if (turn.intent) {
+        const b = document.createElement('div');
+        b.className = 'playbook-meta-block';
+        const st = document.createElement('strong');
+        st.textContent = 'Qué evalúa la IA';
+        const pIntent = document.createElement('p');
+        pIntent.textContent = turn.intent;
+        b.append(st, pIntent);
+        body.appendChild(b);
+      }
+
+      if (turn.howToAnswer) {
+        const b = document.createElement('div');
+        b.className = 'playbook-meta-block';
+        const st = document.createElement('strong');
+        st.textContent = 'Cómo responder';
+        const pHow = document.createElement('p');
+        pHow.textContent = turn.howToAnswer;
+        b.append(st, pHow);
+        body.appendChild(b);
+      }
+
+      if (turn.sampleAnswer && (turn.sampleAnswer.en || turn.sampleAnswer.es)) {
+        const b = document.createElement('div');
+        b.className = 'playbook-meta-block';
+        const st = document.createElement('strong');
+        st.textContent = 'Respuesta modelo';
+        const box = document.createElement('div');
+        box.className = 'playbook-sample-box';
+        const en = document.createElement('p');
+        en.className = 'playbook-sample-en';
+        en.textContent = turn.sampleAnswer.en;
+        box.appendChild(en);
+        if (turn.sampleAnswer.es && turn.sampleAnswer.es !== turn.sampleAnswer.en) {
+          const es = document.createElement('p');
+          es.className = 'playbook-sample-es';
+          es.textContent = turn.sampleAnswer.es;
+          box.appendChild(es);
+        }
+        b.append(st, box);
+        body.appendChild(b);
+      }
+
+      if (Array.isArray(turn.keyPhrases) && turn.keyPhrases.length > 0) {
+        const b = document.createElement('div');
+        b.className = 'playbook-meta-block';
+        const st = document.createElement('strong');
+        st.textContent = 'Frases clave en inglés';
+        const chips = document.createElement('div');
+        chips.className = 'phrase-chips';
+        turn.keyPhrases.forEach((ph) => {
+          const chip = document.createElement('span');
+          chip.className = 'phrase-chip';
+          chip.textContent = ph.en;
+          if (ph.es && ph.es !== ph.en) {
+            const sm = document.createElement('small');
+            sm.textContent = `(${ph.es})`;
+            chip.appendChild(sm);
+          }
+          chips.appendChild(chip);
+        });
+        b.append(st, chips);
+        body.appendChild(b);
+      }
+
+      if (Array.isArray(turn.evalCriteria) && turn.evalCriteria.length > 0) {
+        const b = document.createElement('div');
+        b.className = 'playbook-meta-block';
+        const st = document.createElement('strong');
+        st.textContent = 'Criterios de evaluación';
+        const ul = document.createElement('ul');
+        ul.className = 'criteria-list';
+        turn.evalCriteria.forEach((c) => {
+          const li = document.createElement('li');
+          li.textContent = c;
+          ul.appendChild(li);
+        });
+        b.append(st, ul);
+        body.appendChild(b);
+      }
+
+      if (turns.length > 1) {
+        const foot = document.createElement('div');
+        foot.className = 'turn-footer-actions';
+        const delBtn = document.createElement('button');
+        delBtn.type = 'button';
+        delBtn.className = 'link-btn btn-danger';
+        delBtn.textContent = 'Quitar turno';
+        delBtn.addEventListener('click', () => {
+          draftPlaybook = removePlaybookTurn(draftPlaybook, idx);
+          renderPlaybookView();
+        });
+        foot.appendChild(delBtn);
+        body.appendChild(foot);
+      }
+
+      details.append(summary, body);
+      return details;
+    }));
+    syncPlaybookToggleAllButton();
+
+    // Glosario del sector
+    const vocab = Array.isArray(pb.vocabulary) ? pb.vocabulary : [];
+    if (playbookVocabCount) playbookVocabCount.textContent = String(vocab.length);
+    if (playbookVocabList) {
+      playbookVocabList.replaceChildren(...(vocab.length > 0
+        ? vocab.map((v) => {
+          const li = document.createElement('li');
+          const b = document.createElement('strong');
+          b.textContent = v.term;
+          li.append(b, document.createTextNode(v.es ? ` — ${v.es}` : ''));
+          if (v.usage) {
+            const sm = document.createElement('small');
+            sm.textContent = v.usage;
+            li.appendChild(sm);
+          }
+          return li;
+        })
+        : [Object.assign(document.createElement('li'), { textContent: 'Sin términos específicos adicionales.' })]));
+    }
+  }
+
+  async function generatePlaybookFlow({ refineNote = '' } = {}) {
+    if (isGeneratingPlaybook) return;
+    const isRegen = Boolean(refineNote || (draftPlaybook && !trainingPanels.playbook.hidden));
+    if (!isRegen && !validateTrainingSetup({ focusOnError: true })) return;
+
+    const setup = isRegen && draftSetup ? { ...draftSetup } : readSetupFromForm(false);
+    localStorage.setItem(TRAINING_PREFS, JSON.stringify({ ...setup, playbook: undefined }));
+
+    isGeneratingPlaybook = true;
+    const activeBtn = isRegen ? btnPlaybookRegenerate : btnTrainingGenerate;
+    const origText = activeBtn ? activeBtn.textContent : '';
+    if (activeBtn) {
+      activeBtn.disabled = true;
+      activeBtn.textContent = 'Creando libreto con IA…';
+    }
+    renderTrainingNotice();
+    showPlaybookError('');
+
+    try {
+      appendLog('PRÁCTICA', `Generando libreto IA (${setup.mode}, ${setup.sector}): "${setup.topic}"...`);
+      const res = await ipcRenderer.invoke('TRAINING_GENERATE_PLAYBOOK', { setup, refineNote });
+      if (!res || !res.ok || !res.playbook) {
+        const msg = (res && res.error) || 'No se pudo generar el libreto con IA.';
+        if (isRegen) showPlaybookError(msg);
+        else renderTrainingNotice(msg);
+        return;
+      }
+      draftSetup = setup;
+      draftPlaybook = res.playbook;
+      if (playbookRefineNote) playbookRefineNote.value = '';
+      persistRecentPlaybook(draftSetup, draftPlaybook);
+      renderPlaybookView();
+      showTrainingPanel('playbook', { focusHeading: true });
+      appendLog('PRÁCTICA', `Libreto listo (${res.model}) con ${res.playbook.turns.length} turnos.`);
+    } catch (err) {
+      const msg = `Error generando libreto: ${err.message}`;
+      if (isRegen) showPlaybookError(msg);
+      else renderTrainingNotice(msg);
+    } finally {
+      isGeneratingPlaybook = false;
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.textContent = origText;
+      }
+      renderTrainingNotice();
+    }
+  }
+
+  function updateLiveCoach(t) {
+    if (!trainingLiveCoach) return;
+    const turns = t && t.setup && t.setup.playbook && Array.isArray(t.setup.playbook.turns)
+      ? t.setup.playbook.turns
+      : [];
+    const idx = Math.min(Math.max(0, t.asked - 1), turns.length - 1);
+    const turn = turns[idx];
+    if (!turn) {
+      trainingLiveCoach.hidden = true;
+      return;
+    }
+    trainingLiveCoach.hidden = false;
+    if (coachIntent) coachIntent.textContent = turn.intent || 'Claridad, criterio y estructura profesional.';
+    if (coachHow) coachHow.textContent = turn.howToAnswer || 'Responde al grano y cierra con un ejemplo concreto.';
+    if (coachPhrases) {
+      coachPhrases.replaceChildren(...(turn.keyPhrases || []).map((ph) => {
+        const chip = document.createElement('span');
+        chip.className = 'phrase-chip';
+        chip.textContent = ph.en;
+        return chip;
+      }));
+    }
+    if (coachSampleEn) coachSampleEn.textContent = (turn.sampleAnswer && turn.sampleAnswer.en) || '';
+    if (coachSampleEs) coachSampleEs.textContent = (turn.sampleAnswer && turn.sampleAnswer.es) || '';
+    const sampleDetails = trainingLiveCoach.querySelector('.coach-sample-details');
+    if (sampleDetails) sampleDetails.open = false;
   }
 
   function openTraining() {
@@ -1157,7 +1709,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!training || !training.active) {
       loadTrainingPrefs();
       renderTrainingNotice();
-      if (!training) showTrainingPanel('setup');
+      if (!training && !draftPlaybook) showTrainingPanel('setup');
+      else if (training && training.evaluation) showTrainingPanel('result');
+      else if (draftPlaybook) showTrainingPanel('playbook');
+      else showTrainingPanel('setup');
     }
     btnCloseTraining.focus();
   }
@@ -1186,20 +1741,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     training = null;
     endTrainingAudio();
+    setLiveTextInputEnabled(false);
     document.body.classList.remove('training-listening');
     if (isPipelineRunning) stopTranslationPipeline();
-    showTrainingPanel('setup');
-    renderTrainingNotice(problem);
+    if (draftPlaybook) {
+      showTrainingPanel('playbook');
+      showPlaybookError(problem);
+    } else {
+      showTrainingPanel('setup');
+      renderTrainingNotice(problem);
+    }
   }
 
-  /** La traducción al español de lo que dice el entrevistador (la nube, y si no hay, el traductor local). */
-  async function translateForTraining(text) {
+  /** Traduce al español lo que dice el interlocutor (o al inglés una respuesta escrita en español). */
+  async function translateForTraining(text, from = 'en', to = 'es') {
     try {
-      const res = await ipcRenderer.invoke('TRANSLATE_TEXT', { text, sourceLang: 'en', targetLang: 'es' });
+      const res = await ipcRenderer.invoke('TRANSLATE_TEXT', { text, sourceLang: from, targetLang: to });
       if (res && res.translated && res.engine !== 'none') return res.translated.trim();
     } catch { /* sin nube: el traductor local */ }
     try {
-      const res = await ipcRenderer.invoke('LOCAL_AI_TRANSLATE', { text, source: 'en', target: 'es' });
+      const res = await ipcRenderer.invoke('LOCAL_AI_TRANSLATE', { text, source: from, target: to });
       return res && res.translated ? String(res.translated).trim() : '';
     } catch {
       return '';
@@ -1256,33 +1817,49 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  /** El entrevistador habla: pide su siguiente turno, lo muestra con la traducción y lo dice en voz alta. */
+  /** El interlocutor habla: pide su siguiente turno, lo muestra con la traducción y lo dice en voz alta. */
   async function interviewerTurn(t) {
     t.phase = 'thinking';
     btnTrainingDone.disabled = true;
+    setLiveTextInputEnabled(false);
     document.body.classList.remove('training-listening');
-    setTrainingState('El entrevistador piensa…');
-    const r = await ipcRenderer.invoke('TRAINING_NEXT', { setup: t.setup, history: t.history.map(({ role, text, original }) => ({ role, text, original })) });
+    const isMeeting = t.setup.mode === 'meeting';
+    const whoLabel = (t.setup.playbook && t.setup.playbook.interlocutor && t.setup.playbook.interlocutor.name)
+      ? `${t.setup.playbook.interlocutor.name}${t.setup.playbook.interlocutor.role ? ` · ${t.setup.playbook.interlocutor.role}` : ''}`
+      : (isMeeting ? 'Interlocutor internacional' : 'Entrevistador');
+    if (trainingCounterpartLabel) trainingCounterpartLabel.textContent = whoLabel;
+    setTrainingState(isMeeting ? 'El equipo responde…' : 'El entrevistador piensa…');
+
+    const r = await ipcRenderer.invoke('TRAINING_NEXT', {
+      setup: t.setup,
+      history: t.history.map(({ role, text, original }) => ({ role, text, original }))
+    });
     if (training !== t || !t.active) return;
     if (!r || !r.ok) {
-      abortTraining(`El entrevistador no pudo continuar: ${(r && r.error) || 'sin respuesta'}`);
+      abortTraining(`No se pudo continuar la simulación: ${(r && r.error) || 'sin respuesta'}`);
       return;
     }
     const entry = { role: 'interviewer', text: r.text, translated: '' };
     t.history.push(entry);
     if (!r.end) t.asked++;
-    trainingProgress.textContent = r.end ? 'Fin de la entrevista' : `Pregunta ${t.asked} de unas ${t.setup.questions}`;
+    const totalTurns = (t.setup.playbook && t.setup.playbook.turns && t.setup.playbook.turns.length) || t.setup.questions;
+    trainingProgress.textContent = r.end
+      ? (isMeeting ? 'Cierre de la reunión' : 'Fin de la entrevista')
+      : `${isMeeting ? 'Turno' : 'Pregunta'} ${t.asked} de ${totalTurns}`;
     trainingQuestionEn.textContent = r.text;
     trainingQuestionEs.textContent = '…';
     setTrainingAnswer('', '');
-    appendLog('PRÁCTICA', `Entrevistador: ${r.text}`);
-    const translated = translateForTraining(r.text).then((es) => {
+    if (!r.end) updateLiveCoach(t);
+    else if (trainingLiveCoach) trainingLiveCoach.hidden = true;
+    appendLog('PRÁCTICA', `${whoLabel}: ${r.text}`);
+
+    const translated = translateForTraining(r.text, 'en', 'es').then((es) => {
       entry.translated = es;
       if (training === t) trainingQuestionEs.textContent = es;
       return es;
     });
     t.phase = 'speaking';
-    setTrainingState('El entrevistador habla…');
+    setTrainingState(isMeeting ? 'Habla tu interlocutor…' : 'El entrevistador habla…');
     await speakInterviewer(t, r.text, translated);
     if (training !== t || !t.active) return;
     if (r.end) {
@@ -1298,11 +1875,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     noteMicVoice();
     setTrainingAnswer('', '');
     btnTrainingDone.disabled = false;
+    setLiveTextInputEnabled(true);
     document.body.classList.add('training-listening');
-    setTrainingState(t.setup.turn === 'pause'
-      ? 'Te escucha: responde en español. Al callarte 3 segundos, tu respuesta se envía.'
-      : 'Te escucha: responde en español y pulsa «Terminé mi respuesta».');
+    if (t.textOnly) {
+      setTrainingState('Modo texto (sin micrófono): escribe tu respuesta abajo y pulsa Enter.');
+      if (trainingTextAnswer) trainingTextAnswer.focus();
+    } else {
+      setTrainingState(t.setup.turn === 'pause'
+        ? 'Te escucha: responde en español (o escribe abajo). Al callarte 3 s se envía.'
+        : 'Te escucha: responde en español y pulsa «Terminé mi respuesta».');
+    }
     clearInterval(t.timer);
+    if (t.textOnly) return;
     t.timer = setInterval(() => {
       if (training !== t || t.phase !== 'listening') {
         clearInterval(t.timer);
@@ -1323,18 +1907,43 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTrainingAnswer(a.spanish, a.english);
   }
 
+  async function submitTextAnswer(t) {
+    if (!t || training !== t || t.phase !== 'listening' || !trainingTextAnswer) return;
+    const raw = trainingTextAnswer.value.trim();
+    if (!raw) return;
+    trainingTextAnswer.value = '';
+    setLiveTextInputEnabled(false);
+    btnTrainingDone.disabled = true;
+    t.phase = 'sending';
+    clearInterval(t.timer);
+    setTrainingState('Traduciendo tu respuesta…');
+    const translated = (await translateForTraining(raw, 'es', 'en')) || raw;
+    if (training !== t || !t.active) return;
+    t.answer.add({ lineId: `text-${Date.now()}`, original: raw, translated });
+    const a = t.answer.get();
+    setTrainingAnswer(a.spanish, a.english);
+    t.history.push({ role: 'candidate', text: a.english, original: a.spanish });
+    appendLog('PRÁCTICA', `Tu respuesta llegó así: ${a.english}`);
+    await interviewerTurn(t);
+  }
+
   async function submitAnswer(t, { manual = false } = {}) {
     if (training !== t || t.phase !== 'listening') return;
+    if (trainingTextAnswer && trainingTextAnswer.value.trim()) {
+      await submitTextAnswer(t);
+      return;
+    }
     t.phase = 'sending';
     clearInterval(t.timer);
     btnTrainingDone.disabled = true;
+    setLiveTextInputEnabled(false);
     // Al pulsar «Terminé» justo al acabar de hablar, la última frase aún se está transcribiendo: se espera un poco
     const deadline = Date.now() + (manual ? 4000 : 1500);
     while (Date.now() < deadline && (Date.now() - lastMicVoiceAt < 900 || Date.now() - t.answer.get().lastAt < 1200)) await sleep(200);
     if (training !== t || !t.active) return;
     const a = t.answer.get();
     if (!a.count || !a.english) {
-      setTrainingState('No te he oído todavía: responde en español.');
+      setTrainingState('No te he oído todavía: responde en español o escribe abajo.');
       listenForAnswer(t);
       return;
     }
@@ -1347,14 +1956,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     t.phase = 'evaluating';
     clearInterval(t.timer);
     btnTrainingDone.disabled = true;
+    setLiveTextInputEnabled(false);
     document.body.classList.remove('training-listening');
     if (isPipelineRunning) stopTranslationPipeline();
     if (!t.history.some((h) => h.role === 'candidate')) {
       abortTraining();
       return;
     }
-    setTrainingState('El entrevistador prepara tu evaluación…');
-    const r = await ipcRenderer.invoke('TRAINING_EVALUATE', { setup: t.setup, history: t.history.map(({ role, text, original }) => ({ role, text, original })) });
+    setTrainingState('Evaluando tus respuestas turno por turno…');
+    const r = await ipcRenderer.invoke('TRAINING_EVALUATE', {
+      setup: t.setup,
+      history: t.history.map(({ role, text, original }) => ({ role, text, original }))
+    });
     if (training !== t) return;
     t.active = false;
     if (!r || !r.ok) {
@@ -1363,7 +1976,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     t.evaluation = r.evaluation;
     renderTrainingResult(t);
-    showTrainingPanel('result');
+    showTrainingPanel('result', { focusHeading: true });
   }
 
   function bilingualItem(item) {
@@ -1381,7 +1994,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const e = t.evaluation;
     document.getElementById('training-score').textContent = formatScore(e.overall);
     const rec = document.getElementById('training-recommendation');
-    rec.textContent = RECOMMENDATION_ES[e.recommendation] || e.recommendation;
+    rec.textContent = RECOMMENDATION[e.recommendation] || e.recommendation;
     rec.dataset.rec = e.recommendation;
     document.getElementById('training-verdict').textContent = e.verdict.es;
     const cats = document.getElementById('training-categories');
@@ -1404,6 +2017,68 @@ document.addEventListener('DOMContentLoaded', async () => {
       li.append(head, bar, note);
       return li;
     }));
+
+    // Revisión turno por turno (acordeón nativo <details>)
+    const tfSection = document.getElementById('training-turn-feedback-section');
+    const tfContainer = document.getElementById('training-turn-feedback');
+    const turnItems = Array.isArray(e.turnFeedback) ? e.turnFeedback : [];
+    if (tfSection && tfContainer) {
+      tfSection.hidden = turnItems.length === 0;
+      tfContainer.replaceChildren(...turnItems.map((tf, idx) => {
+        const d = document.createElement('details');
+        d.className = 'turn-eval-card';
+        if (idx === 0) d.open = true;
+
+        const sum = document.createElement('summary');
+        const num = document.createElement('span');
+        num.className = 'turn-summary-num';
+        num.textContent = String(idx + 1);
+        const qText = document.createElement('span');
+        qText.className = 'turn-summary-text';
+        qText.textContent = tf.question || `Turno ${idx + 1}`;
+        const sc = document.createElement('span');
+        sc.className = 'turn-summary-score';
+        sc.textContent = `${formatScore(tf.score)}/10`;
+        sum.append(num, qText, sc);
+
+        const body = document.createElement('div');
+        body.className = 'turn-eval-body';
+        if (tf.strength && tf.strength.es) {
+          const p = document.createElement('p');
+          const b = document.createElement('strong');
+          b.textContent = 'Lo positivo: ';
+          p.append(b, document.createTextNode(tf.strength.es));
+          body.appendChild(p);
+        }
+        if (tf.improvement && tf.improvement.es) {
+          const p = document.createElement('p');
+          const b = document.createElement('strong');
+          b.textContent = 'Qué mejorar: ';
+          p.append(b, document.createTextNode(tf.improvement.es));
+          body.appendChild(p);
+        }
+        if (tf.betterAnswer && (tf.betterAnswer.en || tf.betterAnswer.es)) {
+          const box = document.createElement('div');
+          box.className = 'playbook-sample-box';
+          const lbl = document.createElement('strong');
+          lbl.textContent = 'Cómo decirlo en un equipo internacional';
+          const en = document.createElement('p');
+          en.className = 'playbook-sample-en';
+          en.textContent = tf.betterAnswer.en;
+          box.append(lbl, en);
+          if (tf.betterAnswer.es && tf.betterAnswer.es !== tf.betterAnswer.en) {
+            const es = document.createElement('p');
+            es.className = 'playbook-sample-es';
+            es.textContent = tf.betterAnswer.es;
+            box.appendChild(es);
+          }
+          body.appendChild(box);
+        }
+        d.append(sum, body);
+        return d;
+      }));
+    }
+
     for (const [id, items, empty] of [
       ['training-strengths', e.strengths, 'Nada destacado.'],
       ['training-improvements', e.improvements, 'Nada que mejorar.'],
@@ -1412,11 +2087,22 @@ document.addEventListener('DOMContentLoaded', async () => {
       const ul = document.getElementById(id);
       ul.replaceChildren(...(items.length ? items.map(bilingualItem) : [bilingualItem({ es: empty, en: '' })]));
     }
+
+    const nextStepsBlock = document.getElementById('training-next-steps-block');
+    const nextStepsList = document.getElementById('training-next-steps');
+    const steps = Array.isArray(e.nextSteps) ? e.nextSteps : [];
+    if (nextStepsBlock && nextStepsList) {
+      nextStepsBlock.hidden = steps.length === 0;
+      nextStepsList.replaceChildren(...steps.map(bilingualItem));
+    }
+
+    const counterpartName = (t.setup.playbook && t.setup.playbook.interlocutor && t.setup.playbook.interlocutor.name)
+      || (t.setup.mode === 'meeting' ? 'Interlocutor' : 'Entrevistador');
     const transcript = document.getElementById('training-transcript');
     transcript.replaceChildren(...t.history.map((h) => {
       const p = document.createElement('p');
       const who = document.createElement('b');
-      who.textContent = h.role === 'interviewer' ? 'Entrevistador: ' : 'Tú: ';
+      who.textContent = h.role === 'interviewer' ? `${counterpartName}: ` : 'Tú: ';
       const main = document.createTextNode(h.role === 'interviewer' ? h.text : (h.original || ''));
       const sub = document.createElement('small');
       sub.textContent = h.role === 'interviewer' ? (h.translated || '') : `Lo que recibió: ${h.text}`;
@@ -1425,39 +2111,201 @@ document.addEventListener('DOMContentLoaded', async () => {
       p.append(who, main, sub);
       return p;
     }));
+
+    if (btnTrainingRepeatPlaybook) {
+      btnTrainingRepeatPlaybook.hidden = !(t.setup && t.setup.playbook);
+    }
   }
 
-  async function startTraining() {
+  async function startTraining({ usePlaybook = false } = {}) {
+    if (!usePlaybook && !validateTrainingSetup({ focusOnError: true })) return;
+    const baseSetup = usePlaybook && draftSetup ? { ...draftSetup } : readSetupFromForm(false);
     const setup = {
-      role: trainingRole.value.trim() || 'Senior SharePoint Online Developer',
-      questions: Number(trainingLength.value) || 8,
-      voice: trainingVoice.value,
-      turn: trainingTurn.value
+      ...baseSetup,
+      playbook: usePlaybook && draftPlaybook ? JSON.parse(JSON.stringify(draftPlaybook)) : null
     };
-    localStorage.setItem(TRAINING_PREFS, JSON.stringify(setup));
-    const t = { active: true, setup, history: [], answer: createAnswerCollector(), phase: 'starting', timer: null, asked: 0 };
+    if (setup.playbook && Array.isArray(setup.playbook.turns)) {
+      setup.questions = setup.playbook.turns.length;
+    }
+    localStorage.setItem(TRAINING_PREFS, JSON.stringify({ ...baseSetup, playbook: undefined }));
+
+    const t = { active: true, setup, history: [], answer: createAnswerCollector(), phase: 'starting', timer: null, asked: 0, textOnly: false };
     training = t;
-    showTrainingPanel('live');
+    showTrainingPanel('live', { focusHeading: true });
     trainingProgress.textContent = 'Empezando';
     trainingQuestionEn.textContent = '';
     trainingQuestionEs.textContent = '';
+    if (trainingLiveCoach) trainingLiveCoach.hidden = true;
     setTrainingAnswer('', '');
+    setLiveTextInputEnabled(false);
     setTrainingState('Preparando tu micrófono y el reconocimiento de voz…');
-    appendLog('PRÁCTICA', `Entrevista de práctica: ${setup.role}, unas ${setup.questions} preguntas.`);
+    appendLog('PRÁCTICA', `Simulación (${setup.mode}, ${setup.sector}): ${setup.topic} (${setup.questions} turnos).`);
+
     startProblem = null;
     await startTranslationPipeline({ micOnly: true });
     if (training !== t || !t.active) return;
     if (!isPipelineRunning) {
-      abortTraining(startProblem || 'No se pudo iniciar el micrófono.');
-      return;
+      // Si no hay micrófono disponible, permitir practicar igualmente respondiendo por texto
+      t.textOnly = true;
+      appendLog('PRÁCTICA', `Micrófono no disponible (${startProblem || 'sin dispositivo'}): continuando en modo texto.`, 'warn');
     }
     await interviewerTurn(t);
   }
 
+  // Eventos de Paso 1 (Configurar escenario)
+  trainingModeRadios.forEach((radio) => {
+    radio.addEventListener('change', () => {
+      const suggestions = getTopicsFor(getSelectedTrainingMode(), trainingSector.value);
+      if (trainingTopic && suggestions[0]) {
+        trainingTopic.value = suggestions[0];
+        clearFieldError(trainingTopic, trainingTopicErr);
+      }
+      updateTopicChips();
+    });
+  });
+
+  if (trainingSector) {
+    trainingSector.addEventListener('change', () => {
+      const sector = getSectorById(trainingSector.value);
+      if (trainingSectorCustomGroup) trainingSectorCustomGroup.hidden = sector.id !== 'custom';
+      if (sector.id !== 'custom') clearFieldError(trainingSectorCustom, trainingSectorCustomErr);
+      const isDefaultRole = SECTORS.some((s) => s.defaultRole === (trainingRole.value || '').trim());
+      if (trainingRole && (!trainingRole.value.trim() || isDefaultRole)) {
+        trainingRole.value = sector.defaultRole;
+      }
+      const suggestions = getTopicsFor(getSelectedTrainingMode(), sector.id);
+      if (trainingTopic && suggestions[0]) {
+        trainingTopic.value = suggestions[0];
+        clearFieldError(trainingTopic, trainingTopicErr);
+      }
+      updateTopicChips();
+    });
+  }
+
+  if (trainingTopic) {
+    trainingTopic.addEventListener('input', () => {
+      if (trainingTopic.value.trim()) clearFieldError(trainingTopic, trainingTopicErr);
+      updateTopicChips();
+    });
+    trainingTopic.addEventListener('blur', () => {
+      if (!trainingTopic.value.trim()) {
+        setFieldError(trainingTopic, trainingTopicErr, 'Elige un tema sugerido o escribe la situación que quieres practicar.');
+      }
+    });
+  }
+
+  if (trainingSectorCustom) {
+    trainingSectorCustom.addEventListener('input', () => {
+      if (trainingSectorCustom.value.trim()) clearFieldError(trainingSectorCustom, trainingSectorCustomErr);
+    });
+    trainingSectorCustom.addEventListener('blur', () => {
+      if (trainingSector.value === 'custom' && !trainingSectorCustom.value.trim()) {
+        setFieldError(trainingSectorCustom, trainingSectorCustomErr, 'Escribe el nombre de tu sector o elige uno de la lista.');
+      }
+    });
+  }
+
+  if (trainingSetupForm) {
+    trainingSetupForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      generatePlaybookFlow();
+    });
+  }
+
+  // Eventos de Paso 2 (Libreto IA)
+  if (playbookTurnsAccordion) {
+    playbookTurnsAccordion.addEventListener('toggle', (event) => {
+      if (event.target.matches('.playbook-turn')) syncPlaybookToggleAllButton();
+    }, { capture: true });
+  }
+
+  if (btnPlaybookToggleAll) {
+    btnPlaybookToggleAll.addEventListener('click', () => {
+      const expand = btnPlaybookToggleAll.getAttribute('aria-expanded') !== 'true';
+      playbookTurnsList.querySelectorAll(':scope > details').forEach((d) => { d.open = expand; });
+      syncPlaybookToggleAllButton();
+    });
+  }
+
+  if (btnPlaybookAddTurn) {
+    btnPlaybookAddTurn.addEventListener('click', () => {
+      if (!draftPlaybook || !draftSetup) return;
+      const nextIdx = (draftPlaybook.turns || []).length + 1;
+      draftPlaybook = addPlaybookTurn(draftPlaybook, createEmptyTurn(nextIdx, draftSetup.mode));
+      renderPlaybookView();
+      const all = playbookTurnsList.querySelectorAll(':scope > details');
+      const last = all[all.length - 1];
+      if (last) {
+        last.open = true;
+        const ta = last.querySelector('textarea');
+        if (ta) ta.focus();
+      }
+      syncPlaybookToggleAllButton();
+    });
+  }
+
+  if (btnApplyPlaybookVocab) {
+    btnApplyPlaybookVocab.addEventListener('click', async () => {
+      if (!draftPlaybook || !customVocabulary) return;
+      const merged = mergeVocabularyText(customVocabulary.value, draftPlaybook.vocabulary);
+      customVocabulary.value = merged.text;
+      await saveCurrentSettings();
+      btnApplyPlaybookVocab.textContent = merged.addedCount > 0 ? `+${merged.addedCount} añadidos` : 'Ya incluidos';
+      setTimeout(() => { btnApplyPlaybookVocab.textContent = 'Añadir al traductor'; }, 2400);
+    });
+  }
+
+  if (btnPlaybookRegenerate) {
+    btnPlaybookRegenerate.addEventListener('click', () => {
+      generatePlaybookFlow({ refineNote: playbookRefineNote ? playbookRefineNote.value.trim() : '' });
+    });
+  }
+
+  if (btnPlaybookExport) {
+    btnPlaybookExport.addEventListener('click', async () => {
+      if (!draftPlaybook) return;
+      const content = formatPlaybookReport({ setup: draftSetup, playbook: draftPlaybook });
+      try {
+        const res = await ipcRenderer.invoke('EXPORT_SESSION_REPORT', { content, format: 'txt' });
+        if (res && res.success) btnPlaybookExport.textContent = 'Guardado';
+        else if (res && !res.canceled) { navigator.clipboard.writeText(content); btnPlaybookExport.textContent = 'Copiado'; }
+      } catch {
+        navigator.clipboard.writeText(content);
+        btnPlaybookExport.textContent = 'Copiado';
+      }
+      setTimeout(() => { btnPlaybookExport.textContent = 'Guardar libreto'; }, 2400);
+    });
+  }
+
+  if (btnPlaybookBack) {
+    btnPlaybookBack.addEventListener('click', () => {
+      showTrainingPanel('setup', { focusHeading: true });
+    });
+  }
+
+  if (btnPlaybookStartLive) {
+    btnPlaybookStartLive.addEventListener('click', () => {
+      if (draftSetup && draftPlaybook) persistRecentPlaybook(draftSetup, draftPlaybook);
+      startTraining({ usePlaybook: true });
+    });
+  }
+
+  // Eventos de navegación y Paso 3 / Paso 4
   btnOpenTraining.addEventListener('click', openTraining);
   btnCloseTraining.addEventListener('click', closeTraining);
-  btnTrainingStart.addEventListener('click', () => { startTraining(); });
+  btnTrainingStart.addEventListener('click', () => { startTraining({ usePlaybook: false }); });
   btnTrainingDone.addEventListener('click', () => { if (training) submitAnswer(training, { manual: true }); });
+  if (btnTrainingSendText) {
+    btnTrainingSendText.addEventListener('click', () => { if (training) submitTextAnswer(training); });
+  }
+  if (trainingTextAnswer) {
+    trainingTextAnswer.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.isComposing) {
+        e.preventDefault();
+        if (training) submitTextAnswer(training);
+      }
+    });
+  }
   btnTrainingStop.addEventListener('click', () => {
     const t = training;
     if (!t || !t.active) return;
@@ -1466,14 +2314,31 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (t.phase === 'listening' && a.count && a.english) t.history.push({ role: 'candidate', text: a.english, original: a.spanish });
     finishTraining(t);
   });
+  if (btnTrainingRepeatPlaybook) {
+    btnTrainingRepeatPlaybook.addEventListener('click', () => {
+      if (training && training.setup && training.setup.playbook) {
+        draftSetup = { ...training.setup, playbook: undefined };
+        draftPlaybook = JSON.parse(JSON.stringify(training.setup.playbook));
+        training = null;
+        renderPlaybookView();
+        showTrainingPanel('playbook', { focusHeading: true });
+      }
+    });
+  }
   btnTrainingAgain.addEventListener('click', () => {
     training = null;
+    draftPlaybook = null;
     renderTrainingNotice();
-    showTrainingPanel('setup');
+    showTrainingPanel('setup', { focusHeading: true });
   });
   btnTrainingSave.addEventListener('click', async () => {
     if (!training || !training.evaluation) return;
-    const content = formatReport({ setup: training.setup, history: training.history, evaluation: training.evaluation });
+    const content = formatReport({
+      setup: training.setup,
+      history: training.history,
+      evaluation: training.evaluation,
+      playbook: training.setup && training.setup.playbook
+    });
     try {
       const res = await ipcRenderer.invoke('EXPORT_SESSION_REPORT', { content, format: 'txt' });
       if (res && res.success) btnTrainingSave.textContent = 'Guardado';
@@ -1482,7 +2347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       navigator.clipboard.writeText(content);
       btnTrainingSave.textContent = 'Copiado';
     }
-    setTimeout(() => { btnTrainingSave.textContent = 'Guardar el informe'; }, 2500);
+    setTimeout(() => { btnTrainingSave.textContent = 'Guardar informe'; }, 2500);
   });
   trainingNoticeAction.addEventListener('click', () => {
     viewTraining.hidden = true;
@@ -1493,10 +2358,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   appendLog('CONFIG', 'Iniciando sistema y cargando configuración...');
   const settings = await ipcRenderer.invoke('GET_SETTINGS');
   applySettingsToUI(settings);
-  await enumerateAudioDevices();
+  await enumerateAudioDevices(settings.micDeviceId, settings.virtualCableDeviceId);
   updateThresholdLine();
-  await loadFishVoiceModels(settings.fishVoiceModelId);
-  validateFishApiKey(false);
+  // Cargar voces y validar Fish Audio en segundo plano para nunca bloquear el inicio ni los controles
+  loadFishVoiceModels(settings.fishVoiceModelId).finally(() => validateFishApiKey(false));
 
   // ── Event Listeners de UI ─────────────────────────────────────────
   // Control 1: Switch Superior (Traducción Simultánea en Vivo)
@@ -1859,7 +2724,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  async function enumerateAudioDevices() {
+  function getCustomVocabularyList() {
+    if (!customVocabulary || !customVocabulary.value) return [];
+    return [...new Set(Object.values(parseVocabulary(customVocabulary.value)).filter(Boolean))];
+  }
+
+  async function enumerateAudioDevices(preferredMicId = null, preferredCableId = null) {
     try {
       appendLog('AUDIO', 'Detectando dispositivos de audio del sistema...');
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -1870,6 +2740,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const audioOutputs = devices.filter(d => d.kind === 'audiooutput');
 
       let hasVirtualCable = false;
+      let detectedCableId = null;
 
       audioInputs.forEach((device, index) => {
         const option = document.createElement('option');
@@ -1877,17 +2748,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         option.textContent = device.label || `Micrófono ${index + 1}`;
         micInputSelect.appendChild(option);
       });
+      if (preferredMicId && Array.from(micInputSelect.options).some(o => o.value === preferredMicId)) {
+        micInputSelect.value = preferredMicId;
+      }
 
       audioOutputs.forEach((device, index) => {
         const option = document.createElement('option');
         option.value = device.deviceId;
         option.textContent = device.label || `Dispositivo Salida ${index + 1}`;
-        if (device.label.toLowerCase().includes('cable') || device.label.toLowerCase().includes('virtual')) {
-          option.selected = true;
+        if ((device.label || '').toLowerCase().includes('cable') || (device.label || '').toLowerCase().includes('virtual')) {
           hasVirtualCable = true;
+          if (!detectedCableId) detectedCableId = device.deviceId;
         }
         virtualCableSelect.appendChild(option);
       });
+      if (preferredCableId && preferredCableId !== 'default' && Array.from(virtualCableSelect.options).some(o => o.value === preferredCableId)) {
+        virtualCableSelect.value = preferredCableId;
+      } else if (detectedCableId) {
+        virtualCableSelect.value = detectedCableId;
+      }
 
       if (hasVirtualCable) {
         if (driverMissingBanner) driverMissingBanner.style.display = 'none';
@@ -1930,8 +2809,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       await startUnifiedAudioPipeline('gemini_35_transcribe', geminiKey);
-      if (groqKey && groqKey.length > 5) {
-        if (!micOnly) await startIncomingAudioPipeline(groqKey);
+      if (!micOnly) {
+        if (groqKey && groqKey.length > 5) await startIncomingAudioPipeline(groqKey, 'groq');
+        else await startIncomingAudioPipeline(geminiKey, 'gemini_35');
       }
     } else if (engine === 'gemini_live') {
       if (!geminiKey || geminiKey.length < 5) {
@@ -1986,6 +2866,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ttsQueue.reset();
     shownLines.clear();
     cloudDownUntil = 0;
+    lastCloudSuccessAt = 0;
     ipcRenderer.send('LOCAL_AI_STOP');
     appendLog('PIPELINE', 'Pipeline de voz detenido.');
     refreshLabInputs();
@@ -2191,6 +3072,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const VOICE_WAIT_MS = 1500; // lo que la voz espera a la traducción de la nube antes de usar la local
   const CLOUD_RETRY_MS = 30000;
   let cloudDownUntil = 0;
+  let lastCloudSuccessAt = 0;
 
   /** Traducción siempre local o sin red: nada se manda a la nube. */
   function useDirectTranslation() {
@@ -2246,9 +3128,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     const translated = res && res.engine !== 'none' && res.translated ? res.translated.trim() : '';
     if (!translated) {
-      cloudDownUntil = Date.now() + CLOUD_RETRY_MS; // sin nube por ahora: las siguientes frases no la esperan
+      if (started >= lastCloudSuccessAt) cloudDownUntil = Date.now() + CLOUD_RETRY_MS; // sin nube por ahora: las siguientes frases no la esperan
       return null;
     }
+    lastCloudSuccessAt = Date.now();
+    cloudDownUntil = 0;
     trace('refine', { segmentId, lineId, stream, engine: res.engine, translateMs: Date.now() - started, original: source, translated });
     const line = shownLines.get(lineId);
     if (translated === current) appendLog('TRANSLATE', `✔️ La nube [${res.engine}] coincide con la traducción local.`, 'translate');
@@ -2579,10 +3463,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function startIncomingForCurrentEngine() {
     const engine = sttEngineSelect.value;
     const groqKey = groqKeyInput.value.trim();
+    const geminiKey = geminiKeyInput.value.trim();
     if (engine === 'local') {
       await startIncomingAudioPipeline(null, 'local');
     } else if (groqKey && groqKey.length > 5) {
-      await startIncomingAudioPipeline(groqKey);
+      await startIncomingAudioPipeline(groqKey, 'groq');
+    } else if (engine === 'gemini_35_transcribe' && geminiKey && geminiKey.length >= 5) {
+      await startIncomingAudioPipeline(geminiKey, 'gemini_35');
     } else {
       appendLog('AUDIO', '⚠️ Para traducir la reunión con este motor hace falta la clave de Groq.', 'warn');
     }
@@ -2685,6 +3572,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       let incomingSpeechHold = 0;
       let isTranscribingIncoming = false;
       let incomingEchoBlocked = false;
+      let isIncomingSpeaking = false;
+      let incomingSpeechStart = 0;
 
       incomingScriptProcessor.onaudioprocess = async (e) => {
         if (!isPipelineRunning) return;
@@ -2721,9 +3610,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Umbral sensible para capturar la voz del receptor en Google Meet
         const incomingThreshold = 0.002;
-
-        let isIncomingSpeaking = false;
-        let incomingSpeechStart = 0;
 
         if (rms >= incomingThreshold) {
           if (!isIncomingSpeaking) {
@@ -2781,9 +3667,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             const wavBase64 = arrayBufferToBase64(wavBuffer);
 
             const sttStart = Date.now();
+            const glossaryList = getCustomVocabularyList();
             let result = null;
             if (engineType === 'gemini_35') {
-              const glossaryList = (typeof DEFAULT_GLOSSARY !== 'undefined') ? Object.values(DEFAULT_GLOSSARY) : [];
               appendLog('GEMINI', `⚡ Enviando audio receptor (${voiceDurationMs}ms) a Gemini STT...`, 'gemini');
               result = await ipcRenderer.invoke('TRANSCRIBE_GEMINI_35', {
                 audioBase64: wavBase64,
@@ -2793,12 +3679,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 format: 'wav'
               });
             } else {
+              const vocabSuffix = glossaryList.length > 0 ? ` Key terms: ${glossaryList.join(', ')}.` : '';
               appendLog('GROQ', `⚡ Enviando audio receptor (${voiceDurationMs}ms) a Groq Whisper...`, 'audio');
               result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
                 audioBase64: wavBase64,
                 apiKey,
                 language: 'en',
-                prompt: 'Conversational English in a live business meeting. Transcribe complete, coherent sentences with proper punctuation.',
+                prompt: `Conversational English in a live business meeting. Transcribe complete, coherent sentences with proper punctuation.${vocabSuffix}`,
                 format: 'wav'
               });
             }
@@ -2846,6 +3733,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           voiceName: geminiVoiceSelect.value,
           sourceLang: sourceLangSelect.value,
           targetLang: targetLangSelect.value,
+          customVocabulary: getCustomVocabularyList(),
           onOpen: () => {
             appendLog('GEMINI', '🟢 Conexión con Gemini Live establecida con éxito.', 'gemini');
           },
@@ -3052,9 +3940,9 @@ document.addEventListener('DOMContentLoaded', async () => {
               const wavBase64 = arrayBufferToBase64(wavBuffer);
 
               const sttStart = Date.now();
+              const glossaryList = getCustomVocabularyList();
               let result = null;
               if (engine === 'gemini_35_transcribe') {
-                const glossaryList = (typeof DEFAULT_GLOSSARY !== 'undefined') ? Object.values(DEFAULT_GLOSSARY) : [];
                 appendLog('GEMINI', `⚡ Enviando audio (${voiceDurationMs}ms) a Gemini STT...`, 'gemini');
                 result = await ipcRenderer.invoke('TRANSCRIBE_GEMINI_35', {
                   audioBase64: wavBase64,
@@ -3064,12 +3952,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                   format: 'wav'
                 });
               } else {
+                const vocabSuffix = glossaryList.length > 0 ? ` Términos clave: ${glossaryList.join(', ')}.` : '';
                 appendLog('GROQ', `⚡ Enviando audio (${voiceDurationMs}ms) a Groq Whisper...`, 'audio');
                 result = await ipcRenderer.invoke('TRANSCRIBE_GROQ', {
                   audioBase64: wavBase64,
                   apiKey,
                   language: sourceLangSelect.value.substring(0, 2),
-                  prompt: 'Conversación fluida en vivo en español. Transcribir oraciones completas con puntuación adecuada.',
+                  prompt: `Conversación fluida en vivo en español. Transcribir oraciones completas con puntuación adecuada.${vocabSuffix}`,
                   format: 'wav'
                 });
               }
@@ -3322,34 +4211,40 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       const apiKey = fishApiKeyInput ? fishApiKeyInput.value.trim() : '';
       const response = await ipcRenderer.invoke('FISH_AUDIO_LIST_MODELS', { apiKey, pageSize: 40 });
       const items = (response && response.items) ? response.items : [];
-
-      const userPrimaryVoiceId = '0356fc9e08b646ed91607baa54a847c3';
+      const targetId = selectedVoiceId || (settings && settings.fishVoiceModelId) || 'default';
 
       fishVoiceSelect.innerHTML = `
         <option value="default">Voz estándar de Fish Audio</option>
       `;
 
-      // Grupo de Voces Clonadas
-      const myGroup = document.createElement('optgroup');
-      myGroup.label = 'Mis voces clonadas';
+      // Separar modelos propios de la cuenta (self=true / privados) de las voces del catálogo público
+      const isOwn = (m) => !!(m.isSelf || m.visibility === 'private' || (m.tags && m.tags.includes('custom')));
+      const myModels = items.filter(isOwn);
+      const communityModels = items.filter(m => !isOwn(m));
 
-      // Incluir siempre el modelo principal del usuario
-      const primaryOpt = document.createElement('option');
-      primaryOpt.value = userPrimaryVoiceId;
-      primaryOpt.textContent = 'Mi voz principal (clonada)';
-      myGroup.appendChild(primaryOpt);
+      // Si hay un ID de voz clonada configurado en .env/settings y aún no vino del listado (ej. sin red), conservarlo
+      const hasConfiguredClone = targetId && targetId !== 'default' && targetId !== 'custom';
+      const configuredInList = hasConfiguredClone && myModels.some(m => (m._id || m.id) === targetId);
 
-      // Separar otros modelos de la cuenta
-      const myModels = items.filter(m => (m.visibility === 'private' || (m.tags && m.tags.includes('custom'))) && (m._id !== userPrimaryVoiceId && m.id !== userPrimaryVoiceId));
-      const communityModels = items.filter(m => m.visibility !== 'private' && m._id !== userPrimaryVoiceId && m.id !== userPrimaryVoiceId);
+      if (myModels.length > 0 || hasConfiguredClone) {
+        const myGroup = document.createElement('optgroup');
+        myGroup.label = 'Mis voces clonadas';
 
-      myModels.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m._id || m.id;
-        opt.textContent = m.title || 'Voz clonada';
-        myGroup.appendChild(opt);
-      });
-      fishVoiceSelect.appendChild(myGroup);
+        if (hasConfiguredClone && !configuredInList) {
+          const fallbackOpt = document.createElement('option');
+          fallbackOpt.value = targetId;
+          fallbackOpt.textContent = 'Mi voz principal (clonada)';
+          myGroup.appendChild(fallbackOpt);
+        }
+
+        myModels.forEach(m => {
+          const opt = document.createElement('option');
+          opt.value = m._id || m.id;
+          opt.textContent = m.title || 'Voz clonada';
+          myGroup.appendChild(opt);
+        });
+        fishVoiceSelect.appendChild(myGroup);
+      }
 
       if (communityModels.length > 0) {
         const commGroup = document.createElement('optgroup');
@@ -3369,8 +4264,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       customOpt.textContent = 'Escribir el ID de un modelo…';
       fishVoiceSelect.appendChild(customOpt);
 
-      // Seleccionar voz previa o la voz clonada principal
-      const targetId = selectedVoiceId || (settings && settings.fishVoiceModelId) || userPrimaryVoiceId;
+      // Seleccionar voz previa o estándar
       const existsInSelect = Array.from(fishVoiceSelect.options).some(o => o.value === targetId);
 
       if (existsInSelect) {

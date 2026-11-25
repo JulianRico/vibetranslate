@@ -4,8 +4,14 @@
 
 const https = require('https');
 const WebSocket = require('ws');
+const { loadEnv } = require('./env');
 
-const TOKEN = 'AIzaSyDummyKeyReplaceWithYourOwn00000000';
+loadEnv();
+const TOKEN = (process.env.GEMINI_API_KEY || '').trim();
+if (!TOKEN) {
+  console.error('❌ Falta GEMINI_API_KEY en el archivo .env');
+  process.exit(1);
+}
 
 function makeRequest(url, headers = {}) {
   return new Promise((resolve) => {

@@ -46,8 +46,16 @@ class FishAudioService {
     // Verificar si está en caché (clave: modelo + voz + texto)
     const cacheKey = `${activeModel}_${activeVoiceId || 'default'}_${format}_${cleanText}`;
     if (this.ttsCache.has(cacheKey)) {
+      const cached = this.ttsCache.get(cacheKey);
       defaultLogger.info('FISH-AUDIO', `⚡ Audio recuperado de caché para: "${cleanText.substring(0, 30)}..."`);
-      return this.ttsCache.get(cacheKey);
+      return {
+        success: true,
+        audioBuffer: cached.audioBuffer,
+        format: cached.format,
+        model: cached.model,
+        elapsedMs: 0,
+        cached: true
+      };
     }
 
     const payload = {
@@ -82,7 +90,8 @@ class FishAudioService {
             'Content-Type': 'application/json',
             'model': currentModel
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15000)
         });
 
         const elapsed = Date.now() - startTime;
@@ -97,7 +106,7 @@ class FishAudioService {
             const firstKey = this.ttsCache.keys().next().value;
             this.ttsCache.delete(firstKey);
           }
-          this.ttsCache.set(cacheKey, buffer);
+          this.ttsCache.set(cacheKey, { audioBuffer: buffer, format, model: currentModel });
 
           return {
             success: true,
@@ -134,11 +143,12 @@ class FishAudioService {
     }
 
     try {
-      const url = `${this.baseUrl}/model?page_size=${pageSize}&page_number=${pageNumber}${selfOnly ? '&self_only=true' : ''}&sort_by=score`;
+      const url = `${this.baseUrl}/model?page_size=${pageSize}&page_number=${pageNumber}${selfOnly ? '&self=true' : ''}&sort_by=score`;
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${this.apiKey}`
-        }
+        },
+        signal: AbortSignal.timeout(8000)
       });
 
       if (!response.ok) {
@@ -236,7 +246,8 @@ class FishAudioService {
       const response = await fetch(`${this.baseUrl}/model?page_size=1`, {
         headers: {
           'Authorization': `Bearer ${key.trim()}`
-        }
+        },
+        signal: AbortSignal.timeout(8000)
       });
 
       if (response.ok) {
@@ -342,9 +353,15 @@ class FishAudioStreamer {
 
   close() {
     if (this.ws) {
-      try { this.ws.close(); } catch (e) {}
+      const sock = this.ws;
       this.ws = null;
       this.isConnected = false;
+      try {
+        sock.removeAllListeners();
+        sock.on('error', () => {});
+        if (sock.readyState === WebSocket.OPEN) sock.close();
+        else sock.terminate();
+      } catch (e) {}
     }
   }
 }

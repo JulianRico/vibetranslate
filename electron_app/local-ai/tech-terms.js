@@ -274,7 +274,7 @@ const TECH_TERMS = [
   T('cherry-pick', 'cheri pic, cherry pick, cheri pik, cherri pic'),
   T('release', 'rilis, rilís, relis, release', { g: 'm' }),
   T('hotfix', 'jotfix, hot fix, jot fix, hotfix'),
-  T('rollback', 'rolbak, rol bak, rolback, rol back, roulbak, rollbak', { g: 'm' }),
+  T('rollback', 'rolbak, rol bak, rolback, rol back, roulbak, rollbak, roy back, roll back', { g: 'm' }),
   T('deploy', 'diploi, deploy, deploi, diploy', { g: 'm' }),
   T('deployment', 'diploiment, deployment, deploiment'),
   T('staging', 'steiyin, steiging, staging, esteiyin'),

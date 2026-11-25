@@ -1,6 +1,12 @@
-const https = require('https');
+const { loadEnv } = require('./env');
 
-const API_KEY = process.env.FISH_API_KEY || '';
+loadEnv();
+const API_KEY = (process.env.FISH_API_KEY || '').trim();
+const VOICE_MODEL_ID = (process.env.FISH_VOICE_MODEL_ID || 'default').trim();
+if (!API_KEY) {
+  console.error('❌ Falta FISH_API_KEY en el archivo .env');
+  process.exit(1);
+}
 
 async function testFishAudio() {
   console.log('--- Probando Fish Audio API ---');
@@ -33,7 +39,7 @@ async function testFishAudio() {
   try {
     const ttsPayload = {
       text: 'Hello! I am speaking with the cloned voice model via Fish Audio integration.',
-      reference_id: 'd8a1340984ee4b63ad1ffae27a6a4339',
+      ...(VOICE_MODEL_ID && VOICE_MODEL_ID !== 'default' ? { reference_id: VOICE_MODEL_ID } : {}),
       format: 'mp3',
       latency: 'balanced'
     };

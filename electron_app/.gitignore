@@ -1,0 +1,12 @@
+# Variables de entorno reales (nunca subir a Git)
+.env
+.env.*
+!.env.example
+
+# Registros, modelos locales y salidas de compilación
+*.log
+logs/
+node_modules/
+dist/
+.models/
+test-sessions/

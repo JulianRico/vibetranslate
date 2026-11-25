@@ -82,9 +82,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  ipcRenderer.on('SETTINGS_CHANGED', (event, settings) => {
-    if (settings.fontSize) {
-      currentFontSize = settings.fontSize;
+  function applyOverlaySettings(settings) {
+    if (!settings) return;
+    const size = Number(settings.subtitleFontSize || settings.fontSize);
+    if (Number.isFinite(size) && size >= 12 && size <= 36) {
+      currentFontSize = size;
       document.documentElement.style.setProperty('--mt-font-size', `${currentFontSize}px`);
     }
 
@@ -93,19 +95,25 @@ document.addEventListener('DOMContentLoaded', () => {
       const tgtStr = settings.targetLang.substring(0, 2).toUpperCase();
       langBadge.textContent = `${srcStr} ➔ ${tgtStr}`;
     }
+  }
+
+  ipcRenderer.invoke('GET_SETTINGS').then(applyOverlaySettings).catch(() => {});
+
+  ipcRenderer.on('SETTINGS_CHANGED', (event, settings) => {
+    applyOverlaySettings(settings);
   });
 
   // ── Ajustes de Fuente y Minimizado ────────────────────────────────
   btnFontInc.addEventListener('click', () => {
     currentFontSize = Math.min(32, currentFontSize + 2);
     document.documentElement.style.setProperty('--mt-font-size', `${currentFontSize}px`);
-    ipcRenderer.invoke('SAVE_SETTINGS', { fontSize: currentFontSize });
+    ipcRenderer.invoke('SAVE_SETTINGS', { subtitleFontSize: currentFontSize, fontSize: currentFontSize });
   });
 
   btnFontDec.addEventListener('click', () => {
     currentFontSize = Math.max(12, currentFontSize - 2);
     document.documentElement.style.setProperty('--mt-font-size', `${currentFontSize}px`);
-    ipcRenderer.invoke('SAVE_SETTINGS', { fontSize: currentFontSize });
+    ipcRenderer.invoke('SAVE_SETTINGS', { subtitleFontSize: currentFontSize, fontSize: currentFontSize });
   });
 
   btnMinimize.addEventListener('click', () => {

@@ -16,8 +16,8 @@ const { defaultLogger } = require('./logger');
 
 class VoxCPMService {
   constructor(options = {}) {
-    this.serverHost = options.host || '127.0.0.1';
-    this.serverPort = options.port || 8765;
+    this.serverHost = options.host || process.env.VOXCPM_HOST || '127.0.0.1';
+    this.serverPort = Number(options.port || process.env.VOXCPM_PORT) || 8765;
     this.baseUrl = `http://${this.serverHost}:${this.serverPort}`;
     this.wsUrl = `ws://${this.serverHost}:${this.serverPort}/v1/tts/live`;
     this.activeVoiceId = options.voiceId || 'default';

@@ -1,6 +1,6 @@
 /**
  * training-session.js - Piezas del espacio de práctica que no dependen de la pantalla: juntar la respuesta del usuario,
- * decidir cuándo terminó de hablar, trocear la voz del entrevistador y escribir el informe.
+ * decidir cuándo terminó de hablar, trocear la voz del interlocutor y escribir los informes (libreto + evaluación).
  */
 
 const SILENCE_MS = 3000; // callarse este tiempo termina la respuesta (modo «pausa»)
@@ -68,31 +68,123 @@ function formatScore(n) {
   return String(Math.round(Number(n) * 10) / 10).replace('.', ',');
 }
 
-const RECOMMENDATION = { hire: 'Contratar', maybe: 'Dudoso', 'no hire': 'No contratar' };
+const RECOMMENDATION = {
+  hire: 'Contratar',
+  maybe: 'Dudoso',
+  'no hire': 'No contratar',
+  ready: 'Listo para equipo internacional',
+  almost: 'Casi listo · afinar detalles',
+  needs_practice: 'Requiere más práctica'
+};
 
-/** El informe que se guarda: nota, valoración y la entrevista completa, en español con el inglés original. */
-function formatReport({ date = new Date(), setup, history, evaluation }) {
+/** Exporta el libreto generado con IA para estudiarlo antes o después de practicar. */
+function formatPlaybookReport({ date = new Date(), setup = {}, playbook }) {
+  const isMeeting = setup.mode === 'meeting';
   const L = [];
-  L.push('ViBeTranslate: práctica de entrevista', '');
-  L.push(`Fecha: ${date.toLocaleString()}`, `Puesto: ${setup.role}`, '');
+  L.push(`ViBeTranslate: libreto de práctica (${isMeeting ? 'Reunión internacional' : 'Entrevista'})`, '');
+  L.push(`Fecha: ${date.toLocaleString()}`);
+  if (setup.sector) L.push(`Sector: ${setup.sector}`);
+  if (setup.topic) L.push(`Tema: ${setup.topic}`);
+  if (setup.role) L.push(`Rol / Puesto: ${setup.role}`);
+  L.push('');
+
+  if (playbook) {
+    if (playbook.scenarioTitle && playbook.scenarioTitle.es) {
+      L.push(`Escenario: ${playbook.scenarioTitle.es}`);
+      if (playbook.scenarioTitle.en && playbook.scenarioTitle.en !== playbook.scenarioTitle.es) {
+        L.push(`  (${playbook.scenarioTitle.en})`);
+      }
+    }
+    if (playbook.interlocutor && playbook.interlocutor.name) {
+      const p = playbook.interlocutor;
+      L.push(`Interlocutor: ${p.name} — ${p.role}${p.location ? ` (${p.location})` : ''}`);
+      if (p.style) L.push(`Estilo: ${p.style}`);
+    }
+    if (playbook.brief && playbook.brief.es) {
+      L.push('', `Contexto: ${playbook.brief.es}`);
+      if (playbook.brief.en) L.push(`  (${playbook.brief.en})`);
+    }
+    if (playbook.culturalTip && playbook.culturalTip.es) {
+      L.push('', `Clave intercultural: ${playbook.culturalTip.es}`);
+    }
+
+    L.push('', '--- Guion de preguntas y cómo responder ---', '');
+    for (const [idx, turn] of (playbook.turns || []).entries()) {
+      L.push(`${idx + 1}. ${turn.question.en}`);
+      if (turn.question.es) L.push(`   (${turn.question.es})`);
+      if (turn.intent) L.push(`   Qué evalúa: ${turn.intent}`);
+      if (turn.howToAnswer) L.push(`   Cómo responder: ${turn.howToAnswer}`);
+      if (turn.sampleAnswer && turn.sampleAnswer.en) {
+        L.push(`   Respuesta modelo (EN): ${turn.sampleAnswer.en}`);
+        if (turn.sampleAnswer.es) L.push(`   Respuesta modelo (ES): ${turn.sampleAnswer.es}`);
+      }
+      if (Array.isArray(turn.keyPhrases) && turn.keyPhrases.length) {
+        L.push(`   Frases clave: ${turn.keyPhrases.map((p) => `"${p.en}" (${p.es})`).join(' · ')}`);
+      }
+      if (Array.isArray(turn.evalCriteria) && turn.evalCriteria.length) {
+        L.push(`   Criterios: ${turn.evalCriteria.join(' · ')}`);
+      }
+      L.push('');
+    }
+
+    if (Array.isArray(playbook.vocabulary) && playbook.vocabulary.length) {
+      L.push('--- Glosario clave del sector ---', '');
+      for (const v of playbook.vocabulary) {
+        L.push(`- ${v.term}${v.es ? ` (${v.es})` : ''}${v.usage ? `: ${v.usage}` : ''}`);
+      }
+      L.push('');
+    }
+  }
+  return L.join('\n');
+}
+
+/** El informe que se guarda: nota, valoración, revisión turno por turno y la sesión completa en ambos idiomas. */
+function formatReport({ date = new Date(), setup = {}, history = [], evaluation, playbook = null }) {
+  const isMeeting = setup.mode === 'meeting';
+  const counterpartLabel = (playbook && playbook.interlocutor && playbook.interlocutor.name)
+    ? playbook.interlocutor.name
+    : (isMeeting ? 'Interlocutor' : 'Entrevistador');
+  const L = [];
+  L.push(isMeeting ? 'ViBeTranslate: práctica de reunión internacional' : 'ViBeTranslate: práctica de entrevista', '');
+  L.push(`Fecha: ${date.toLocaleString()}`);
+  if (setup.sector) L.push(`Sector: ${setup.sector}`);
+  if (setup.topic) L.push(`Tema: ${setup.topic}`);
+  L.push(`Puesto: ${setup.role || ''}`, '');
+
   if (evaluation) {
     L.push(`Nota: ${formatScore(evaluation.overall)} / 10 (${RECOMMENDATION[evaluation.recommendation] || evaluation.recommendation})`);
     L.push(`${evaluation.verdict.es}`, `(${evaluation.verdict.en})`, '');
     for (const c of evaluation.categories) L.push(`- ${c.name.es}: ${formatScore(c.score)} / 10. ${c.note.es}`);
     const section = (title, items) => {
-      if (!items.length) return;
+      if (!Array.isArray(items) || !items.length) return;
       L.push('', title);
       for (const i of items) L.push(`- ${i.es}`);
     };
     section('Lo mejor', evaluation.strengths);
     section('Para mejorar', evaluation.improvements);
     section('Lo que no llegó bien por la traducción', evaluation.translationIssues);
+    section('Plan de acción para equipos internacionales', evaluation.nextSteps);
+
+    if (Array.isArray(evaluation.turnFeedback) && evaluation.turnFeedback.length) {
+      L.push('', '--- Revisión turno por turno ---', '');
+      for (const [idx, tf] of evaluation.turnFeedback.entries()) {
+        L.push(`Turno ${idx + 1} (${formatScore(tf.score)} / 10): ${tf.question}`);
+        if (tf.strength && tf.strength.es) L.push(`  Bien: ${tf.strength.es}`);
+        if (tf.improvement && tf.improvement.es) L.push(`  Mejorar: ${tf.improvement.es}`);
+        if (tf.betterAnswer && tf.betterAnswer.en) {
+          L.push(`  Respuesta recomendada (EN): ${tf.betterAnswer.en}`);
+          if (tf.betterAnswer.es) L.push(`  (ES): ${tf.betterAnswer.es}`);
+        }
+        L.push('');
+      }
+    }
     L.push('');
   }
-  L.push('--- La entrevista ---', '');
+
+  L.push(isMeeting ? '--- La reunión ---' : '--- La entrevista ---', '');
   for (const h of history) {
     if (h.role === 'interviewer') {
-      L.push(`Entrevistador: ${h.text}`);
+      L.push(`${counterpartLabel}: ${h.text}`);
       if (h.translated) L.push(`  (${h.translated})`);
     } else {
       L.push(`Tú: ${h.original || ''}`);
@@ -104,5 +196,15 @@ function formatReport({ date = new Date(), setup, history, evaluation }) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { createAnswerCollector, answerReady, ttsChunks, formatScore, formatReport, SILENCE_MS, SETTLE_MS };
+  module.exports = {
+    createAnswerCollector,
+    answerReady,
+    ttsChunks,
+    formatScore,
+    formatReport,
+    formatPlaybookReport,
+    RECOMMENDATION,
+    SILENCE_MS,
+    SETTLE_MS
+  };
 }

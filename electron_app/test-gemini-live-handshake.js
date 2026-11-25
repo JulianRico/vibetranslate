@@ -1,6 +1,12 @@
 const WebSocket = require('ws');
+const { loadEnv } = require('./env');
 
-const API_KEY = 'AIzaSyDummyKeyReplaceWithYourOwn00000000';
+loadEnv();
+const API_KEY = (process.env.GEMINI_API_KEY || '').trim();
+if (!API_KEY) {
+  console.error('❌ Falta GEMINI_API_KEY en el archivo .env');
+  process.exit(1);
+}
 
 async function testNativeAudio(modelName, modalities) {
   return new Promise((resolve) => {

@@ -6,14 +6,20 @@
 
 const fs = require('fs');
 const path = require('path');
+const { loadEnv } = require('./env');
 const { VoxCPMService } = require('./voxcpm-service');
+
+loadEnv();
 
 async function runTest() {
   console.log('===============================================================');
   console.log('   ViBeTranslate - Test de Integración con VoxCPM TTS');
   console.log('===============================================================\n');
 
-  const voxcpm = new VoxCPMService({ host: '127.0.0.1', port: 8765 });
+  const voxcpm = new VoxCPMService({
+    host: process.env.VOXCPM_HOST || '127.0.0.1',
+    port: Number(process.env.VOXCPM_PORT) || 8765
+  });
 
   // 1. Health Check
   console.log('[1/3] Comprobando estado del servidor VoxCPM...');

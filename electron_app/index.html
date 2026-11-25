@@ -18,7 +18,7 @@
         <span id="status-text">Apagado</span>
         <span class="live-timer" id="live-timer"></span>
       </div>
-      <button type="button" class="link-btn idle-only" id="btn-open-training">Practicar una entrevista</button>
+      <button type="button" class="link-btn idle-only" id="btn-open-training">Entrevista y reunión</button>
       <div class="topbar-actions">
         <button type="button" class="icon-btn pip-only" id="btn-pip-exit" title="Volver a la ventana normal" aria-label="Volver a la ventana normal">
           <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 3 21 3 21 9" /><polyline points="9 21 3 21 3 15" /><line x1="21" y1="3" x2="14" y2="10" /><line x1="3" y1="21" x2="10" y2="14" /></svg>
@@ -206,15 +206,14 @@
               <button type="button" class="link-btn" id="btn-refresh-fish-voices">Actualizar</button>
             </div>
             <select id="fish-voice-select">
-              <option value="0356fc9e08b646ed91607baa54a847c3" selected>Mi voz principal (clonada)</option>
-              <option value="default">Voz estándar de Fish Audio</option>
+              <option value="default" selected>Voz estándar de Fish Audio</option>
               <option value="custom">Escribir el ID de un modelo…</option>
             </select>
           </div>
           <div class="form-group" id="fish-custom-voice-group" style="display: none;">
             <label for="fish-voice-id-input">ID del modelo de voz</label>
-            <input type="text" id="fish-voice-id-input" placeholder="d8a1340984ee4b63ad1ffae27a6a4339"
-              value="0356fc9e08b646ed91607baa54a847c3">
+            <input type="text" id="fish-voice-id-input" placeholder="00000000000000000000000000000000"
+              value="">
           </div>
           <div class="row-actions">
             <button type="button" class="btn" id="btn-open-clone-studio">Clonar mi voz</button>
@@ -391,76 +390,245 @@
     </div>
   </section>
 
-  <!-- Practicar una entrevista: un entrevistador en inglés y tus respuestas en español a través de la app -->
+  <!-- Práctica de entrevista y reunión internacional: libreto con IA, simulación en vivo y evaluación -->
   <section class="view view-training" id="view-training" aria-labelledby="training-title" hidden>
     <header class="topbar">
       <button type="button" class="icon-btn" id="btn-close-training" title="Volver" aria-label="Volver">
         <svg viewBox="0 0 24 24" aria-hidden="true"><polyline points="15 18 9 12 15 6" /></svg>
       </button>
-      <h1 class="settings-title" id="training-title">Practicar una entrevista</h1>
+      <h1 class="settings-title" id="training-title">Entrevista y reunión</h1>
     </header>
 
-    <div class="training-body">
-      <section class="training-panel" id="training-setup">
-        <p class="training-intro">Un entrevistador te entrevista en inglés y tú respondes en español. Como en una reunión real, solo recibe la traducción de la app. Al final te da una nota y te dice qué mejorar.</p>
-        <div class="form-group">
-          <label for="training-role">Puesto</label>
-          <input type="text" id="training-role" value="Senior SharePoint Online Developer">
-        </div>
-        <div class="field-pair">
+    <nav class="practice-steps-nav" aria-label="Progreso de la práctica">
+      <ol class="practice-steps" id="training-steps">
+        <li data-step="setup" aria-current="step"><span>1</span>Escenario</li>
+        <li data-step="playbook"><span>2</span>Libreto IA</li>
+        <li data-step="live"><span>3</span>En vivo</li>
+        <li data-step="result"><span>4</span>Evaluación</li>
+      </ol>
+    </nav>
+
+    <div class="training-body" id="training-body">
+
+      <!-- Paso 1: Configurar escenario (Entrevista o Reunión + Sector + Tema) -->
+      <section class="training-panel" id="training-setup" aria-labelledby="training-setup-heading">
+        <h2 class="visually-hidden" id="training-setup-heading" tabindex="-1">Configurar escenario</h2>
+        <p class="training-intro">Prepara entrevistas y reuniones con equipos internacionales. Elige el sector y el tema: la IA diseña el libreto completo (qué preguntarán, cómo responder y cómo te evaluará) antes de practicar en vivo.</p>
+
+        <form id="training-setup-form" aria-labelledby="training-setup-heading" novalidate>
+          <fieldset class="mode-fieldset">
+            <legend>¿Qué quieres practicar?</legend>
+            <div class="mode-grid">
+              <div class="mode-choice">
+                <input type="radio" id="training-mode-interview" name="training-mode" value="interview" class="visually-hidden" checked>
+                <label for="training-mode-interview" class="mode-card">
+                  <strong class="mode-card-title">Entrevista</strong>
+                  <span class="mode-card-desc">Hiring manager, técnica o STAR en inglés</span>
+                </label>
+              </div>
+              <div class="mode-choice">
+                <input type="radio" id="training-mode-meeting" name="training-mode" value="meeting" class="visually-hidden">
+                <label for="training-mode-meeting" class="mode-card">
+                  <strong class="mode-card-title">Reunión internacional</strong>
+                  <span class="mode-card-desc">Daily, demo, clientes, incidentes o acuerdos</span>
+                </label>
+              </div>
+            </div>
+          </fieldset>
+
           <div class="form-group">
-            <label for="training-length">Duración</label>
-            <select id="training-length">
-              <option value="5">Corta: 5 preguntas</option>
-              <option value="8" selected>Normal: 8 preguntas</option>
-              <option value="12">Larga: 12 preguntas</option>
-            </select>
+            <label for="training-sector">Sector o industria</label>
+            <select id="training-sector" name="sector"></select>
           </div>
+
+          <div class="form-group" id="training-sector-custom-group" hidden>
+            <label for="training-sector-custom">Escribe tu sector <span aria-hidden="true">*</span></label>
+            <input type="text" id="training-sector-custom" name="customSector" placeholder="Ej. Energía renovable, Arquitectura, Legaltech…" aria-describedby="training-sector-custom-err">
+            <span class="field-error" id="training-sector-custom-err" role="alert" hidden></span>
+          </div>
+
           <div class="form-group">
-            <label for="training-voice">Voz del entrevistador</label>
-            <select id="training-voice">
-              <option value="en" selected>En inglés</option>
-              <option value="en-es">En inglés y luego en español</option>
-              <option value="none">Sin voz, solo texto</option>
-            </select>
+            <label for="training-topic">Tema o situación a practicar <span aria-hidden="true">*</span></label>
+            <input type="text" id="training-topic" name="topic" required placeholder="Elige una sugerencia abajo o escribe tu propio tema…" aria-describedby="training-topic-help training-topic-err">
+            <span class="hint" id="training-topic-help">Puedes elegir un escenario sugerido o escribir exactamente el tema de tu próxima llamada.</span>
+            <span class="field-error" id="training-topic-err" role="alert" hidden></span>
+            <div class="topic-chips" id="training-topic-chips" role="group" aria-label="Temas sugeridos para este sector"></div>
           </div>
-        </div>
-        <div class="form-group">
-          <label for="training-turn">Tu respuesta termina</label>
-          <select id="training-turn">
-            <option value="pause" selected>Al callarte 3 segundos o al pulsar «Terminé»</option>
-            <option value="button">Solo al pulsar «Terminé»</option>
-          </select>
-        </div>
-        <div class="notice" data-state="warn" id="training-notice" hidden>
-          <p id="training-notice-text"></p>
-          <button type="button" class="btn btn-small" id="training-notice-action" hidden>Abrir Ajustes</button>
-        </div>
-        <button type="button" class="btn btn-primary btn-wide" id="btn-training-start">Empezar la entrevista</button>
+
+          <div class="form-group">
+            <label for="training-role">Tu rol o puesto</label>
+            <input type="text" id="training-role" name="role" value="Senior SharePoint Online Developer" placeholder="Ej. Tech Lead, Product Manager, Financial Analyst…">
+          </div>
+
+          <div class="field-pair">
+            <div class="form-group">
+              <label for="training-level">Estilo del interlocutor</label>
+              <select id="training-level" name="level">
+                <option value="collaborative">Colaborativo</option>
+                <option value="senior" selected>Senior / Exigente</option>
+                <option value="executive">Ejecutivo / Directo</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="training-length">Extensión</label>
+              <select id="training-length" name="questions">
+                <option value="3">Rápida: 3 turnos</option>
+                <option value="5" selected>Normal: 5 turnos</option>
+                <option value="8">Completa: 8 turnos</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="training-context">Contexto adicional (opcional)</label>
+            <textarea id="training-context" name="context" rows="2" placeholder="Ej. Empresa en EE. UU., quiero defender una migración sin perder calma, o preparar objeciones de presupuesto…"></textarea>
+          </div>
+
+          <details class="tool">
+            <summary>Voz y control de turnos</summary>
+            <div class="field-pair">
+              <div class="form-group">
+                <label for="training-voice">Voz del interlocutor</label>
+                <select id="training-voice" name="voice">
+                  <option value="en" selected>En inglés</option>
+                  <option value="en-es">Inglés y español</option>
+                  <option value="none">Sin voz, solo texto</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="training-turn">Tu respuesta termina</label>
+                <select id="training-turn" name="turn">
+                  <option value="pause" selected>Pausa 3 s o botón</option>
+                  <option value="button">Solo botón «Terminé»</option>
+                </select>
+              </div>
+            </div>
+          </details>
+
+          <div class="notice" data-state="warn" id="training-notice" role="status" hidden>
+            <p id="training-notice-text"></p>
+            <button type="button" class="btn btn-small" id="training-notice-action" hidden>Abrir Ajustes</button>
+          </div>
+
+          <div class="setup-cta-stack">
+            <button type="submit" class="btn btn-primary btn-wide" id="btn-training-generate">Crear libreto con IA</button>
+            <button type="button" class="link-btn btn-center" id="btn-training-start">Empezar simulación directa sin libreto</button>
+          </div>
+        </form>
+
+        <section class="recent-playbooks" id="training-recent-section" aria-labelledby="training-recent-title" hidden>
+          <h3 id="training-recent-title">Libretos recientes</h3>
+          <ul class="recent-list" id="training-recent-list"></ul>
+        </section>
       </section>
 
-      <section class="training-panel" id="training-live" hidden>
+      <!-- Paso 2: Libreto interactivo generado con IA (editable antes de simular) -->
+      <section class="training-panel" id="training-playbook" aria-labelledby="playbook-heading" hidden>
+        <div class="playbook-brief" id="playbook-brief">
+          <div class="playbook-badges">
+            <span class="pill-badge" id="playbook-mode-badge">Entrevista</span>
+            <span class="pill-badge subtle" id="playbook-sector-badge"></span>
+          </div>
+          <h2 class="playbook-title" id="playbook-heading" tabindex="-1"></h2>
+          <p class="playbook-persona" id="playbook-persona"></p>
+          <p class="playbook-desc" id="playbook-brief-es"></p>
+          <p class="playbook-desc-en" id="playbook-brief-en"></p>
+          <div class="cultural-callout" id="playbook-cultural-box" hidden>
+            <strong>Clave para equipos internacionales</strong>
+            <p id="playbook-cultural-es"></p>
+            <small id="playbook-cultural-en"></small>
+          </div>
+        </div>
+
+        <section class="accordion" id="playbook-turns-accordion" aria-labelledby="playbook-turns-title">
+          <div class="playbook-section-head">
+            <h3 id="playbook-turns-title">Guion de preguntas y respuestas</h3>
+            <div class="row-actions-compact">
+              <button type="button" class="link-btn" id="btn-playbook-toggle-all" aria-expanded="false">Expandir todo</button>
+              <button type="button" class="link-btn" id="btn-playbook-add-turn">+ Añadir turno</button>
+            </div>
+          </div>
+          <div class="playbook-turns-list" id="playbook-turns-list"></div>
+        </section>
+
+        <details class="tool" id="playbook-vocab-details">
+          <summary>Glosario del sector (<span id="playbook-vocab-count">0</span> términos)</summary>
+          <div class="vocab-toolbar">
+            <p class="hint">Términos clave en inglés que usarás en esta sesión.</p>
+            <button type="button" class="btn btn-small" id="btn-apply-playbook-vocab">Añadir al traductor</button>
+          </div>
+          <ul class="playbook-vocab-list" id="playbook-vocab-list"></ul>
+        </details>
+
+        <div class="playbook-refine-box">
+          <label for="playbook-refine-note">Ajustar el libreto con IA (opcional)</label>
+          <div class="lab-flag-row">
+            <input type="text" id="playbook-refine-note" placeholder="Ej. Hazlo más técnico en seguridad o añade objeción de fechas…">
+            <button type="button" class="btn" id="btn-playbook-regenerate">Regenerar</button>
+          </div>
+        </div>
+
+        <div class="notice" data-state="error" id="playbook-notice" role="status" hidden>
+          <p id="playbook-notice-text"></p>
+        </div>
+
+        <div class="setup-cta-stack">
+          <button type="button" class="btn btn-primary btn-wide" id="btn-playbook-start-live">Empezar simulación con este libreto</button>
+          <div class="row-actions-spread">
+            <button type="button" class="btn" id="btn-playbook-export">Guardar libreto</button>
+            <button type="button" class="link-btn" id="btn-playbook-back">Cambiar tema</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Paso 3: Simulación en vivo con coach opcional -->
+      <section class="training-panel" id="training-live" aria-labelledby="training-live-heading" hidden>
+        <h2 class="visually-hidden" id="training-live-heading" tabindex="-1">Simulación en vivo</h2>
         <div class="training-progress">
-          <span id="training-progress">Pregunta 1</span>
+          <span id="training-progress">Turno 1</span>
           <span class="training-state" id="training-state" aria-live="polite"></span>
         </div>
         <div class="training-turn training-question">
-          <p class="training-who">Entrevistador</p>
+          <p class="training-who" id="training-counterpart-label">Interlocutor</p>
           <p class="training-en" id="training-question-en"></p>
           <p class="training-es" id="training-question-es"></p>
         </div>
+
+        <details class="tool live-coach" id="training-live-coach" hidden>
+          <summary>Apuntador del libreto (cómo responder)</summary>
+          <div class="live-coach-body">
+            <p class="coach-item"><strong>Qué evalúa:</strong> <span id="coach-intent"></span></p>
+            <p class="coach-item"><strong>Cómo responder:</strong> <span id="coach-how"></span></p>
+            <div class="coach-phrases" id="coach-phrases"></div>
+            <details class="coach-sample-details">
+              <summary>Ver respuesta modelo</summary>
+              <p class="coach-sample-en" id="coach-sample-en"></p>
+              <p class="coach-sample-es" id="coach-sample-es"></p>
+            </details>
+          </div>
+        </details>
+
         <div class="training-turn training-answer">
-          <p class="training-who">Tu respuesta <span>y lo que recibe el entrevistador</span></p>
+          <p class="training-who">Tu respuesta <span>y lo que recibe el interlocutor</span></p>
           <p class="training-es-main" id="training-answer-es"></p>
           <p class="training-en-sub" id="training-answer-en"></p>
         </div>
+
+        <div class="live-text-fallback">
+          <label for="training-text-answer" class="visually-hidden">Responder por texto (opcional)</label>
+          <input type="text" id="training-text-answer" placeholder="O escribe tu respuesta en español o inglés y pulsa Enter…" disabled>
+          <button type="button" class="btn btn-small" id="btn-training-send-text" disabled>Enviar</button>
+        </div>
+
         <div class="row-actions">
           <button type="button" class="btn btn-primary" id="btn-training-done" disabled>Terminé mi respuesta</button>
-          <button type="button" class="link-btn" id="btn-training-stop">Terminar la entrevista</button>
+          <button type="button" class="link-btn" id="btn-training-stop">Finalizar y evaluar</button>
         </div>
       </section>
 
-      <section class="training-panel" id="training-result" hidden>
+      <!-- Paso 4: Evaluación integral y revisión turno por turno -->
+      <section class="training-panel" id="training-result" aria-labelledby="training-result-heading" hidden>
+        <h2 class="visually-hidden" id="training-result-heading" tabindex="-1">Evaluación de la práctica</h2>
         <div class="training-score">
           <span class="training-score-value" id="training-score"></span>
           <span class="training-score-max">/ 10</span>
@@ -468,16 +636,28 @@
         </div>
         <p class="training-verdict" id="training-verdict"></p>
         <ul class="training-categories" id="training-categories"></ul>
+
+        <section class="training-block accordion" id="training-turn-feedback-section" aria-labelledby="training-turns-eval-title" hidden>
+          <h2 id="training-turns-eval-title">Revisión turno por turno</h2>
+          <div class="turn-feedback-list" id="training-turn-feedback"></div>
+        </section>
+
         <div class="training-block"><h2>Lo mejor</h2><ul id="training-strengths"></ul></div>
         <div class="training-block"><h2>Para mejorar</h2><ul id="training-improvements"></ul></div>
-        <div class="training-block"><h2>Lo que no llegó bien por la traducción</h2><ul id="training-translation"></ul></div>
+        <div class="training-block"><h2>Lo que afectó la traducción</h2><ul id="training-translation"></ul></div>
+        <div class="training-block" id="training-next-steps-block" hidden><h2>Plan de acción para equipos internacionales</h2><ul id="training-next-steps"></ul></div>
+
         <details class="tool">
-          <summary>La entrevista completa</summary>
+          <summary>Transcripción completa</summary>
           <div class="training-transcript" id="training-transcript"></div>
         </details>
-        <div class="row-actions">
-          <button type="button" class="btn" id="btn-training-save">Guardar el informe</button>
-          <button type="button" class="btn btn-primary" id="btn-training-again">Practicar otra vez</button>
+
+        <div class="setup-cta-stack">
+          <button type="button" class="btn btn-primary btn-wide" id="btn-training-repeat-playbook" hidden>Practicar de nuevo este libreto</button>
+          <div class="row-actions-spread">
+            <button type="button" class="btn" id="btn-training-save">Guardar informe</button>
+            <button type="button" class="btn" id="btn-training-again">Nuevo escenario</button>
+          </div>
         </div>
       </section>
     </div>
