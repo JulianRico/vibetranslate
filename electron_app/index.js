@@ -2127,25 +2127,36 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function sendCandidateTurnToPersonaPlex(t, englishText) {
     if (!t || !t.ppClient || !t.ppClient.isConnected) return;
-    setTrainingState('PersonaPlex procesando en full-duplex (<200 ms)…');
+    const isHaru = t.setup && t.setup.engine === 'haru';
+    const isEsCard = isHaru && t.setup.haruLang === 'es';
+    const spokenText = isEsCard ? (t.answer.get().spanish || englishText) : englishText;
+    setTrainingState(
+      isHaru
+        ? 'Haru-4B procesando tu voz en GPU A10G (Hugging Face ZeroGPU)…'
+        : 'PersonaPlex procesando en full-duplex (<200 ms)…'
+    );
     try {
-      // Sintetizar voz en inglés si hay Fish Audio configurado para alimentar el códec Mimi, + señal endTurn
+      // Sintetizar audio limpio para alimentar el códec acústico (Mimi / VibeVoice 24 kHz) + señal endTurn
       const fishRes = await ipcRenderer.invoke('FISH_AUDIO_SYNTHESIZE', {
-        text: englishText,
+        text: spokenText,
         format: 'wav',
         latency: 'balanced'
       }).catch(() => null);
-      if (fishRes && fishRes.ok && fishRes.audioBase64) {
-        const raw = Buffer.from(fishRes.audioBase64, 'base64');
+      const b64 = (fishRes && (fishRes.audioBase64 || fishRes.audio)) || '';
+      if (b64) {
+        const raw = Buffer.from(b64, 'base64');
+        const wavRate = (raw.length > 28 && raw.toString('ascii', 0, 4) === 'RIFF')
+          ? (raw.readUInt32LE(24) || 44100)
+          : 44100;
         const pcmBody = raw.length > 44 ? raw.subarray(44) : raw;
-        const chunkBytes = 3840; // 80 ms @ 24 kHz 16-bit
+        const chunkBytes = 3840;
         for (let off = 0; off < pcmBody.length; off += chunkBytes) {
-          t.ppClient.sendAudioPcm16(pcmBody.subarray(off, Math.min(pcmBody.length, off + chunkBytes)), 44100);
+          t.ppClient.sendAudioPcm16(pcmBody.subarray(off, Math.min(pcmBody.length, off + chunkBytes)), wavRate);
         }
       }
       t.ppClient.sendControl('endTurn');
     } catch (err) {
-      console.warn('[PersonaPlex] Error enviando turno:', err.message);
+      console.warn('[FullDuplex] Error enviando turno:', err.message);
     }
   }
 
@@ -2452,13 +2463,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnCheckPersonaplex && personaplexStatusHint) {
     btnCheckPersonaplex.addEventListener('click', async () => {
       personaplexStatusHint.hidden = false;
-      personaplexStatusHint.textContent = 'Comprobando servidor PersonaPlex en 127.0.0.1:8998…';
+      personaplexStatusHint.textContent = 'Comprobando servidor PersonaPlex y portal Hugging Face…';
       const st = await ipcRenderer.invoke('PERSONAPLEX_STATUS').catch((e) => ({ online: false, error: e.message }));
       if (st && st.online) {
-        const modeTag = st.mode === 'moshi'
-          ? `GPU activa (${st.gpu_name || st.device})`
-          : (st.mode === 'simulation' ? 'Modo simulación local activo' : 'En línea');
-        personaplexStatusHint.textContent = `🟢 PersonaPlex conectado en ${st.host}:${st.port} — ${modeTag}.`;
+        let modeTag = 'En línea';
+        if (st.mode === 'moshi') modeTag = `GPU local activa (${st.gpu_name || st.device})`;
+        else if (st.mode === 'hf_router') modeTag = `HF Router activo (${st.hf_user || 'fal-ai/personaplex'})`;
+        else if (st.hf_authenticated) modeTag = `Token HF (${st.hf_user || 'activo'}) · ${st.hf_note || 'Simulación local'}`;
+        else if (st.mode === 'simulation') modeTag = 'Modo simulación local activo';
+        personaplexStatusHint.textContent = `🟢 PersonaPlex en ${st.host}:${st.port} — ${modeTag}`;
       } else {
         personaplexStatusHint.textContent = `⚠️ Servidor no iniciado en ${st?.host || '127.0.0.1'}:${st?.port || 8998}. Ejecuta personaplex_service/start_server.bat o usa Nube estándar.`;
       }
@@ -2468,14 +2481,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (btnCheckHaru && haruStatusHint) {
     btnCheckHaru.addEventListener('click', async () => {
       haruStatusHint.hidden = false;
-      haruStatusHint.textContent = 'Comprobando servidor Haru-4B en 127.0.0.1:8999…';
+      haruStatusHint.textContent = 'Comprobando servidor Haru-4B y conexión ZeroGPU…';
       const st = await ipcRenderer.invoke('HARU_STATUS').catch((e) => ({ online: false, error: e.message }));
       if (st && st.online) {
         const modeTag = st.mode === 'haru_pytorch'
-          ? `CUDA activa (${st.gpu_name || st.device})`
+          ? `CUDA local activa (${st.gpu_name || st.device})`
           : (st.mode === 'haru_mlx'
             ? 'Apple Silicon MLX activo'
-            : 'Modo simulación 7.5 Hz + WSOLA activo');
+            : (st.mode === 'hf_zerogpu'
+              ? `GPU NVIDIA A10G activa en Hugging Face (cuenta: ${st.hf_user || 'autenticada'})`
+              : 'Modo simulación 7.5 Hz + WSOLA activo'));
         haruStatusHint.textContent = `🟢 Haru-4B conectado en ${st.host}:${st.port} — ${modeTag}.`;
       } else {
         haruStatusHint.textContent = `⚠️ Servidor no iniciado en ${st?.host || '127.0.0.1'}:${st?.port || 8999}. Ejecuta haru_service/start_server.bat o usa Nube estándar.`;

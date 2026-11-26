@@ -49,6 +49,7 @@ test('applyEnvFallbacks rellena claves vacías en settings sin sobrescribir las 
     FISH_API_KEY: 'env_fish',
     FISH_VOICE_MODEL_ID: 'env_voice_123',
     FISH_MODEL: 's2.1-pro',
+    HUGGINGFACE_API_KEY: 'hf_dummy_env_token',
     PERSONAPLEX_HOST: '127.0.0.1',
     PERSONAPLEX_PORT: '8998',
     PERSONAPLEX_VOICE: 'NATF2'
@@ -66,6 +67,7 @@ test('applyEnvFallbacks rellena claves vacías en settings sin sobrescribir las 
   assert.equal(merged.fishApiKey, 'env_fish');
   assert.equal(merged.fishVoiceModelId, 'env_voice_123');
   assert.equal(merged.fishModel, 's2.1-pro');
+  assert.equal(merged.huggingfaceApiKey, 'hf_dummy_env_token');
   assert.equal(merged.personaplexHost, '127.0.0.1');
   assert.equal(merged.personaplexPort, 8998);
   assert.equal(merged.personaplexVoice, 'NATF2');
@@ -116,7 +118,7 @@ test('package.json excluye .env del instalador y ningún archivo de código cont
   const codeFiles = fs.readdirSync(APP_DIR)
     .filter((f) => (f.endsWith('.js') || f.endsWith('.html')) && f !== 'package-lock.json');
 
-  const realSecretPattern = /(?:AQ\.Ab8[0-9A-Za-z_-]{15,}|gsk_(?!dummy)[0-9A-Za-z_-]{20,}|AIzaSy(?!Dummy)[0-9A-Za-z_-]{20,}|(?:fishVoiceModelId|reference_id)\s*:\s*['"][0-9a-f]{32}['"]|userPrimaryVoiceId\s*=\s*['"][0-9a-f]{32}['"])/;
+  const realSecretPattern = /(?:AQ\.Ab8[0-9A-Za-z_-]{15,}|gsk_(?!dummy)[0-9A-Za-z_-]{20,}|AIzaSy(?!Dummy)[0-9A-Za-z_-]{20,}|hf_(?!dummy)[0-9A-Za-z]{20,}|(?:fishVoiceModelId|reference_id)\s*:\s*['"][0-9a-f]{32}['"]|userPrimaryVoiceId\s*=\s*['"][0-9a-f]{32}['"])/;
   for (const file of codeFiles) {
     const src = fs.readFileSync(path.join(APP_DIR, file), 'utf8');
     assert.ok(!realSecretPattern.test(src), `se encontró una clave o ID personal quemado en ${file}`);

@@ -48,6 +48,11 @@ function loadEnv({ filePath = path.join(__dirname, '.env'), env = process.env, o
       env[key] = value;
     }
   }
+  // Exponer también HF_TOKEN estándar si el usuario configuró HUGGINGFACE_API_KEY en .env,
+  // para que librerías oficiales de Hugging Face y subprocesos Python lo reconozcan automáticamente.
+  if (env.HUGGINGFACE_API_KEY && !env.HF_TOKEN) {
+    env.HF_TOKEN = env.HUGGINGFACE_API_KEY;
+  }
   return { loaded: true, parsed };
 }
 
@@ -59,6 +64,7 @@ function envSettings(env = process.env) {
     fishApiKey: String(env.FISH_API_KEY || '').trim(),
     fishVoiceModelId: String(env.FISH_VOICE_MODEL_ID || '').trim(),
     fishModel: String(env.FISH_MODEL || '').trim(),
+    huggingfaceApiKey: String(env.HUGGINGFACE_API_KEY || env.HF_TOKEN || '').trim(),
     voxcpmHost: String(env.VOXCPM_HOST || '').trim(),
     voxcpmPort: Number(env.VOXCPM_PORT) || 0,
     personaplexHost: String(env.PERSONAPLEX_HOST || '').trim(),
@@ -83,6 +89,7 @@ function applyEnvFallbacks(settings, env = process.env) {
     merged.fishVoiceModelId = fromEnv.fishVoiceModelId;
   }
   if (!merged.fishModel && fromEnv.fishModel) merged.fishModel = fromEnv.fishModel;
+  if (!merged.huggingfaceApiKey && fromEnv.huggingfaceApiKey) merged.huggingfaceApiKey = fromEnv.huggingfaceApiKey;
   if (!merged.personaplexHost && fromEnv.personaplexHost) merged.personaplexHost = fromEnv.personaplexHost;
   if (!merged.personaplexPort && fromEnv.personaplexPort) merged.personaplexPort = fromEnv.personaplexPort;
   if (!merged.personaplexVoice && fromEnv.personaplexVoice) merged.personaplexVoice = fromEnv.personaplexVoice;

@@ -93,6 +93,7 @@ const DEFAULT_SETTINGS = {
   fishApiKey: '',
   fishVoiceModelId: 'default',
   fishModel: 's2.1-pro-free',
+  huggingfaceApiKey: '',
   fishLatency: 'balanced',
   fishVolume: 95,
   fishSpeed: 1.0,
