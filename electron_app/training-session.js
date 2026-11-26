@@ -3,8 +3,59 @@
  * decidir cuándo terminó de hablar, trocear la voz del interlocutor y escribir los informes (libreto + evaluación).
  */
 
-const SILENCE_MS = 3000; // callarse este tiempo termina la respuesta (modo «pausa»)
+const SILENCE_MS = 3000; // callarse este tiempo termina la respuesta (modo «pausa» clásico)
 const SETTLE_MS = 1200; // y la traducción tiene que llevar este tiempo sin cambiar (la nube mejora las líneas)
+const FAST_SILENCE_MS = 1050; // frase cerrada sintácticamente (. ? !) en modo inteligente
+const FAST_SETTLE_MS = 650;
+const NEUTRAL_SILENCE_MS = 1850; // frase larga sin puntuación final pero sin conector abierto
+const NEUTRAL_SETTLE_MS = 900;
+const OPEN_SILENCE_MS = 3100; // frase abierta en conector («porque…», «and…», «,») mientras piensa
+const OPEN_SETTLE_MS = 1200;
+
+const OPEN_TRAIL_PUNCT_RE = /[,;:\u2026-]\s*$/;
+const CLOSED_PUNCT_RE = /[.?!\u3002]\s*$/;
+const OPEN_END_WORDS_RE = /\b(?:y|e|o|u|ni|pero|aunque|sino|porque|pues|como|cuando|donde|mientras|si|que|con|para|por|sin|sobre|entre|hacia|desde|de|en|a|este|eh|em|mmm|bueno|entonces|además|ademas|también|tambien|ejemplo|decir|sea|and|or|but|so|because|since|while|when|where|if|that|which|who|with|for|to|of|in|on|at|by|from|like|such|as|example|instance|well|uh|um|er|hmm)\s*[.?!]?\s*$/i;
+const MULTIWORD_OPEN_RE = /\b(?:por ejemplo|es decir|o sea|en cambio|sin embargo|for example|for instance|such as|in order to|as well as|so that)\s*[.?!,]?\s*$/i;
+
+/**
+ * Calcula los tiempos dinámicos de espera (inspirado en Pause Handling & Smooth Turn-Taking
+ * de FullDuplexBench / PersonaPlex) analizando si el hablante cerró la idea o hizo una pausa para pensar.
+ */
+function turnTimingForText({ original = '', translated = '' } = {}) {
+  const es = String(original || '').trim();
+  const en = String(translated || '').trim();
+  const probe = en || es;
+  if (!probe) {
+    return { state: 'default', silenceMs: SILENCE_MS, settleMs: SETTLE_MS };
+  }
+
+  // 1. Puntuación suspensiva o conector/muletilla al final -> el usuario sigue pensando
+  if (
+    OPEN_TRAIL_PUNCT_RE.test(es) ||
+    OPEN_TRAIL_PUNCT_RE.test(en) ||
+    MULTIWORD_OPEN_RE.test(es) ||
+    MULTIWORD_OPEN_RE.test(en) ||
+    OPEN_END_WORDS_RE.test(es) ||
+    OPEN_END_WORDS_RE.test(en)
+  ) {
+    return { state: 'open', silenceMs: OPEN_SILENCE_MS, settleMs: OPEN_SETTLE_MS };
+  }
+
+  const words = probe.split(/\s+/).filter(Boolean).length;
+  const closed = CLOSED_PUNCT_RE.test(en) || CLOSED_PUNCT_RE.test(es);
+
+  // 2. Idea completa con cierre sintáctico claro -> respuesta ágil (~1 s)
+  if (closed && words >= 4) {
+    return { state: 'complete', silenceMs: FAST_SILENCE_MS, settleMs: FAST_SETTLE_MS };
+  }
+
+  // 3. Respuesta breve cerrada («Yes, I have.») o cláusula larga sin conector colgante
+  if ((closed && words >= 2) || words >= 7) {
+    return { state: 'neutral', silenceMs: NEUTRAL_SILENCE_MS, settleMs: NEUTRAL_SETTLE_MS };
+  }
+
+  return { state: 'default', silenceMs: SILENCE_MS, settleMs: SETTLE_MS };
+}
 
 /** Las líneas de la respuesta actual, en orden de aparición, con la última traducción de cada una. */
 function createAnswerCollector() {
@@ -32,10 +83,25 @@ function createAnswerCollector() {
   };
 }
 
-/** ¿Terminó de responder? Con «pausa», tras unos segundos de silencio y con la traducción ya quieta. */
-function answerReady({ mode, now, lastVoiceAt, lastLineAt, count, silenceMs = SILENCE_MS, settleMs = SETTLE_MS }) {
-  if (mode !== 'pause' || count === 0) return false;
-  return now - lastVoiceAt >= silenceMs && now - lastLineAt >= settleMs;
+/** ¿Terminó de responder? Soporta modo «pausa» clásico (3 s) y modo «smart» (fin de turno dinámico). */
+function answerReady({
+  mode,
+  now,
+  lastVoiceAt,
+  lastLineAt,
+  count,
+  original = '',
+  translated = '',
+  adaptive = false,
+  silenceMs,
+  settleMs
+}) {
+  if ((mode !== 'pause' && mode !== 'smart') || count === 0) return false;
+  const useSmart = mode === 'smart' || adaptive === true;
+  const dynamic = useSmart ? turnTimingForText({ original, translated }) : null;
+  const targetSilence = silenceMs !== undefined ? silenceMs : (dynamic ? dynamic.silenceMs : SILENCE_MS);
+  const targetSettle = settleMs !== undefined ? settleMs : (dynamic ? dynamic.settleMs : SETTLE_MS);
+  return now - lastVoiceAt >= targetSilence && now - lastLineAt >= targetSettle;
 }
 
 /** Trozos de como mucho `max` caracteres, cortando por frases (y por comas si una frase es muy larga). */
@@ -199,12 +265,16 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     createAnswerCollector,
     answerReady,
+    turnTimingForText,
     ttsChunks,
     formatScore,
     formatReport,
     formatPlaybookReport,
     RECOMMENDATION,
     SILENCE_MS,
-    SETTLE_MS
+    SETTLE_MS,
+    FAST_SILENCE_MS,
+    FAST_SETTLE_MS,
+    OPEN_SILENCE_MS
   };
 }

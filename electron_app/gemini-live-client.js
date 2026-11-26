@@ -157,6 +157,10 @@ CRITICAL RULES:
               thinkingBudget: 0
             }
           },
+          contextWindowCompression: {
+            triggerTokens: "104857",
+            slidingWindow: { targetTokens: "52428" }
+          },
           systemInstruction: {
             parts: [
               { text: systemPrompt }

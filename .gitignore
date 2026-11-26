@@ -12,6 +12,10 @@ node_modules/
 electron_app/node_modules/
 electron_app/.models/
 electron_app/test-sessions/
+__pycache__/
+*.py[cod]
+venv/
+.venv/
 
 # Build Outputs
 dist/

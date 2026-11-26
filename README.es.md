@@ -65,6 +65,7 @@ vibetranslate/
 │   └── test/                # 293 pruebas unitarias/integración + pruebas E2E en Electron
 ├── interview-assistant/     # Asistente web complementario para entrevistas
 ├── license-server/          # Microservicio Node.js de licencias
+├── personaplex_service/     # Microservicio opcional NVIDIA PersonaPlex Full-Duplex (24 kHz)
 ├── voxcpm_service/          # Microservicio Python opcional de TTS local
 └── .github/workflows/       # Compilación CI multiplataforma (Windows y macOS)
 ```

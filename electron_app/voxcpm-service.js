@@ -13,6 +13,7 @@ const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
 const { defaultLogger } = require('./logger');
+const { MSG_AUDIO, decodeMessage } = require('./personaplex-protocol');
 
 class VoxCPMService {
   constructor(options = {}) {
@@ -80,9 +81,17 @@ class VoxCPMService {
 
       this.ws.on('message', (data, isBinary) => {
         if (isBinary) {
-          // Chunk de audio PCM 16-bit 48kHz
-          const audioBuffer = Buffer.from(data);
-          this.onReceiveAudioChunk(audioBuffer);
+          const rawBuf = Buffer.from(data);
+          // Soporta framing binario de 1 byte estilo PersonaPlex ([0x01, ...audio] / [0x02, ...text]) y PCM directo
+          if (rawBuf.length > 1 && (rawBuf[0] === MSG_AUDIO || rawBuf[0] === 0x02 || rawBuf[0] === 0x04)) {
+            const parsed = decodeMessage(rawBuf);
+            if (parsed.type === 'audio' && parsed.data.length > 0) {
+              this.onReceiveAudioChunk(parsed.data);
+            }
+            return;
+          }
+          // Chunk de audio PCM 16-bit 48kHz directo
+          this.onReceiveAudioChunk(rawBuf);
         } else {
           try {
             const msg = JSON.parse(data.toString());

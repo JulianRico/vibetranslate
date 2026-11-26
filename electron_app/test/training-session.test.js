@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createAnswerCollector, answerReady, ttsChunks, formatScore, formatReport } = require('../training-session');
+const { createAnswerCollector, answerReady, turnTimingForText, ttsChunks, formatScore, formatReport } = require('../training-session');
 
 test('la respuesta junta las líneas en el orden en que aparecieron, con su última traducción', () => {
   const answer = createAnswerCollector();
@@ -32,6 +32,44 @@ test('con «pausa», la respuesta termina tras 3 s de silencio y cuando la tradu
 
 test('con «solo botón» la respuesta nunca termina sola', () => {
   assert.equal(answerReady({ mode: 'button', count: 3, lastVoiceAt: 0, lastLineAt: 0, now: 60000 }), false);
+});
+
+test('modo inteligente («smart») responde rápido (~1 s) en ideas cerradas y espera si la frase queda abierta en conector', () => {
+  const closedTiming = turnTimingForText({
+    original: 'Implementamos reintentos exponenciales en Microsoft Graph.',
+    translated: 'We implemented exponential retries in Microsoft Graph.'
+  });
+  assert.equal(closedTiming.state, 'complete');
+  assert.ok(closedTiming.silenceMs <= 1200);
+
+  const openTiming = turnTimingForText({
+    original: 'Elegimos esa arquitectura porque',
+    translated: 'We chose that architecture because'
+  });
+  assert.equal(openTiming.state, 'open');
+  assert.ok(openTiming.silenceMs >= 3000);
+
+  // En modo smart a los 1,2 s de silencio tras frase cerrada ya dispara turno
+  assert.equal(answerReady({
+    mode: 'smart',
+    count: 1,
+    lastVoiceAt: 10000,
+    lastLineAt: 10400,
+    now: 11200,
+    original: 'Usamos colas en Azure Service Bus.',
+    translated: 'We used queues in Azure Service Bus.'
+  }), true);
+
+  // Pero si terminó en «por ejemplo,» a los 2,2 s todavía espera para no cortar al usuario
+  assert.equal(answerReady({
+    mode: 'smart',
+    count: 1,
+    lastVoiceAt: 10000,
+    lastLineAt: 10400,
+    now: 12200,
+    original: 'Aplicamos varios controles, por ejemplo,',
+    translated: 'We applied several controls, for example,'
+  }), false);
 });
 
 test('la voz del entrevistador se trocea por frases sin pasar de 190 caracteres', () => {

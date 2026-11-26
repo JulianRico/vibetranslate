@@ -48,7 +48,10 @@ test('applyEnvFallbacks rellena claves vacías en settings sin sobrescribir las 
     GROQ_API_KEY: 'env_groq',
     FISH_API_KEY: 'env_fish',
     FISH_VOICE_MODEL_ID: 'env_voice_123',
-    FISH_MODEL: 's2.1-pro'
+    FISH_MODEL: 's2.1-pro',
+    PERSONAPLEX_HOST: '127.0.0.1',
+    PERSONAPLEX_PORT: '8998',
+    PERSONAPLEX_VOICE: 'NATF2'
   };
   const saved = {
     geminiApiKey: '',
@@ -63,6 +66,9 @@ test('applyEnvFallbacks rellena claves vacías en settings sin sobrescribir las 
   assert.equal(merged.fishApiKey, 'env_fish');
   assert.equal(merged.fishVoiceModelId, 'env_voice_123');
   assert.equal(merged.fishModel, 's2.1-pro');
+  assert.equal(merged.personaplexHost, '127.0.0.1');
+  assert.equal(merged.personaplexPort, 8998);
+  assert.equal(merged.personaplexVoice, 'NATF2');
   assert.equal(envSettings(env).voxcpmPort, 0);
 });
 

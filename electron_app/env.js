@@ -60,7 +60,10 @@ function envSettings(env = process.env) {
     fishVoiceModelId: String(env.FISH_VOICE_MODEL_ID || '').trim(),
     fishModel: String(env.FISH_MODEL || '').trim(),
     voxcpmHost: String(env.VOXCPM_HOST || '').trim(),
-    voxcpmPort: Number(env.VOXCPM_PORT) || 0
+    voxcpmPort: Number(env.VOXCPM_PORT) || 0,
+    personaplexHost: String(env.PERSONAPLEX_HOST || '').trim(),
+    personaplexPort: Number(env.PERSONAPLEX_PORT) || 0,
+    personaplexVoice: String(env.PERSONAPLEX_VOICE || '').trim()
   };
 }
 
@@ -75,6 +78,9 @@ function applyEnvFallbacks(settings, env = process.env) {
     merged.fishVoiceModelId = fromEnv.fishVoiceModelId;
   }
   if (!merged.fishModel && fromEnv.fishModel) merged.fishModel = fromEnv.fishModel;
+  if (!merged.personaplexHost && fromEnv.personaplexHost) merged.personaplexHost = fromEnv.personaplexHost;
+  if (!merged.personaplexPort && fromEnv.personaplexPort) merged.personaplexPort = fromEnv.personaplexPort;
+  if (!merged.personaplexVoice && fromEnv.personaplexVoice) merged.personaplexVoice = fromEnv.personaplexVoice;
   return merged;
 }
 

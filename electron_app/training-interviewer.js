@@ -125,6 +125,44 @@ function interviewPrompt(rawSetup) {
   return lines.join(' ');
 }
 
+/**
+ * Construye el prompt compacto `<system> ... <system>` optimizado para NVIDIA PersonaPlex (Moshi 7B),
+ * manteniendo el rol, la persona y el guion dentro del presupuesto de `--max-pinned-frames 512`.
+ */
+function personaPlexPrompt(rawSetup) {
+  const s = normalizeSetup(rawSetup);
+  const levelInfo = getLevelById(s.level);
+  const isMeeting = s.mode === 'meeting';
+  const p = (s.playbook && s.playbook.interlocutor) || {};
+  const name = p.name || (isMeeting ? 'Alex Carter' : 'Sarah Jenkins');
+  const title = p.role || (isMeeting ? 'International Engineering Lead' : 'Senior Hiring Manager');
+  const location = p.location ? ` based in ${p.location}` : '';
+
+  const parts = [
+    'You enjoy having a good conversation.',
+    isMeeting
+      ? `Have a realistic international work meeting in English about ${s.topic || s.role}. Your name is ${name}, ${title}${location}.`
+      : `Conduct a realistic job interview in English for the role of ${s.role}${s.topic ? ` focused on ${s.topic}` : ''}. Your name is ${name}, ${title}${location}.`,
+    s.sector ? `Industry: ${s.sector}.` : '',
+    `Style: ${levelInfo.enDesc}.`,
+    'Speak naturally in short, conversational turns (one or two sentences at a time), use natural brief acknowledgments when listening, and ask concise clarifying questions if something sounds unclear.'
+  ];
+
+  if (s.playbook && Array.isArray(s.playbook.turns) && s.playbook.turns.length > 0) {
+    const agenda = s.playbook.turns
+      .slice(0, 8)
+      .map((t, idx) => `${idx + 1}) ${String((t.question && t.question.en) || '').slice(0, 110)}`)
+      .filter((line) => line.length > 4)
+      .join(' ');
+    if (agenda) {
+      parts.push(`Information and agenda to cover in order: ${agenda}`);
+    }
+  }
+
+  const body = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  return `<system> ${body} <system>`;
+}
+
 function evaluationPrompt(rawSetup) {
   const s = normalizeSetup(rawSetup);
   const isMeeting = s.mode === 'meeting';
@@ -481,6 +519,7 @@ module.exports = {
   playbookPrompt,
   parsePlaybook,
   interviewPrompt,
+  personaPlexPrompt,
   evaluationPrompt,
   parseEvaluation,
   cleanSpoken

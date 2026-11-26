@@ -5,6 +5,7 @@
 
 const { ipcRenderer } = require('electron');
 const GeminiLiveClient = require('./gemini-live-client');
+const { PersonaPlexClient, PERSONAPLEX_SAMPLE_RATE } = require('./personaplex-client');
 const { floatTo16BitPCM, arrayBufferToBase64, base64ToArrayBuffer, encodeWAV, isWhisperHallucination } = require('./audio-utils');
 const { createOutputQueue } = require('./output-queue');
 const { createConversationLog } = require('./conversation-log');
@@ -31,33 +32,116 @@ const {
 } = require('./training-catalog');
 const { nameFromIntroduction, createSpeakerNames } = require('./speaker-names');
 
-// ── Reproductor de Flujo PCM Continuo (Única Instancia AudioContext) ──
+// ── Captura en Hilo de Tiempo Real (AudioWorklet con Respaldo Seguro) ──
+async function attachAudioCaptureNode(audioCtx, sourceNode, frameSize, onSamples) {
+  const muteGain = audioCtx.createGain();
+  muteGain.gain.value = 0;
+  muteGain.connect(audioCtx.destination);
+
+  if (audioCtx.audioWorklet && typeof audioCtx.audioWorklet.addModule === 'function' && typeof AudioWorkletNode !== 'undefined') {
+    try {
+      await audioCtx.audioWorklet.addModule('audio-worklet-processor.js');
+      const workletNode = new AudioWorkletNode(audioCtx, 'vibe-capture-processor', {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+        processorOptions: { frameSize }
+      });
+      workletNode.port.onmessage = (event) => {
+        if (event.data && event.data.type === 'samples' && event.data.samples) {
+          onSamples(event.data.samples);
+        }
+      };
+      sourceNode.connect(workletNode);
+      workletNode.connect(muteGain);
+      return {
+        node: workletNode,
+        isWorklet: true,
+        disconnect() {
+          try { workletNode.port.postMessage({ type: 'stop' }); } catch {}
+          try { sourceNode.disconnect(workletNode); } catch {}
+          try { workletNode.disconnect(); } catch {}
+          try { muteGain.disconnect(); } catch {}
+        }
+      };
+    } catch (err) {
+      console.warn('[AudioWorklet] Usando respaldo ScriptProcessor para captura:', err.message);
+    }
+  }
+
+  const proc = audioCtx.createScriptProcessor(frameSize, 1, 1);
+  proc.onaudioprocess = (e) => {
+    const channel = e.inputBuffer.getChannelData(0);
+    onSamples(new Float32Array(channel));
+  };
+  sourceNode.connect(proc);
+  proc.connect(muteGain);
+  return {
+    node: proc,
+    isWorklet: false,
+    disconnect() {
+      try { proc.onaudioprocess = null; } catch {}
+      try { sourceNode.disconnect(proc); } catch {}
+      try { proc.disconnect(); } catch {}
+      try { muteGain.disconnect(); } catch {}
+    }
+  };
+}
+
+// ── Reproductor de Flujo PCM Continuo (AudioWorklet + Jitter Buffer Adaptativo PersonaPlex) ──
 class PcmStreamPlayer {
   constructor(sampleRate = 24000) {
     this.sampleRate = sampleRate;
     this.audioCtx = null;
     this.gainNode = null;
+    this.workletNode = null;
     this.nextStartTime = 0;
     this.sinkDeviceId = '';
     this.isPlaying = false;
+    this.metrics = { bufferedMs: 0, minDelayMs: 0, maxDelayMs: 0, underruns: 0, droppedSamples: 0 };
   }
 
-  async init(sinkDeviceId = '') {
+  async init(sinkDeviceId = '', volume = 1.0) {
     this.sinkDeviceId = sinkDeviceId;
     if (!this.audioCtx || this.audioCtx.state === 'closed') {
       const AudioContextClass = window.AudioContext || window.webkitAudioContext;
       this.audioCtx = new AudioContextClass({ sampleRate: this.sampleRate });
       this.gainNode = this.audioCtx.createGain();
+      this.gainNode.gain.value = Math.max(0, Math.min(1.5, Number(volume) || 1.0));
       this.gainNode.connect(this.audioCtx.destination);
       this.nextStartTime = this.audioCtx.currentTime;
 
-      if (sinkDeviceId && typeof this.audioCtx.setSinkId === 'function') {
+      if (sinkDeviceId && sinkDeviceId !== 'default' && typeof this.audioCtx.setSinkId === 'function') {
         try {
           await this.audioCtx.setSinkId(sinkDeviceId);
         } catch (err) {
           console.warn('[PcmStreamPlayer] Error asignando dispositivo de salida:', err);
         }
       }
+
+      if (this.audioCtx.audioWorklet && typeof this.audioCtx.audioWorklet.addModule === 'function' && typeof AudioWorkletNode !== 'undefined') {
+        try {
+          await this.audioCtx.audioWorklet.addModule('audio-worklet-processor.js');
+          this.workletNode = new AudioWorkletNode(this.audioCtx, 'vibe-playback-processor', {
+            numberOfInputs: 0,
+            numberOfOutputs: 1,
+            outputChannelCount: [1],
+            processorOptions: { initialMs: 80, partialMs: 10, maxBufferMs: 15, rampMs: 8 }
+          });
+          this.workletNode.port.onmessage = (e) => {
+            if (e.data && e.data.type === 'metrics' && e.data.stats) {
+              this.metrics = e.data.stats;
+              this.isPlaying = Boolean(e.data.stats.isPlaying);
+            }
+          };
+          this.workletNode.connect(this.gainNode);
+        } catch (err) {
+          console.warn('[PcmStreamPlayer] AudioWorklet no disponible, usando cola BufferSource:', err.message);
+          this.workletNode = null;
+        }
+      }
+    } else if (this.gainNode && volume !== undefined) {
+      this.gainNode.gain.value = Math.max(0, Math.min(1.5, Number(volume) || 1.0));
     }
 
     if (this.audioCtx.state === 'suspended') {
@@ -69,10 +153,19 @@ class PcmStreamPlayer {
     if (!this.audioCtx || this.audioCtx.state === 'closed' || !rawBytes || rawBytes.length === 0) return;
 
     try {
-      const int16Array = new Int16Array(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength / 2);
+      const byteBuf = rawBytes.buffer ? rawBytes : Buffer.from(rawBytes);
+      const sampleCount = Math.floor(byteBuf.byteLength / 2);
+      if (sampleCount === 0) return;
+      const int16Array = new Int16Array(byteBuf.buffer, byteBuf.byteOffset, sampleCount);
       const float32 = new Float32Array(int16Array.length);
       for (let i = 0; i < int16Array.length; i++) {
         float32[i] = int16Array[i] / 32768.0;
+      }
+
+      if (this.workletNode) {
+        this.workletNode.port.postMessage({ type: 'push', samples: float32 }, [float32.buffer]);
+        this.isPlaying = true;
+        return;
       }
 
       const audioBuffer = this.audioCtx.createBuffer(1, float32.length, this.sampleRate);
@@ -84,7 +177,7 @@ class PcmStreamPlayer {
 
       const now = this.audioCtx.currentTime;
       if (this.nextStartTime < now) {
-        this.nextStartTime = now + 0.015; // 15ms lead buffer para evitar chasquidos
+        this.nextStartTime = now + 0.015;
       }
 
       source.start(this.nextStartTime);
@@ -95,10 +188,23 @@ class PcmStreamPlayer {
     }
   }
 
+  getMetrics() {
+    return { ...this.metrics };
+  }
+
   clearQueue() {
+    if (this.workletNode) {
+      try {
+        this.workletNode.port.postMessage({ type: 'reset', smooth: true });
+      } catch (e) { }
+      this.isPlaying = false;
+      return;
+    }
     if (this.audioCtx && this.gainNode) {
       try {
-        this.gainNode.gain.setValueAtTime(0, this.audioCtx.currentTime);
+        const now = this.audioCtx.currentTime;
+        this.gainNode.gain.setValueAtTime(this.gainNode.gain.value, now);
+        this.gainNode.gain.linearRampToValueAtTime(0, now + 0.008);
         this.gainNode = this.audioCtx.createGain();
         this.gainNode.connect(this.audioCtx.destination);
       } catch (e) { }
@@ -108,6 +214,11 @@ class PcmStreamPlayer {
   }
 
   stop() {
+    if (this.workletNode) {
+      try { this.workletNode.port.postMessage({ type: 'stop' }); } catch (e) { }
+      try { this.workletNode.disconnect(); } catch (e) { }
+      this.workletNode = null;
+    }
     if (this.audioCtx) {
       try {
         this.audioCtx.close();
@@ -1116,8 +1227,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   const trainingLevel = document.getElementById('training-level');
   const trainingLength = document.getElementById('training-length');
   const trainingContext = document.getElementById('training-context');
+  const trainingEngine = document.getElementById('training-engine');
   const trainingVoice = document.getElementById('training-voice');
   const trainingTurn = document.getElementById('training-turn');
+  const trainingPersonaplexVoiceGroup = document.getElementById('training-personaplex-voice-group');
+  const trainingPersonaplexVoice = document.getElementById('training-personaplex-voice');
+  const btnCheckPersonaplex = document.getElementById('btn-check-personaplex');
+  const personaplexStatusHint = document.getElementById('personaplex-status-hint');
   const trainingNotice = document.getElementById('training-notice');
   const trainingNoticeText = document.getElementById('training-notice-text');
   const trainingNoticeAction = document.getElementById('training-notice-action');
@@ -1188,6 +1304,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function noteMicVoice() {
     lastMicVoiceAt = Date.now();
+    // Barge-in natural en modo PersonaPlex Full-Duplex: atenúa sin chasquidos al empezar a intervenir
+    if (training && training.active && training.ppPlayer && training.ppPlayer.isPlaying) {
+      training.ppPlayer.clearQueue();
+    }
   }
 
   function getSelectedTrainingMode() {
@@ -1284,8 +1404,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       level: trainingLevel ? trainingLevel.value : 'senior',
       questions: Number(trainingLength ? trainingLength.value : 5) || 5,
       context: trainingContext ? trainingContext.value.trim() : '',
+      engine: trainingEngine ? trainingEngine.value : 'cloud',
+      personaplexVoice: trainingPersonaplexVoice ? trainingPersonaplexVoice.value : 'auto',
       voice: trainingVoice ? trainingVoice.value : 'en',
-      turn: trainingTurn ? trainingTurn.value : 'pause',
+      turn: trainingTurn ? trainingTurn.value : 'smart',
       ...(includePlaybook && draftPlaybook ? { playbook: draftPlaybook } : {})
     };
   }
@@ -1395,9 +1517,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         trainingLength.value = String(p.questions);
       }
       if (p.context !== undefined && trainingContext) trainingContext.value = p.context;
+      if (p.engine && trainingEngine) trainingEngine.value = p.engine;
+      if (p.personaplexVoice && trainingPersonaplexVoice) trainingPersonaplexVoice.value = p.personaplexVoice;
       if (p.voice && trainingVoice) trainingVoice.value = p.voice;
       if (p.turn && trainingTurn) trainingTurn.value = p.turn;
     } catch { /* preferencias dañadas: se usan las de la pantalla */ }
+    if (trainingPersonaplexVoiceGroup && trainingEngine) {
+      trainingPersonaplexVoiceGroup.hidden = trainingEngine.value !== 'personaplex';
+    }
     if (trainingTopic && !trainingTopic.value.trim()) {
       const suggestions = getTopicsFor(getSelectedTrainingMode(), trainingSector.value);
       if (suggestions[0]) trainingTopic.value = suggestions[0];
@@ -1732,12 +1859,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
   }
 
+  function cleanupTrainingPersonaPlex(t) {
+    if (!t) return;
+    if (t.ppClient) {
+      try { t.ppClient.disconnect(); } catch {}
+      t.ppClient = null;
+    }
+    if (t.ppPlayer) {
+      try { t.ppPlayer.stop(); } catch {}
+      t.ppPlayer = null;
+    }
+  }
+
   /** Detiene la práctica sin evaluar (volver atrás o un fallo). */
   function abortTraining(problem = '') {
     const t = training;
     if (t) {
       t.active = false;
       clearInterval(t.timer);
+      cleanupTrainingPersonaPlex(t);
     }
     training = null;
     endTrainingAudio();
@@ -1881,9 +2021,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       setTrainingState('Modo texto (sin micrófono): escribe tu respuesta abajo y pulsa Enter.');
       if (trainingTextAnswer) trainingTextAnswer.focus();
     } else {
-      setTrainingState(t.setup.turn === 'pause'
-        ? 'Te escucha: responde en español (o escribe abajo). Al callarte 3 s se envía.'
-        : 'Te escucha: responde en español y pulsa «Terminé mi respuesta».');
+      if (t.setup.turn === 'smart') {
+        setTrainingState('Te escucha: responde en español (~1 s al cerrar idea; margen amplio si haces pausa para pensar).');
+      } else if (t.setup.turn === 'pause') {
+        setTrainingState('Te escucha: responde en español (o escribe abajo). Al callarte 3 s se envía.');
+      } else {
+        setTrainingState('Te escucha: responde en español y pulsa «Terminé mi respuesta».');
+      }
     }
     clearInterval(t.timer);
     if (t.textOnly) return;
@@ -1893,8 +2037,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       const a = t.answer.get();
-      if (answerReady({ mode: t.setup.turn, now: Date.now(), lastVoiceAt: lastMicVoiceAt, lastLineAt: a.lastAt, count: a.count })) submitAnswer(t);
-    }, 250);
+      if (answerReady({
+        mode: t.setup.turn,
+        now: Date.now(),
+        lastVoiceAt: lastMicVoiceAt,
+        lastLineAt: a.lastAt,
+        count: a.count,
+        original: a.spanish,
+        translated: a.english
+      })) {
+        submitAnswer(t);
+      }
+    }, 220);
   }
 
   /** Tus frases llegan aquí desde showLine: nuevas, o mejoradas por la nube si ya eran de esta respuesta. */
@@ -1924,6 +2078,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     setTrainingAnswer(a.spanish, a.english);
     t.history.push({ role: 'candidate', text: a.english, original: a.spanish });
     appendLog('PRÁCTICA', `Tu respuesta llegó así: ${a.english}`);
+    if (t.ppClient && t.ppClient.isConnected) {
+      await sendCandidateTurnToPersonaPlex(t, a.english);
+      return;
+    }
     await interviewerTurn(t);
   }
 
@@ -1938,8 +2096,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     btnTrainingDone.disabled = true;
     setLiveTextInputEnabled(false);
     // Al pulsar «Terminé» justo al acabar de hablar, la última frase aún se está transcribiendo: se espera un poco
+    const settleWait = t.setup.turn === 'smart' ? 750 : 1200;
     const deadline = Date.now() + (manual ? 4000 : 1500);
-    while (Date.now() < deadline && (Date.now() - lastMicVoiceAt < 900 || Date.now() - t.answer.get().lastAt < 1200)) await sleep(200);
+    while (Date.now() < deadline && (Date.now() - lastMicVoiceAt < 750 || Date.now() - t.answer.get().lastAt < settleWait)) await sleep(180);
     if (training !== t || !t.active) return;
     const a = t.answer.get();
     if (!a.count || !a.english) {
@@ -1949,12 +2108,103 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     t.history.push({ role: 'candidate', text: a.english, original: a.spanish });
     appendLog('PRÁCTICA', `Tu respuesta llegó así: ${a.english}`);
+    if (t.ppClient && t.ppClient.isConnected) {
+      await sendCandidateTurnToPersonaPlex(t, a.english);
+      return;
+    }
     await interviewerTurn(t);
+  }
+
+  async function sendCandidateTurnToPersonaPlex(t, englishText) {
+    if (!t || !t.ppClient || !t.ppClient.isConnected) return;
+    setTrainingState('PersonaPlex procesando en full-duplex (<200 ms)…');
+    try {
+      // Sintetizar voz en inglés si hay Fish Audio configurado para alimentar el códec Mimi, + señal endTurn
+      const fishRes = await ipcRenderer.invoke('FISH_AUDIO_SYNTHESIZE', {
+        text: englishText,
+        format: 'wav',
+        latency: 'balanced'
+      }).catch(() => null);
+      if (fishRes && fishRes.ok && fishRes.audioBase64) {
+        const raw = Buffer.from(fishRes.audioBase64, 'base64');
+        const pcmBody = raw.length > 44 ? raw.subarray(44) : raw;
+        const chunkBytes = 3840; // 80 ms @ 24 kHz 16-bit
+        for (let off = 0; off < pcmBody.length; off += chunkBytes) {
+          t.ppClient.sendAudioPcm16(pcmBody.subarray(off, Math.min(pcmBody.length, off + chunkBytes)), 44100);
+        }
+      }
+      t.ppClient.sendControl('endTurn');
+    } catch (err) {
+      console.warn('[PersonaPlex] Error enviando turno:', err.message);
+    }
+  }
+
+  async function startPersonaPlexTraining(t, sessionCfg) {
+    const isMeeting = t.setup.mode === 'meeting';
+    const whoLabel = (t.setup.playbook && t.setup.playbook.interlocutor && t.setup.playbook.interlocutor.name)
+      ? `${t.setup.playbook.interlocutor.name}${t.setup.playbook.interlocutor.role ? ` · ${t.setup.playbook.interlocutor.role}` : ''}`
+      : (isMeeting ? 'Interlocutor PersonaPlex' : 'Entrevistador PersonaPlex');
+    if (trainingCounterpartLabel) trainingCounterpartLabel.textContent = `${whoLabel} · Full-Duplex`;
+
+    if (t.setup.voice !== 'none') {
+      t.ppPlayer = new PcmStreamPlayer(PERSONAPLEX_SAMPLE_RATE);
+      await t.ppPlayer.init('default', Math.max(0.15, Math.min(1, currentSpanishVolume)));
+    }
+
+    let liveTextBuffer = '';
+    const totalTurns = (t.setup.playbook && t.setup.playbook.turns && t.setup.playbook.turns.length) || t.setup.questions;
+
+    t.ppClient = new PersonaPlexClient({
+      host: sessionCfg.host,
+      port: sessionCfg.port,
+      voicePrompt: sessionCfg.voicePrompt,
+      textPrompt: sessionCfg.textPrompt,
+      audioFormat: 'pcm16',
+      onReady: () => {
+        appendLog('PERSONAPLEX', `🟢 Sesión Full-Duplex conectada (${sessionCfg.voicePrompt}).`, 'gemini');
+        setTrainingState('Conectado en Full-Duplex: escuchando y hablando en tiempo real…');
+      },
+      onAudioFrame: (pcmBytes) => {
+        if (training !== t || !t.active || !t.ppPlayer) return;
+        markAppSpeakingStart();
+        t.ppPlayer.feedPcm(pcmBytes);
+        clearTimeout(t.ppSpeakEndTimer);
+        t.ppSpeakEndTimer = setTimeout(() => markAppSpeakingEnd(250), 320);
+      },
+      onTextToken: (tok) => {
+        if (training !== t || !t.active) return;
+        liveTextBuffer += tok;
+        trainingQuestionEn.textContent = liveTextBuffer.trim();
+      },
+      onSentence: (sentence) => {
+        if (training !== t || !t.active) return;
+        liveTextBuffer = '';
+        const entry = { role: 'interviewer', text: sentence, translated: '' };
+        t.history.push(entry);
+        t.asked++;
+        trainingProgress.textContent = `${isMeeting ? 'Turno' : 'Pregunta'} ${Math.min(t.asked, totalTurns)} de ${totalTurns}`;
+        trainingQuestionEn.textContent = sentence;
+        trainingQuestionEs.textContent = '…';
+        updateLiveCoach(t);
+        appendLog('PERSONAPLEX', `${whoLabel}: ${sentence}`);
+        translateForTraining(sentence, 'en', 'es').then((es) => {
+          entry.translated = es;
+          if (training === t) trainingQuestionEs.textContent = es;
+        });
+        listenForAnswer(t);
+      },
+      onError: (err) => {
+        appendLog('PERSONAPLEX', `Aviso en stream Full-Duplex: ${err.message}`, 'warn');
+      }
+    });
+
+    t.ppClient.connect();
   }
 
   async function finishTraining(t) {
     t.phase = 'evaluating';
     clearInterval(t.timer);
+    cleanupTrainingPersonaPlex(t);
     btnTrainingDone.disabled = true;
     setLiveTextInputEnabled(false);
     document.body.classList.remove('training-listening');
@@ -2149,7 +2399,39 @@ document.addEventListener('DOMContentLoaded', async () => {
       t.textOnly = true;
       appendLog('PRÁCTICA', `Micrófono no disponible (${startProblem || 'sin dispositivo'}): continuando en modo texto.`, 'warn');
     }
+
+    if (setup.engine === 'personaplex') {
+      const status = await ipcRenderer.invoke('PERSONAPLEX_STATUS').catch(() => ({ online: false }));
+      if (status && status.online) {
+        const sessionCfg = await ipcRenderer.invoke('PERSONAPLEX_BUILD_SESSION', { setup });
+        await startPersonaPlexTraining(t, sessionCfg);
+        return;
+      }
+      appendLog('PERSONAPLEX', `Servidor PersonaPlex no detectado en ${status?.host || '127.0.0.1'}:${status?.port || 8998}; usando interlocutor en la nube.`, 'warn');
+    }
     await interviewerTurn(t);
+  }
+
+  if (trainingEngine && trainingPersonaplexVoiceGroup) {
+    trainingEngine.addEventListener('change', () => {
+      trainingPersonaplexVoiceGroup.hidden = trainingEngine.value !== 'personaplex';
+    });
+  }
+
+  if (btnCheckPersonaplex && personaplexStatusHint) {
+    btnCheckPersonaplex.addEventListener('click', async () => {
+      personaplexStatusHint.hidden = false;
+      personaplexStatusHint.textContent = 'Comprobando servidor PersonaPlex en 127.0.0.1:8998…';
+      const st = await ipcRenderer.invoke('PERSONAPLEX_STATUS').catch((e) => ({ online: false, error: e.message }));
+      if (st && st.online) {
+        const modeTag = st.mode === 'moshi'
+          ? `GPU activa (${st.gpu_name || st.device})`
+          : (st.mode === 'simulation' ? 'Modo simulación local activo' : 'En línea');
+        personaplexStatusHint.textContent = `🟢 PersonaPlex conectado en ${st.host}:${st.port} — ${modeTag}.`;
+      } else {
+        personaplexStatusHint.textContent = `⚠️ Servidor no iniciado en ${st?.host || '127.0.0.1'}:${st?.port || 8998}. Ejecuta personaplex_service/start_server.bat o usa Nube estándar.`;
+      }
+    });
   }
 
   // Eventos de Paso 1 (Configurar escenario)
@@ -2878,6 +3160,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (vuBar) vuBar.style.width = '0%';
     if (vuValText) vuValText.textContent = '0%';
 
+    if (scriptProcessor) {
+      try { scriptProcessor.disconnect(); } catch (e) { }
+      scriptProcessor = null;
+    }
     if (micMediaStream) {
       micMediaStream.getTracks().forEach(t => t.stop());
       micMediaStream = null;
@@ -3561,12 +3847,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       incomingAudioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const incomingSource = incomingAudioContext.createMediaStreamSource(incomingMediaStream);
-      incomingScriptProcessor = incomingAudioContext.createScriptProcessor(2048, 1, 1);
-
-      const muteGain = incomingAudioContext.createGain();
-      muteGain.gain.value = 0;
-      incomingScriptProcessor.connect(muteGain);
-      muteGain.connect(incomingAudioContext.destination);
 
       let incomingSamplesBuffer = [];
       let incomingSpeechHold = 0;
@@ -3575,11 +3855,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       let isIncomingSpeaking = false;
       let incomingSpeechStart = 0;
 
-      incomingScriptProcessor.onaudioprocess = async (e) => {
+      const handleIncomingChunk = async (rawChannel) => {
         if (!isPipelineRunning) return;
 
         // Los demás programas están atenuados y así llegan a la captura: se devuelve su nivel antes de transcribir
-        const inputData = incomingLevel.process(e.inputBuffer.getChannelData(0));
+        const inputData = incomingLevel.process(rawChannel);
 
         if (engineType === 'local') {
           // Si la captura incluye el sonido de esta app, la voz en español entraría y crearía un bucle: se pausa
@@ -3710,7 +3990,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       };
 
-      incomingSource.connect(incomingScriptProcessor);
+      incomingScriptProcessor = await attachAudioCaptureNode(incomingAudioContext, incomingSource, 2048, handleIncomingChunk);
       appendLog('AUDIO', 'Traducción bidireccional del receptor (Inglés ➔ Español) ACTIVADA 🎧', 'audio');
       refreshLabInputs();
       updateDucking();
@@ -3795,13 +4075,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
       const source = audioContext.createMediaStreamSource(micMediaStream);
-      scriptProcessor = audioContext.createScriptProcessor(2048, 1, 1);
-
-      // Nodo de silencio para que onaudioprocess se ejecute SIN reproducir el micro en los parlantes
-      const muteGain = audioContext.createGain();
-      muteGain.gain.value = 0;
-      scriptProcessor.connect(muteGain);
-      muteGain.connect(audioContext.destination);
 
       // Buffers para STT por bloques (Groq Whisper o Gemini 3.5 REST)
       let speechSamplesBuffer = [];
@@ -3809,7 +4082,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       let isTranscribingBlock = false;
       let micEchoBlocked = false;
 
-      scriptProcessor.onaudioprocess = async (audioProcessingEvent) => {
+      scriptProcessor = await attachAudioCaptureNode(audioContext, source, 2048, async (inputData) => {
         if (!isPipelineRunning) return;
 
         // 0. Bloqueo de Eco Acústico (Si el altavoz está reproduciendo audio, ignorar el micrófono)
@@ -3833,9 +4106,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         micEchoBlocked = false;
-
-        const inputBuffer = audioProcessingEvent.inputBuffer;
-        const inputData = inputBuffer.getChannelData(0);
 
         // 1. Cálculo de Energía RMS (Root Mean Square)
         let sum = 0;
@@ -3991,9 +4261,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             samples: new Float32Array(inputData)
           });
         }
-      };
-
-      source.connect(scriptProcessor);
+      });
 
     } catch (err) {
       appendLog('AUDIO', `Error en captura de audio: ${err.message}`, 'error');
@@ -4036,9 +4304,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       hwAudioCtx = new AudioCtx({ sampleRate: 16000 });
       const src = hwAudioCtx.createMediaStreamSource(hwMicStream);
-      hwScriptProc = hwAudioCtx.createScriptProcessor(1024, 1, 1);
-      hwScriptProc.onaudioprocess = (e) => {
-        const data = e.inputBuffer.getChannelData(0);
+      hwScriptProc = await attachAudioCaptureNode(hwAudioCtx, src, 1024, (data) => {
         let sum = 0;
         for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
         const rms = Math.sqrt(sum / data.length);
@@ -4047,10 +4313,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const txt = document.getElementById('hw-meter-text');
         if (bar) bar.style.width = `${pct}%`;
         if (txt) txt.textContent = `${pct}%`;
-      };
-      src.connect(hwScriptProc);
-      const nullDest = hwAudioCtx.createMediaStreamDestination();
-      hwScriptProc.connect(nullDest);
+      });
     } catch (e) {
       console.warn('[HwLiveMicTest] Error iniciando prueba de mic:', e);
     }
@@ -4410,16 +4673,14 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
       cloneAudioCtx = new AudioCtx({ sampleRate: 16000 });
       const src = cloneAudioCtx.createMediaStreamSource(cloneMediaStream);
 
-      cloneScriptProc = cloneAudioCtx.createScriptProcessor(2048, 1, 1);
       cloneAudioSamples = [];
       isCloneRecording = true;
       cloneRecordSeconds = 0;
 
       const waveBars = voiceWaveContainer ? voiceWaveContainer.querySelectorAll('.wave-bar') : [];
 
-      cloneScriptProc.onaudioprocess = (e) => {
+      cloneScriptProc = await attachAudioCaptureNode(cloneAudioCtx, src, 2048, (inputData) => {
         if (!isCloneRecording) return;
-        const inputData = e.inputBuffer.getChannelData(0);
         cloneAudioSamples.push(new Float32Array(inputData));
 
         // Calcular volumen para animar barras
@@ -4432,11 +4693,7 @@ Veredicto: ${isOptimal ? 'APTO Y 100% ÓPTIMO' : 'REQUIERE DRIVER VB-CABLE'}
           const factor = (idx % 3 === 0) ? 1.2 : 0.8;
           bar.style.height = `${Math.min(44, Math.round(height * factor))}px`;
         });
-      };
-
-      src.connect(cloneScriptProc);
-      const nullDest = cloneAudioCtx.createMediaStreamDestination();
-      cloneScriptProc.connect(nullDest);
+      });
 
       if (btnRecordText) btnRecordText.textContent = 'Detener Grabación';
       if (btnToggleRecord) btnToggleRecord.classList.add('is-recording');

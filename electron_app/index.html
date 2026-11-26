@@ -488,6 +488,23 @@
             <summary>Voz y control de turnos</summary>
             <div class="field-pair">
               <div class="form-group">
+                <label for="training-engine">Motor del interlocutor</label>
+                <select id="training-engine" name="engine">
+                  <option value="cloud" selected>Nube estándar (Groq / Gemini)</option>
+                  <option value="personaplex">PersonaPlex Full-Duplex (&lt;200 ms)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="training-turn">Tu respuesta termina</label>
+                <select id="training-turn" name="turn">
+                  <option value="smart" selected>Inteligente (~1 s al cerrar idea)</option>
+                  <option value="pause">Pausa fija 3 s o botón</option>
+                  <option value="button">Solo botón «Terminé»</option>
+                </select>
+              </div>
+            </div>
+            <div class="field-pair">
+              <div class="form-group">
                 <label for="training-voice">Voz del interlocutor</label>
                 <select id="training-voice" name="voice">
                   <option value="en" selected>En inglés</option>
@@ -495,12 +512,23 @@
                   <option value="none">Sin voz, solo texto</option>
                 </select>
               </div>
-              <div class="form-group">
-                <label for="training-turn">Tu respuesta termina</label>
-                <select id="training-turn" name="turn">
-                  <option value="pause" selected>Pausa 3 s o botón</option>
-                  <option value="button">Solo botón «Terminé»</option>
+              <div class="form-group" id="training-personaplex-voice-group" hidden>
+                <div class="label-row">
+                  <label for="training-personaplex-voice">Voz PersonaPlex</label>
+                  <button type="button" class="link-btn" id="btn-check-personaplex">Comprobar servidor</button>
+                </div>
+                <select id="training-personaplex-voice" name="personaplexVoice">
+                  <option value="auto" selected>Automática según el rol</option>
+                  <option value="NATF2">NATF2 · Femenina ejecutiva</option>
+                  <option value="NATM1">NATM1 · Masculina técnica</option>
+                  <option value="NATF0">NATF0 · Femenina colaborativa</option>
+                  <option value="NATM0">NATM0 · Masculina cercana</option>
+                  <option value="NATF3">NATF3 · Femenina directiva</option>
+                  <option value="NATM3">NATM3 · Masculina ejecutiva</option>
+                  <option value="VARF1">VARF1 · Femenina expresiva</option>
+                  <option value="VARM2">VARM2 · Masculina expresiva</option>
                 </select>
+                <p class="hint" id="personaplex-status-hint" hidden></p>
               </div>
             </div>
           </details>

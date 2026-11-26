@@ -13,7 +13,9 @@ const { userGlossary } = require('./glossary');
 const { loadEnv, applyEnvFallbacks } = require('./env');
 const { createTechGlossary } = require('./local-ai/tech-glossary');
 const { createCloudTranslator } = require('./cloud-translator');
-const { createInterviewer } = require('./training-interviewer');
+const { createInterviewer, personaPlexPrompt } = require('./training-interviewer');
+const { PersonaPlexClient, PERSONAPLEX_VOICES } = require('./personaplex-client');
+const { pickVoiceForSetup } = require('./personaplex-protocol');
 const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
 const { FishAudioService } = require('./fish-audio-service');
@@ -112,7 +114,11 @@ const DEFAULT_SETTINGS = {
   translateIncoming: true,
   incomingVoice: false,
   duckLevel: 0.05,
-  autoStartListening: false
+  autoStartListening: false,
+  personaplexHost: '127.0.0.1',
+  personaplexPort: 8998,
+  personaplexVoice: 'auto',
+  trainingEngine: 'cloud'
 };
 
 function broadcastOverlayState(isVisible) {
@@ -344,6 +350,40 @@ ipcMain.handle('TRAINING_EVALUATE', async (event, { setup, history }) => {
   const r = await interviewer.evaluate({ setup, history });
   if (!r.ok) defaultLogger.warn('PRÁCTICA', r.error);
   return r;
+});
+
+ipcMain.handle('PERSONAPLEX_STATUS', async (event, { host, port, secure = false } = {}) => {
+  const saved = loadSavedSettings();
+  const client = new PersonaPlexClient({
+    host: host || saved.personaplexHost || '127.0.0.1',
+    port: Number(port || saved.personaplexPort) || 8998,
+    secure: Boolean(secure)
+  });
+  const health = await client.checkHealth();
+  return {
+    ...health,
+    host: client.host,
+    port: client.port,
+    voices: health.voices || PERSONAPLEX_VOICES
+  };
+});
+
+ipcMain.handle('PERSONAPLEX_BUILD_SESSION', async (event, { setup = {} } = {}) => {
+  const saved = loadSavedSettings();
+  const host = setup.personaplexHost || saved.personaplexHost || '127.0.0.1';
+  const port = Number(setup.personaplexPort || saved.personaplexPort) || 8998;
+  const voicePrompt = pickVoiceForSetup({
+    ...setup,
+    personaplexVoice: setup.personaplexVoice || saved.personaplexVoice || 'auto'
+  });
+  const textPrompt = personaPlexPrompt(setup);
+  return {
+    ok: true,
+    host,
+    port,
+    voicePrompt,
+    textPrompt
+  };
 });
 
 async function translateWithGoogleDict(text, sl, tl) {
