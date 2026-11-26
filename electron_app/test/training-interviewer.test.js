@@ -1,6 +1,13 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createInterviewer, interviewPrompt, parseEvaluation } = require('../training-interviewer');
+const {
+  createInterviewer,
+  interviewPrompt,
+  parseEvaluation,
+  extractJsonObject,
+  matchPlaybookTurn,
+  computeScriptProgress
+} = require('../training-interviewer');
 
 const SETUP = { role: 'Senior SharePoint Online Developer', questions: 8 };
 
@@ -109,4 +116,91 @@ test('evaluar envía la entrevista completa con lo que dijo el candidato en ambo
   const sent = calls[0].body.messages.map((m) => m.content).join('\n');
   assert.match(sent, /Retry-After header/);
   assert.match(sent, /Respeto el header Retry-After/);
+});
+
+test('extractJsonObject y evaluate reparan JSON truncado y nunca devuelven ok:false si hay respuestas del candidato', async () => {
+  // 1. JSON truncado a mitad del cierre (típico cuando un modelo razonador agota max_tokens)
+  const truncated = '{"overall": 8.2, "verdict": {"en": "Strong technical answers", "es": "Respuestas sólidas"}, "categories": [{"name": {"en": "Depth", "es": "Profundidad"}, "score": 8.5, "note": {"en": "Clear", "es": "Claro"}}], "recommendation": "hire", "strengths": [{"en": "Good architecture", "es": "Buena arquitec';
+  const parsed = parseEvaluation(truncated);
+  assert.equal(parsed.overall, 8.2);
+  assert.equal(parsed.recommendation, 'hire');
+  assert.equal(parsed.categories[0].score, 8.5);
+  assert.ok(extractJsonObject('sin llaves') === null);
+
+  // 2. Incluso si el proveedor devuelve basura dos veces seguidas, evaluate entrega evaluación de respaldo y preserva la sesión
+  const { fetchImpl } = fakeFetch([{ content: 'texto sin json' }, { content: 'tampoco json' }]);
+  const interviewer = createInterviewer({ fetchImpl, getGroqKey: () => 'gsk_test_key' });
+  const r = await interviewer.evaluate({
+    setup: SETUP,
+    history: [
+      { role: 'interviewer', text: 'How do you handle Graph throttling?' },
+      { role: 'candidate', text: 'We implement exponential backoff and honor Retry-After headers.', original: 'Aplicamos backoff exponencial y respetamos Retry-After.' }
+    ]
+  });
+  assert.equal(r.ok, true);
+  assert.equal(r.fallback, true);
+  assert.equal(r.evaluation.turnFeedback.length, 1);
+});
+
+test('matchPlaybookTurn y computeScriptProgress mantienen intacto el orden del libreto cuando hay preguntas fuera de guion', async () => {
+  const playbook = {
+    turns: [
+      { question: { en: 'How do you design SPFx governance across tenants?', es: '¿Cómo diseñas gobernanza SPFx entre tenants?' } },
+      { question: { en: 'How do you mitigate Microsoft Graph API throttling in migrations?', es: '¿Cómo mitigas el throttling de Microsoft Graph en migraciones?' } },
+      { question: { en: 'How do you align stakeholders when a deadline slips?', es: '¿Cómo alineas stakeholders si se retrasa una entrega?' } }
+    ]
+  };
+
+  const covered = new Set();
+  // Turno 1: pregunta 1 del guion con saludo previo
+  const m1 = matchPlaybookTurn('Hi! Welcome today. How do you design SPFx governance across multiple tenants?', playbook.turns, 0, covered);
+  assert.equal(m1.matched, true);
+  assert.equal(m1.turnIndex, 0);
+  assert.equal(m1.nextScriptIndex, 1);
+  covered.add(m1.turnIndex);
+
+  // Turno 2: el entrevistador mete una repregunta espontánea que NO está en el libreto -> NO debe avanzar el índice 1
+  const mExtra = matchPlaybookTurn('Interesting—how many users were affected during that outage in Madrid?', playbook.turns, m1.nextScriptIndex, covered);
+  assert.equal(mExtra.matched, false);
+  assert.equal(mExtra.nextScriptIndex, 1, 'una pregunta fuera de guion no debe saltar la pregunta 2 del libreto');
+
+  // Turno 3: ahora sí hace la pregunta 2 del libreto -> coincide con índice 1 y avanza a 2
+  const m2 = matchPlaybookTurn('Great context. Now, how do you mitigate Microsoft Graph API throttling during large migrations?', playbook.turns, mExtra.nextScriptIndex, covered);
+  assert.equal(m2.matched, true);
+  assert.equal(m2.turnIndex, 1);
+  assert.equal(m2.nextScriptIndex, 2);
+
+  // Verificar también que next() inyecta el recordatorio exacto de la pregunta 2 tras una repregunta fuera de guion
+  const prog = computeScriptProgress([
+    { role: 'interviewer', text: 'Hi! How do you design SPFx governance across tenants?' },
+    { role: 'candidate', text: 'We use app catalog policies.' },
+    { role: 'interviewer', text: 'Which team approves those policies?' },
+    { role: 'candidate', text: 'The cloud platform security team.' }
+  ], playbook.turns);
+  assert.equal(prog.coveredCount, 1);
+  assert.equal(prog.nextScriptIndex, 1);
+  assert.match(prog.nextTurn.question.en, /Graph API throttling/);
+});
+
+test('generateTurnCoach crea respuesta modelo bilingüe para preguntas fuera del libreto', async () => {
+  const coachJson = JSON.stringify({
+    intent: 'Verificar manejo real de incidentes bajo presión.',
+    howToAnswer: 'Indica impacto, acción concreta y prevención.',
+    keyPhrases: [{ en: 'We isolated the root cause within 15 minutes', es: 'Aislamos la causa raíz en 15 minutos' }],
+    sampleAnswer: {
+      en: 'During that incident, we isolated the failing webhook within 15 minutes and rolled back safely.',
+      es: 'Durante ese incidente, aislamos el webhook fallido en 15 minutos y revertimos sin pérdida de datos.'
+    }
+  });
+  const { fetchImpl } = fakeFetch([{ content: coachJson }]);
+  const interviewer = createInterviewer({ fetchImpl, getGroqKey: () => 'gsk_test_key' });
+  const r = await interviewer.generateTurnCoach({
+    setup: SETUP,
+    question: 'What did you do in the first 15 minutes of that production outage?',
+    history: []
+  });
+  assert.equal(r.ok, true);
+  assert.match(r.coach.sampleAnswer.en, /15 minutes/);
+  assert.match(r.coach.sampleAnswer.es, /15 minutos/);
+  assert.equal(r.coach.isDynamic, true);
 });

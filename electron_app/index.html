@@ -643,7 +643,7 @@
         </div>
 
         <details class="tool live-coach" id="training-live-coach" hidden>
-          <summary>Apuntador del libreto (cómo responder)</summary>
+          <summary id="coach-summary-title">Apuntador del libreto (cómo responder)</summary>
           <div class="live-coach-body">
             <p class="coach-item"><strong>Qué evalúa:</strong> <span id="coach-intent"></span></p>
             <p class="coach-item"><strong>Cómo responder:</strong> <span id="coach-how"></span></p>
@@ -683,6 +683,10 @@
           <span class="training-recommendation" id="training-recommendation"></span>
         </div>
         <p class="training-verdict" id="training-verdict"></p>
+        <div class="notice" data-state="warn" id="training-eval-fallback-notice" role="status" hidden>
+          <p id="training-eval-fallback-text">Se mostró un análisis provisional porque la nube tardó en responder. Tus respuestas están guardadas.</p>
+          <button type="button" class="btn btn-small" id="btn-training-retry-eval">Reintentar evaluación con IA</button>
+        </div>
         <ul class="training-categories" id="training-categories"></ul>
 
         <section class="training-block accordion" id="training-turn-feedback-section" aria-labelledby="training-turns-eval-title" hidden>

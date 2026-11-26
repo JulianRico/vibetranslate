@@ -18,6 +18,7 @@ const { createSlowDetector } = require('./local-ai/slow-detector');
 const { directionText, formatElapsed, readiness } = require('./ui-state');
 const { buildSessionReport } = require('./session-report');
 const { createAnswerCollector, answerReady, ttsChunks, formatScore, formatReport, formatPlaybookReport, RECOMMENDATION } = require('./training-session');
+const { matchPlaybookTurn, buildHeuristicEvaluation } = require('./training-interviewer');
 const {
   SECTORS,
   getSectorById,
@@ -1279,6 +1280,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const trainingQuestionEn = document.getElementById('training-question-en');
   const trainingQuestionEs = document.getElementById('training-question-es');
   const trainingLiveCoach = document.getElementById('training-live-coach');
+  const coachSummaryTitle = document.getElementById('coach-summary-title');
   const coachIntent = document.getElementById('coach-intent');
   const coachHow = document.getElementById('coach-how');
   const coachPhrases = document.getElementById('coach-phrases');
@@ -1292,6 +1294,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const btnTrainingStop = document.getElementById('btn-training-stop');
 
   // Paso 4: Evaluación
+  const trainingEvalFallbackNotice = document.getElementById('training-eval-fallback-notice');
+  const trainingEvalFallbackText = document.getElementById('training-eval-fallback-text');
+  const btnTrainingRetryEval = document.getElementById('btn-training-retry-eval');
   const btnTrainingRepeatPlaybook = document.getElementById('btn-training-repeat-playbook');
   const btnTrainingSave = document.getElementById('btn-training-save');
   const btnTrainingAgain = document.getElementById('btn-training-again');
@@ -1811,18 +1816,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  function updateLiveCoach(t) {
-    if (!trainingLiveCoach) return;
-    const turns = t && t.setup && t.setup.playbook && Array.isArray(t.setup.playbook.turns)
-      ? t.setup.playbook.turns
-      : [];
-    const idx = Math.min(Math.max(0, t.asked - 1), turns.length - 1);
-    const turn = turns[idx];
-    if (!turn) {
-      trainingLiveCoach.hidden = true;
-      return;
-    }
+  function renderCoachCardData(turn, { summaryText = 'Apuntador del libreto (cómo responder)', autoOpenCoach = false, autoOpenSample = false } = {}) {
+    if (!trainingLiveCoach || !turn) return;
     trainingLiveCoach.hidden = false;
+    if (coachSummaryTitle) coachSummaryTitle.textContent = summaryText;
     if (coachIntent) coachIntent.textContent = turn.intent || 'Claridad, criterio y estructura profesional.';
     if (coachHow) coachHow.textContent = turn.howToAnswer || 'Responde al grano y cierra con un ejemplo concreto.';
     if (coachPhrases) {
@@ -1835,8 +1832,84 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (coachSampleEn) coachSampleEn.textContent = (turn.sampleAnswer && turn.sampleAnswer.en) || '';
     if (coachSampleEs) coachSampleEs.textContent = (turn.sampleAnswer && turn.sampleAnswer.es) || '';
+    if (autoOpenCoach) trainingLiveCoach.open = true;
     const sampleDetails = trainingLiveCoach.querySelector('.coach-sample-details');
-    if (sampleDetails) sampleDetails.open = false;
+    if (sampleDetails) sampleDetails.open = Boolean(autoOpenSample);
+  }
+
+  /**
+   * Sincroniza el progreso del libreto sin desfasar el índice cuando el interlocutor hace
+   * una repregunta o pregunta fuera del libreto, y genera respuesta modelo en vivo si no está en el guion.
+   */
+  function syncTurnAndUpdateCoach(t, spokenQuestion, entry = null) {
+    if (!t) return;
+    const isMeeting = t.setup.mode === 'meeting';
+    const turns = t.setup && t.setup.playbook && Array.isArray(t.setup.playbook.turns)
+      ? t.setup.playbook.turns
+      : [];
+    const totalTurns = turns.length || t.setup.questions;
+    if (!t.coveredSet) t.coveredSet = new Set();
+    if (typeof t.scriptIndex !== 'number') t.scriptIndex = 0;
+    const reqId = (t.currentCoachReqId || 0) + 1;
+    t.currentCoachReqId = reqId;
+
+    if (turns.length > 0) {
+      const match = matchPlaybookTurn(spokenQuestion, turns, t.scriptIndex, t.coveredSet);
+      if (match.matched && match.turn) {
+        t.coveredSet.add(match.turnIndex);
+        while (t.coveredSet.has(t.scriptIndex) && t.scriptIndex < turns.length) {
+          t.scriptIndex++;
+        }
+        trainingProgress.textContent = `${isMeeting ? 'Turno' : 'Pregunta'} ${match.turnIndex + 1} de ${turns.length}`;
+        renderCoachCardData(match.turn, {
+          summaryText: `Apuntador del libreto · Turno ${match.turnIndex + 1} de ${turns.length} (cómo responder)`,
+          autoOpenCoach: false,
+          autoOpenSample: false
+        });
+        return;
+      }
+
+      // Pregunta FUERA del libreto: NO avanzar `t.scriptIndex` para preservar intacta la secuencia del guion
+      const pendingTurnNum = Math.min(t.scriptIndex + 1, turns.length);
+      trainingProgress.textContent = `Pregunta adicional · Guion reservado en turno ${pendingTurnNum} de ${turns.length}`;
+    } else {
+      trainingProgress.textContent = `${isMeeting ? 'Turno' : 'Pregunta'} ${Math.min(t.asked, totalTurns)} de ${totalTurns}`;
+    }
+
+    // Mostrar estado inmediato mientras se genera la guía y respuesta modelo para esta pregunta fuera del libreto
+    const hasScript = turns.length > 0;
+    const reservedLabel = hasScript
+      ? `Pregunta fuera de libreto (guion en turno ${Math.min(t.scriptIndex + 1, turns.length)}/${turns.length})`
+      : 'Pregunta en vivo';
+    renderCoachCardData(
+      {
+        intent: 'Analizando la intención de esta pregunta en vivo…',
+        howToAnswer: 'Generando estructura recomendada y respuesta modelo adaptada a tu rol…',
+        keyPhrases: [],
+        sampleAnswer: { en: 'Generating tailored model answer…', es: 'Generando respuesta modelo en español…' }
+      },
+      {
+        summaryText: `Apuntador IA · ${reservedLabel} (generando respuesta…)`,
+        autoOpenCoach: true,
+        autoOpenSample: false
+      }
+    );
+
+    ipcRenderer.invoke('TRAINING_COACH_TURN', {
+      setup: t.setup,
+      question: spokenQuestion,
+      history: t.history.slice(-5).map(({ role, text, original }) => ({ role, text, original }))
+    }).then((res) => {
+      if (training !== t || !t.active || t.currentCoachReqId !== reqId) return;
+      if (res && res.ok && res.coach) {
+        if (entry) entry.dynamicCoach = res.coach;
+        renderCoachCardData(res.coach, {
+          summaryText: `Apuntador IA · ${reservedLabel} (respuesta generada)`,
+          autoOpenCoach: true,
+          autoOpenSample: true
+        });
+      }
+    }).catch(() => {});
   }
 
   function openTraining() {
@@ -1992,15 +2065,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const entry = { role: 'interviewer', text: r.text, translated: '' };
     t.history.push(entry);
     if (!r.end) t.asked++;
-    const totalTurns = (t.setup.playbook && t.setup.playbook.turns && t.setup.playbook.turns.length) || t.setup.questions;
-    trainingProgress.textContent = r.end
-      ? (isMeeting ? 'Cierre de la reunión' : 'Fin de la entrevista')
-      : `${isMeeting ? 'Turno' : 'Pregunta'} ${t.asked} de ${totalTurns}`;
     trainingQuestionEn.textContent = r.text;
     trainingQuestionEs.textContent = '…';
     setTrainingAnswer('', '');
-    if (!r.end) updateLiveCoach(t);
-    else if (trainingLiveCoach) trainingLiveCoach.hidden = true;
+    if (!r.end) {
+      syncTurnAndUpdateCoach(t, r.text, entry);
+    } else {
+      trainingProgress.textContent = isMeeting ? 'Cierre de la reunión' : 'Fin de la entrevista';
+      if (trainingLiveCoach) trainingLiveCoach.hidden = true;
+    }
     appendLog('PRÁCTICA', `${whoLabel}: ${r.text}`);
 
     const translated = translateForTraining(r.text, 'en', 'es').then((es) => {
@@ -2213,10 +2286,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const entry = { role: 'interviewer', text: sentence, translated: spokenLang === 'es' ? sentence : '' };
         t.history.push(entry);
         t.asked++;
-        trainingProgress.textContent = `${isMeeting ? 'Turno' : 'Pregunta'} ${Math.min(t.asked, totalTurns)} de ${totalTurns}`;
         trainingQuestionEn.textContent = sentence;
         trainingQuestionEs.textContent = spokenLang === 'es' ? sentence : '…';
-        updateLiveCoach(t);
+        syncTurnAndUpdateCoach(t, sentence, entry);
         appendLog(engineTag, `${whoLabel}: ${sentence}`);
         if (spokenLang !== 'es') {
           translateForTraining(sentence, 'en', 'es').then((es) => {
@@ -2247,17 +2319,28 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     setTrainingState('Evaluando tus respuestas turno por turno…');
-    const r = await ipcRenderer.invoke('TRAINING_EVALUATE', {
-      setup: t.setup,
-      history: t.history.map(({ role, text, original }) => ({ role, text, original }))
-    });
+    let r = null;
+    try {
+      r = await ipcRenderer.invoke('TRAINING_EVALUATE', {
+        setup: t.setup,
+        history: t.history.map(({ role, text, original }) => ({ role, text, original }))
+      });
+    } catch (err) {
+      r = { ok: false, error: err.message };
+    }
     if (training !== t) return;
     t.active = false;
-    if (!r || !r.ok) {
-      abortTraining(`No se pudo obtener la evaluación: ${(r && r.error) || 'sin respuesta'}`);
-      return;
+
+    // Nunca destruir la sesión ni regresar al inicio si falló el proveedor de evaluación:
+    // conservar toda la entrevista y mostrar análisis provisional con botón de reintento.
+    if (!r || !r.ok || !r.evaluation) {
+      t.evaluation = buildHeuristicEvaluation(t.setup, t.history);
+      t.evalFallbackWarning = (r && r.error) || 'La IA no devolvió la rúbrica detallada a tiempo.';
+      appendLog('PRÁCTICA', `Aviso en evaluación IA (${t.evalFallbackWarning}); mostrando análisis provisional conservando tu sesión.`, 'warn');
+    } else {
+      t.evaluation = r.evaluation;
+      t.evalFallbackWarning = r.fallback ? (r.warning || 'Análisis provisional activo.') : '';
     }
-    t.evaluation = r.evaluation;
     renderTrainingResult(t);
     showTrainingPanel('result', { focusHeading: true });
   }
@@ -2280,6 +2363,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     rec.textContent = RECOMMENDATION[e.recommendation] || e.recommendation;
     rec.dataset.rec = e.recommendation;
     document.getElementById('training-verdict').textContent = e.verdict.es;
+    if (trainingEvalFallbackNotice) {
+      trainingEvalFallbackNotice.hidden = !t.evalFallbackWarning;
+      if (t.evalFallbackWarning && trainingEvalFallbackText) {
+        trainingEvalFallbackText.textContent = `Se mostró un análisis provisional (${t.evalFallbackWarning}). Tus respuestas están a salvo; puedes reintentar la evaluación detallada con IA.`;
+      }
+    }
     const cats = document.getElementById('training-categories');
     cats.replaceChildren(...e.categories.map((c) => {
       const li = document.createElement('li');
@@ -2400,6 +2489,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  if (btnTrainingRetryEval) {
+    btnTrainingRetryEval.addEventListener('click', async () => {
+      if (!training || !Array.isArray(training.history) || training.history.length === 0) return;
+      const origLabel = btnTrainingRetryEval.textContent;
+      btnTrainingRetryEval.disabled = true;
+      btnTrainingRetryEval.textContent = 'Evaluando con IA…';
+      try {
+        const r = await ipcRenderer.invoke('TRAINING_EVALUATE', {
+          setup: training.setup,
+          history: training.history.map(({ role, text, original }) => ({ role, text, original }))
+        });
+        if (r && r.ok && r.evaluation && !r.fallback) {
+          training.evaluation = r.evaluation;
+          training.evalFallbackWarning = '';
+          renderTrainingResult(training);
+          appendLog('PRÁCTICA', `✅ Evaluación detallada regenerada correctamente (${r.model}).`, 'success');
+        } else if (trainingEvalFallbackText) {
+          trainingEvalFallbackText.textContent = `La nube volvió a tardar (${(r && (r.warning || r.error)) || 'intenta de nuevo en unos segundos'}). Tu transcripción sigue intacta.`;
+        }
+      } catch (err) {
+        if (trainingEvalFallbackText) trainingEvalFallbackText.textContent = `Error al reintentar: ${err.message}`;
+      } finally {
+        btnTrainingRetryEval.disabled = false;
+        btnTrainingRetryEval.textContent = origLabel;
+      }
+    });
+  }
+
   async function startTraining({ usePlaybook = false } = {}) {
     if (!usePlaybook && !validateTrainingSetup({ focusOnError: true })) return;
     const baseSetup = usePlaybook && draftSetup ? { ...draftSetup } : readSetupFromForm(false);
@@ -2412,7 +2529,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     localStorage.setItem(TRAINING_PREFS, JSON.stringify({ ...baseSetup, playbook: undefined }));
 
-    const t = { active: true, setup, history: [], answer: createAnswerCollector(), phase: 'starting', timer: null, asked: 0, textOnly: false };
+    const t = {
+      active: true,
+      setup,
+      history: [],
+      answer: createAnswerCollector(),
+      phase: 'starting',
+      timer: null,
+      asked: 0,
+      scriptIndex: 0,
+      coveredSet: new Set(),
+      currentCoachReqId: 0,
+      evalFallbackWarning: '',
+      textOnly: false
+    };
     training = t;
     showTrainingPanel('live', { focusHeading: true });
     trainingProgress.textContent = 'Empezando';

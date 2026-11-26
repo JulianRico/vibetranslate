@@ -358,6 +358,11 @@ ipcMain.handle('TRAINING_NEXT', async (event, { setup, history }) => {
   return r;
 });
 
+ipcMain.handle('TRAINING_COACH_TURN', async (event, { setup, question, history = [] }) => {
+  const r = await interviewer.generateTurnCoach({ setup, question, history });
+  return r;
+});
+
 ipcMain.handle('TRAINING_EVALUATE', async (event, { setup, history }) => {
   const r = await interviewer.evaluate({ setup, history });
   if (!r.ok) defaultLogger.warn('PRÁCTICA', r.error);
