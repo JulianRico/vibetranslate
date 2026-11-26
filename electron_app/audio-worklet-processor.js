@@ -5,11 +5,91 @@
  *    micrófono, loopback de reunión, validador de hardware y clonación de voz
  *    fuera del hilo principal de UI (cero cortes por repintados del DOM).
  * 2. `vibe-playback-processor`: reproductor continuo con Jitter Buffer adaptativo
- *    inspirado en NVIDIA PersonaPlex / Moshi (auto-ajuste de colchón, descarte
- *    inteligente de retraso acumulado y rampas anti-click en interrupciones).
+ *    híbrido inspirado en NVIDIA PersonaPlex (Moshi) + Higurashi AI Haru-4B:
+ *    - Rampas anti-click (~8 ms) en inicio, underruns y barge-in.
+ *    - Compresión temporal WSOLA (`wsolaCompress`, 10 %–20 % sin cambio de tono):
+ *      ¿Por qué? Recupera el tiempo real tras ráfagas de red acelerando suavemente
+ *      el habla con correlación cruzada de fase en lugar de recortar sílabas.
+ *    - Auto-encogimiento del colchón tras 15 s sin cortes (`shrinkAfterSec = 15`):
+ *      ¿Por qué? Evita que un pico aislado de red degrade la latencia durante el
+ *      resto de una reunión larga.
  */
 
 /* global AudioWorkletProcessor, registerProcessor, sampleRate */
+
+/**
+ * Acorta un bloque PCM en una fracción `rate` (0..0.25) conservando el tono vocal
+ * mediante WSOLA (ventanas Hann al 50 % + búsqueda de correlación cruzada).
+ */
+function wsolaCompressWorklet(samples, rate, winSamples, tolSamples) {
+  const n = samples ? samples.length : 0;
+  const clampedRate = Math.min(0.25, Math.max(0, Number(rate) || 0));
+  const win = Math.max(4, winSamples | 0);
+  const hop = win >> 1;
+  const tol = Math.max(1, tolSamples | 0);
+  const outLen = Math.round(n * (1 - clampedRate));
+
+  if (clampedRate <= 0 || hop < 2 || n < 4 * win || outLen <= win || outLen >= n) {
+    return samples;
+  }
+
+  const speed = n / outLen;
+  const out = new Float32Array(outLen + win);
+  const wsum = new Float32Array(outLen + win);
+  const hann = new Float32Array(win);
+  for (let i = 0; i < win; i++) {
+    hann[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / win);
+  }
+
+  for (let i = 0; i < win; i++) {
+    const wi = i < hop ? 1 : hann[i];
+    out[i] += samples[i] * wi;
+    wsum[i] += wi;
+  }
+
+  let prev = 0;
+  for (let k = 1; k * hop + hop <= outLen; k++) {
+    const nominal = Math.round(k * hop * speed);
+    const natural = prev + hop;
+    const hi = Math.min(n - win, nominal + tol);
+    const lo = Math.min(Math.max(0, nominal - tol), hi);
+    let best = nominal >= lo && nominal <= hi ? nominal : lo;
+
+    if (natural + win <= n) {
+      let bestCorr = -Infinity;
+      for (let c = lo; c <= hi; c++) {
+        let corr = 0;
+        for (let i = 0; i < win; i++) {
+          corr += samples[c + i] * samples[natural + i];
+        }
+        if (corr > bestCorr) {
+          bestCorr = corr;
+          best = c;
+        }
+      }
+    }
+
+    const dstBase = k * hop;
+    for (let i = 0; i < win; i++) {
+      out[dstBase + i] += samples[best + i] * hann[i];
+      wsum[dstBase + i] += hann[i];
+    }
+    prev = best;
+  }
+
+  const y = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    y[i] = wsum[i] > 1e-3 ? out[i] / wsum[i] : 0;
+  }
+
+  for (let i = 0; i < hop; i++) {
+    const r = (i + 1) / hop;
+    const tailIdx = outLen - hop + i;
+    y[tailIdx] = y[tailIdx] * (1 - r) + samples[n - hop + i] * r;
+  }
+
+  return y;
+}
 
 function createWorkletJitterBuffer(sr, opts = {}) {
   const asSamples = (ms) => Math.max(1, Math.round((ms * sr) / 1000));
@@ -24,6 +104,16 @@ function createWorkletJitterBuffer(sr, opts = {}) {
   const maxBufferCap = asSamples(opts.maxCapMs ?? 80);
   const rampLength = asSamples(opts.rampMs ?? 8);
 
+  // Parámetros WSOLA + auto-encogimiento de colchón (Haru-4B)
+  const enableWsola = opts.enableWsola !== false;
+  const catchupDeadbandSamples = asSamples(opts.catchupDeadbandMs ?? 15);
+  const catchupFastAboveSamples = asSamples(opts.catchupFastAboveMs ?? 150);
+  const catchupWinSamples = Math.max(4, asSamples(opts.catchupWinMs ?? 10));
+  const catchupTolSamples = Math.max(1, asSamples(opts.catchupTolMs ?? 2.5));
+  const minQueueWindowSamples = asSamples(opts.minQueueWindowMs ?? 333);
+  const shrinkAfterSamples = Math.max(1, Math.round((opts.shrinkAfterSec ?? 15) * sr));
+  const wsolaHeadroomSamples = asSamples(opts.wsolaHeadroomMs ?? 180);
+
   let frames = [];
   let offsetInFirst = 0;
   let totalBuffered = 0;
@@ -35,8 +125,16 @@ function createWorkletJitterBuffer(sr, opts = {}) {
   let fadeOutTail = null;
   let fadeOutOffset = 0;
 
+  let minQueueCur = Infinity;
+  let minQueuePrev = Infinity;
+  let minWindowLeft = minQueueWindowSamples;
+  let cleanSamplesSinceUnderrun = 0;
+
   let totalAudioPlayedSec = 0;
   let actualAudioPlayedSec = 0;
+  let compressedSamples = 0;
+  let wsolaEvents = 0;
+  let shrinkEvents = 0;
   let minDelaySec = Infinity;
   let maxDelaySec = 0;
   let underruns = 0;
@@ -80,10 +178,39 @@ function createWorkletJitterBuffer(sr, opts = {}) {
       remainingPartialSamples = 0;
       partialBufferSamples = basePartialSamples;
       maxBufferSamples = baseMaxBufferSamples;
+      minQueueCur = Infinity;
+      minQueuePrev = Infinity;
+      minWindowLeft = minQueueWindowSamples;
+      cleanSamplesSinceUnderrun = 0;
     },
 
-    push(frame) {
-      if (!frame || frame.length === 0) return;
+    push(rawFrame) {
+      if (!rawFrame || rawFrame.length === 0) return;
+      let frame = rawFrame;
+
+      // Si sobra cola de forma sostenida durante reproducción activa, WSOLA acorta un 10 %-20 %
+      // sin cambiar el tono vocal para recuperar el tiempo real sin cortar sílabas.
+      if (enableWsola && started && actualAudioPlayedSec > 0) {
+        const recentMin = Math.min(minQueueCur, minQueuePrev);
+        const observedMin = Number.isFinite(recentMin) ? recentMin : totalBuffered;
+        const excess = observedMin - (initialBufferSamples + partialBufferSamples);
+        if (excess > catchupDeadbandSamples && frame.length >= 4 * catchupWinSamples) {
+          const cap = excess > catchupFastAboveSamples ? 0.20 : 0.10;
+          const shortened = wsolaCompressWorklet(
+            frame,
+            Math.min(cap, excess / frame.length),
+            catchupWinSamples,
+            catchupTolSamples
+          );
+          const removed = frame.length - shortened.length;
+          if (removed > 0) {
+            compressedSamples += removed;
+            wsolaEvents++;
+            frame = shortened;
+          }
+        }
+      }
+
       frames.push(frame);
       totalBuffered += frame.length;
       if (totalBuffered >= initialBufferSamples && !started) {
@@ -91,7 +218,9 @@ function createWorkletJitterBuffer(sr, opts = {}) {
         remainingPartialSamples = partialBufferSamples;
         firstOut = true;
       }
-      const limit = initialBufferSamples + partialBufferSamples + maxBufferSamples;
+
+      const headroom = (enableWsola && started && actualAudioPlayedSec > 0) ? wsolaHeadroomSamples : 0;
+      const limit = initialBufferSamples + partialBufferSamples + maxBufferSamples + headroom;
       if (totalBuffered > limit) {
         const target = initialBufferSamples + partialBufferSamples;
         let removed = 0;
@@ -144,7 +273,8 @@ function createWorkletJitterBuffer(sr, opts = {}) {
         return prefix > 0;
       }
 
-      const delaySec = totalBuffered / sr;
+      const queuedBeforePull = totalBuffered;
+      const delaySec = queuedBeforePull / sr;
       maxDelaySec = Math.max(maxDelaySec, delaySec);
       minDelaySec = Math.min(minDelaySec, delaySec);
 
@@ -163,6 +293,14 @@ function createWorkletJitterBuffer(sr, opts = {}) {
       }
 
       const writtenNew = outIdx - prefix;
+      minQueueCur = Math.min(minQueueCur, queuedBeforePull);
+      minWindowLeft -= writtenNew;
+      if (minWindowLeft <= 0) {
+        minQueuePrev = minQueueCur;
+        minQueueCur = Infinity;
+        minWindowLeft = minQueueWindowSamples;
+      }
+
       if (firstOut && writtenNew > 0) {
         firstOut = false;
         const ramp = Math.min(writtenNew, rampLength);
@@ -173,6 +311,7 @@ function createWorkletJitterBuffer(sr, opts = {}) {
 
       if (outIdx < len) {
         underruns++;
+        cleanSamplesSinceUnderrun = 0;
         partialBufferSamples = Math.min(maxPartialCap, partialBufferSamples + partialIncrement);
         started = false;
         if (writtenNew > 0) {
@@ -180,6 +319,19 @@ function createWorkletJitterBuffer(sr, opts = {}) {
           const startFade = outIdx - ramp;
           for (let i = 0; i < ramp; i++) {
             output[startFade + i] *= (ramp - i) / ramp;
+          }
+        }
+      } else if (writtenNew > 0) {
+        // Devolver -5 ms de colchón parcial cada 15 s sin cortes para mantener latencia mínima
+        cleanSamplesSinceUnderrun += writtenNew;
+        if (cleanSamplesSinceUnderrun >= shrinkAfterSamples) {
+          cleanSamplesSinceUnderrun = 0;
+          if (partialBufferSamples > basePartialSamples) {
+            partialBufferSamples = Math.max(basePartialSamples, partialBufferSamples - partialIncrement);
+            shrinkEvents++;
+          }
+          if (maxBufferSamples > baseMaxBufferSamples) {
+            maxBufferSamples = Math.max(baseMaxBufferSamples, maxBufferSamples - maxBufferIncrement);
           }
         }
       }
@@ -196,6 +348,9 @@ function createWorkletJitterBuffer(sr, opts = {}) {
         maxDelayMs: Number((maxDelaySec * 1000).toFixed(2)),
         partialBufferMs: asMs(partialBufferSamples),
         maxBufferMs: asMs(maxBufferSamples),
+        compressedMs: asMs(compressedSamples),
+        wsolaEvents,
+        shrinkEvents,
         underruns,
         dropEvents,
         droppedSamples,
@@ -250,37 +405,56 @@ class VibePlaybackProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
     const opts = (options && options.processorOptions) || {};
-    this.jitter = createWorkletJitterBuffer(sampleRate, opts);
-    this.quantaCounter = 0;
+    this.jb = createWorkletJitterBuffer(sampleRate, opts);
+    this.gain = typeof opts.gain === 'number' ? opts.gain : 1.0;
+    this.frameCounter = 0;
+    this.wasPlaying = false;
     this.active = true;
 
-    this.port.onmessage = (event) => {
-      const msg = event.data;
+    this.port.onmessage = (e) => {
+      const msg = e.data;
       if (!msg) return;
       if (msg.type === 'push' && msg.samples) {
-        const arr = msg.samples instanceof Float32Array
+        const samples = msg.samples instanceof Float32Array
           ? msg.samples
           : new Float32Array(msg.samples);
-        this.jitter.push(arr);
+        this.jb.push(samples);
       } else if (msg.type === 'reset') {
-        this.jitter.reset(msg.smooth !== false);
-      } else if (msg.type === 'stats') {
-        this.port.postMessage({ type: 'metrics', stats: this.jitter.stats() });
+        this.jb.reset(msg.smooth !== false);
+      } else if (msg.type === 'gain') {
+        this.gain = Math.max(0, Math.min(2, Number(msg.value) || 0));
       } else if (msg.type === 'stop') {
         this.active = false;
       }
     };
   }
 
-  process(_inputs, outputs) {
+  process(inputs, outputs) {
     if (!this.active) return false;
-    const outChannel = outputs[0] && outputs[0][0];
-    if (!outChannel) return true;
-    this.jitter.pull(outChannel);
-    this.quantaCounter++;
-    if (this.quantaCounter >= 75) { // cada ~400 ms a 24 kHz
-      this.quantaCounter = 0;
-      this.port.postMessage({ type: 'metrics', stats: this.jitter.stats() });
+    const output = outputs[0];
+    if (!output || !output[0]) return true;
+
+    const ch0 = output[0];
+    const hasAudio = this.jb.pull(ch0);
+    if (hasAudio && this.gain !== 1.0) {
+      for (let i = 0; i < ch0.length; i++) {
+        ch0[i] *= this.gain;
+      }
+    }
+    for (let c = 1; c < output.length; c++) {
+      output[c].set(ch0);
+    }
+
+    const st = this.jb.stats();
+    if (st.isPlaying !== this.wasPlaying) {
+      this.wasPlaying = st.isPlaying;
+      this.port.postMessage({ type: 'state', isPlaying: st.isPlaying, stats: st });
+    }
+
+    this.frameCounter++;
+    if (this.frameCounter >= 75) {
+      this.frameCounter = 0;
+      this.port.postMessage({ type: 'stats', stats: st });
     }
     return true;
   }

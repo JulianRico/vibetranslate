@@ -60,7 +60,10 @@ class PersonaPlexClient {
     this.host = options.host || process.env.PERSONAPLEX_HOST || '127.0.0.1';
     this.port = Number(options.port || process.env.PERSONAPLEX_PORT) || 8998;
     this.secure = Boolean(options.secure);
-    this.voicePrompt = normalizeVoicePromptFile(options.voicePrompt || process.env.PERSONAPLEX_VOICE || 'NATF2');
+    this.rawPrompt = Boolean(options.rawPrompt);
+    this.voicePrompt = this.rawPrompt
+      ? String(options.voicePrompt || 'auto').trim()
+      : normalizeVoicePromptFile(options.voicePrompt || process.env.PERSONAPLEX_VOICE || 'NATF2');
     this.textPrompt = options.textPrompt || '';
     this.audioFormat = options.audioFormat || 'pcm16'; // 'pcm16' (personaplex_service) | 'opus' (upstream moshi.server)
     this.seed = options.seed ?? null;
@@ -88,10 +91,15 @@ class PersonaPlexClient {
     return `${proto}://${this.host}:${this.port}`;
   }
 
-  buildWsUrl({ voicePrompt, textPrompt, audioFormat, seed } = {}) {
+  buildWsUrl({ voicePrompt, textPrompt, audioFormat, seed, rawPrompt } = {}) {
     const proto = this.secure ? 'wss' : 'ws';
-    const vp = normalizeVoicePromptFile(voicePrompt || this.voicePrompt);
-    const tp = wrapSystemPrompt(textPrompt !== undefined ? textPrompt : this.textPrompt);
+    // ¿Por qué `rawPrompt`?: PersonaPlex requiere envolver en `<system> ... <system>` y archivos `.pt`,
+    // mientras que Haru-4B recibe una Character Card estructurada tal cual y clips de referencia `.wav`/`.flac` o `auto`.
+    const useRaw = rawPrompt !== undefined ? Boolean(rawPrompt) : this.rawPrompt;
+    const rawVp = voicePrompt || this.voicePrompt;
+    const vp = useRaw ? String(rawVp || 'auto').trim() : normalizeVoicePromptFile(rawVp);
+    const rawTp = textPrompt !== undefined ? textPrompt : this.textPrompt;
+    const tp = useRaw ? String(rawTp || '').trim() : wrapSystemPrompt(rawTp);
     const fmt = audioFormat || this.audioFormat;
     const params = new URLSearchParams();
     params.set('voice_prompt', vp);

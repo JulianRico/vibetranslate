@@ -63,7 +63,12 @@ function envSettings(env = process.env) {
     voxcpmPort: Number(env.VOXCPM_PORT) || 0,
     personaplexHost: String(env.PERSONAPLEX_HOST || '').trim(),
     personaplexPort: Number(env.PERSONAPLEX_PORT) || 0,
-    personaplexVoice: String(env.PERSONAPLEX_VOICE || '').trim()
+    personaplexVoice: String(env.PERSONAPLEX_VOICE || '').trim(),
+    // Configuración opcional para Haru-4B Full-Duplex (puerto 8999 por defecto para convivir con PersonaPlex 8998)
+    haruHost: String(env.HARU_HOST || '').trim(),
+    haruPort: Number(env.HARU_PORT) || 0,
+    haruLang: String(env.HARU_LANG || '').trim(),
+    haruVoiceRef: String(env.HARU_VOICE_REF || '').trim()
   };
 }
 
@@ -81,6 +86,10 @@ function applyEnvFallbacks(settings, env = process.env) {
   if (!merged.personaplexHost && fromEnv.personaplexHost) merged.personaplexHost = fromEnv.personaplexHost;
   if (!merged.personaplexPort && fromEnv.personaplexPort) merged.personaplexPort = fromEnv.personaplexPort;
   if (!merged.personaplexVoice && fromEnv.personaplexVoice) merged.personaplexVoice = fromEnv.personaplexVoice;
+  if (!merged.haruHost && fromEnv.haruHost) merged.haruHost = fromEnv.haruHost;
+  if (!merged.haruPort && fromEnv.haruPort) merged.haruPort = fromEnv.haruPort;
+  if (!merged.haruLang && fromEnv.haruLang) merged.haruLang = fromEnv.haruLang;
+  if (!merged.haruVoiceRef && fromEnv.haruVoiceRef) merged.haruVoiceRef = fromEnv.haruVoiceRef;
   return merged;
 }
 

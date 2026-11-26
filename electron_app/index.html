@@ -490,8 +490,9 @@
               <div class="form-group">
                 <label for="training-engine">Motor del interlocutor</label>
                 <select id="training-engine" name="engine">
-                  <option value="cloud" selected>Nube estándar (Groq / Gemini)</option>
-                  <option value="personaplex">PersonaPlex Full-Duplex (&lt;200 ms)</option>
+                  <option value="cloud" selected>Nube estándar (Groq / Gemini · Guion estricto)</option>
+                  <option value="personaplex">PersonaPlex 7B Full-Duplex (&lt;200 ms · Inglés)</option>
+                  <option value="haru">Haru-4B Full-Duplex (12 GB / MLX · ES/EN natural)</option>
                 </select>
               </div>
               <div class="form-group">
@@ -529,6 +530,25 @@
                   <option value="VARM2">VARM2 · Masculina expresiva</option>
                 </select>
                 <p class="hint" id="personaplex-status-hint" hidden></p>
+              </div>
+              <div class="form-group" id="training-haru-group" hidden>
+                <div class="label-row">
+                  <label for="training-haru-lang">Tarjeta Haru-4B (7.5 Hz · WSOLA)</label>
+                  <button type="button" class="link-btn" id="btn-check-haru">Comprobar servidor</button>
+                </div>
+                <div class="field-pair">
+                  <select id="training-haru-lang" name="haruLang" aria-label="Idioma de tarjeta Haru">
+                    <option value="en" selected>Inglés internacional</option>
+                    <option value="es">Español nativo / bilingüe</option>
+                  </select>
+                  <select id="training-haru-backchannel" name="haruBackchannel" aria-label="Frecuencia de asentimientos">
+                    <option value="mid" selected>Asentimientos moderados</option>
+                    <option value="high">Asentimientos frecuentes</option>
+                    <option value="low">Asentimientos pausados</option>
+                  </select>
+                </div>
+                <p class="hint">Charla fluida tipo llamada real (~12 GB VRAM o Mac MLX); la rúbrica final sigue evaluándose con IA instruccional.</p>
+                <p class="hint" id="haru-status-hint" hidden></p>
               </div>
             </div>
           </details>

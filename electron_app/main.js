@@ -13,9 +13,10 @@ const { userGlossary } = require('./glossary');
 const { loadEnv, applyEnvFallbacks } = require('./env');
 const { createTechGlossary } = require('./local-ai/tech-glossary');
 const { createCloudTranslator } = require('./cloud-translator');
-const { createInterviewer, personaPlexPrompt } = require('./training-interviewer');
+const { createInterviewer, personaPlexPrompt, haruCardPrompt } = require('./training-interviewer');
 const { PersonaPlexClient, PERSONAPLEX_VOICES } = require('./personaplex-client');
 const { pickVoiceForSetup } = require('./personaplex-protocol');
+const { HARU_DEFAULT_PORT, HARU_LANGUAGES } = require('./haru-protocol');
 const { isWhisperHallucination } = require('./audio-utils');
 const { defaultLogger } = require('./logger');
 const { FishAudioService } = require('./fish-audio-service');
@@ -118,6 +119,10 @@ const DEFAULT_SETTINGS = {
   personaplexHost: '127.0.0.1',
   personaplexPort: 8998,
   personaplexVoice: 'auto',
+  haruHost: '127.0.0.1',
+  haruPort: HARU_DEFAULT_PORT,
+  haruLang: 'en',
+  haruVoiceRef: '',
   trainingEngine: 'cloud'
 };
 
@@ -383,6 +388,50 @@ ipcMain.handle('PERSONAPLEX_BUILD_SESSION', async (event, { setup = {} } = {}) =
     port,
     voicePrompt,
     textPrompt
+  };
+});
+
+// ── IPC para Haru-4B Multilingüe Full-Duplex (puerto 8999) ─────────────────
+// ¿Por qué reutilizamos PersonaPlexClient aquí?:
+// Tanto PersonaPlex como Haru-4B adoptan el protocolo binario de 1 byte de Moshi
+// en `/api/chat` (`0x00` handshake, `0x01` audio 24 kHz, `0x02` texto UTF-8, `0x06` ping),
+// diferenciándose únicamente en el puerto por defecto (8999 vs 8998) y en que Haru
+// recibe una Character Card multilingüe (`haruCardPrompt`) en vez de `<system> ... <system>`.
+ipcMain.handle('HARU_STATUS', async (event, { host, port, secure = false } = {}) => {
+  const saved = loadSavedSettings();
+  const client = new PersonaPlexClient({
+    host: host || saved.haruHost || '127.0.0.1',
+    port: Number(port || saved.haruPort) || HARU_DEFAULT_PORT,
+    secure: Boolean(secure)
+  });
+  const health = await client.checkHealth();
+  return {
+    ...health,
+    host: client.host,
+    port: client.port,
+    languages: HARU_LANGUAGES
+  };
+});
+
+ipcMain.handle('HARU_BUILD_SESSION', async (event, { setup = {} } = {}) => {
+  const saved = loadSavedSettings();
+  const host = setup.haruHost || saved.haruHost || '127.0.0.1';
+  const port = Number(setup.haruPort || saved.haruPort) || HARU_DEFAULT_PORT;
+  const lang = setup.haruLang || saved.haruLang || 'en';
+  const voicePrompt = setup.haruVoiceRef || saved.haruVoiceRef || 'auto';
+  const textPrompt = haruCardPrompt(setup, {
+    lang,
+    backchannel: setup.haruBackchannel || 'mid'
+  });
+  return {
+    ok: true,
+    engine: 'haru',
+    host,
+    port,
+    lang,
+    voicePrompt,
+    textPrompt,
+    rawPrompt: true
   };
 });
 

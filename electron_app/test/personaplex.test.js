@@ -16,7 +16,8 @@ const {
   wrapSystemPrompt
 } = require('../personaplex-protocol');
 const { PersonaPlexClient, resamplePcm16 } = require('../personaplex-client');
-const { personaPlexPrompt } = require('../training-interviewer');
+const { personaPlexPrompt, haruCardPrompt } = require('../training-interviewer');
+const { renderHaruCard, HARU_DEFAULT_PORT } = require('../haru-protocol');
 const GeminiLiveClient = require('../gemini-live-client');
 
 test('personaplex-protocol codifica y decodifica tramas binarias de 1 byte sin pérdidas', () => {
@@ -157,4 +158,45 @@ test('GeminiLiveClient activa contextWindowCompression (slidingWindow) también 
   assert.ok(setup.contextWindowCompression, 'translate_audio debe fijar contextWindowCompression');
   assert.equal(setup.contextWindowCompression.slidingWindow.targetTokens, '52428');
   assert.match(setup.systemInstruction.parts[0].text, /SharePoint, Entra ID/);
+});
+
+test('renderHaruCard, haruCardPrompt y PersonaPlexClient(rawPrompt) respetan el formato multilingüe de Haru-4B', () => {
+  assert.equal(HARU_DEFAULT_PORT, 8999);
+  const esCard = renderHaruCard({
+    persona: 'Ingeniera principal en Madrid.',
+    name: 'Elena',
+    gender: 'female',
+    backchannel: 'high',
+    other_name: 'Julián',
+    relationship: 'Compañeros de arquitectura.',
+    situation: 'Revisión de latencia en tiempo real.'
+  }, 'es');
+  assert.match(esCard, /\[Tu perfil\]/);
+  assert.match(esCard, /mujer/);
+  assert.match(esCard, /muchas/);
+
+  const enPrompt = haruCardPrompt({
+    mode: 'meeting',
+    role: 'Staff Platform Engineer',
+    sector: 'Cloud',
+    topic: 'Zero-downtime migration',
+    haruLang: 'en',
+    haruBackchannel: 'mid',
+    playbook: { interlocutor: { name: 'Sarah Jenkins', role: 'VP Engineering', location: 'Austin' } }
+  });
+  assert.match(enPrompt, /\[Your Persona\]/);
+  assert.match(enPrompt, /Sarah Jenkins/);
+  assert.ok(!enPrompt.includes('<system>'), 'Haru usa Character Cards limpias sin etiquetas <system> de Moshi');
+
+  const haruClient = new PersonaPlexClient({
+    host: '127.0.0.1',
+    port: HARU_DEFAULT_PORT,
+    voicePrompt: 'custom_ref.wav',
+    textPrompt: enPrompt,
+    rawPrompt: true
+  });
+  const wsUrl = haruClient.buildWsUrl();
+  assert.match(wsUrl, /127\.0\.0\.1:8999\/api\/chat/);
+  assert.match(wsUrl, /voice_prompt=custom_ref\.wav/);
+  assert.ok(!decodeURIComponent(wsUrl).includes('<system>'));
 });

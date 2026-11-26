@@ -1234,6 +1234,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const trainingPersonaplexVoice = document.getElementById('training-personaplex-voice');
   const btnCheckPersonaplex = document.getElementById('btn-check-personaplex');
   const personaplexStatusHint = document.getElementById('personaplex-status-hint');
+  const trainingHaruGroup = document.getElementById('training-haru-group');
+  const trainingHaruLang = document.getElementById('training-haru-lang');
+  const trainingHaruBackchannel = document.getElementById('training-haru-backchannel');
+  const btnCheckHaru = document.getElementById('btn-check-haru');
+  const haruStatusHint = document.getElementById('haru-status-hint');
   const trainingNotice = document.getElementById('training-notice');
   const trainingNoticeText = document.getElementById('training-notice-text');
   const trainingNoticeAction = document.getElementById('training-notice-action');
@@ -1406,6 +1411,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       context: trainingContext ? trainingContext.value.trim() : '',
       engine: trainingEngine ? trainingEngine.value : 'cloud',
       personaplexVoice: trainingPersonaplexVoice ? trainingPersonaplexVoice.value : 'auto',
+      haruLang: trainingHaruLang ? trainingHaruLang.value : 'en',
+      haruBackchannel: trainingHaruBackchannel ? trainingHaruBackchannel.value : 'mid',
       voice: trainingVoice ? trainingVoice.value : 'en',
       turn: trainingTurn ? trainingTurn.value : 'smart',
       ...(includePlaybook && draftPlaybook ? { playbook: draftPlaybook } : {})
@@ -1519,11 +1526,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (p.context !== undefined && trainingContext) trainingContext.value = p.context;
       if (p.engine && trainingEngine) trainingEngine.value = p.engine;
       if (p.personaplexVoice && trainingPersonaplexVoice) trainingPersonaplexVoice.value = p.personaplexVoice;
+      if (p.haruLang && trainingHaruLang) trainingHaruLang.value = p.haruLang;
+      if (p.haruBackchannel && trainingHaruBackchannel) trainingHaruBackchannel.value = p.haruBackchannel;
       if (p.voice && trainingVoice) trainingVoice.value = p.voice;
       if (p.turn && trainingTurn) trainingTurn.value = p.turn;
     } catch { /* preferencias dañadas: se usan las de la pantalla */ }
-    if (trainingPersonaplexVoiceGroup && trainingEngine) {
-      trainingPersonaplexVoiceGroup.hidden = trainingEngine.value !== 'personaplex';
+    if (trainingEngine) {
+      if (trainingPersonaplexVoiceGroup) trainingPersonaplexVoiceGroup.hidden = trainingEngine.value !== 'personaplex';
+      if (trainingHaruGroup) trainingHaruGroup.hidden = trainingEngine.value !== 'haru';
     }
     if (trainingTopic && !trainingTopic.value.trim()) {
       const suggestions = getTopicsFor(getSelectedTrainingMode(), trainingSector.value);
@@ -2140,28 +2150,38 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function startPersonaPlexTraining(t, sessionCfg) {
+    const isHaru = sessionCfg.engine === 'haru';
+    const engineTag = isHaru ? 'HARU' : 'PERSONAPLEX';
     const isMeeting = t.setup.mode === 'meeting';
     const whoLabel = (t.setup.playbook && t.setup.playbook.interlocutor && t.setup.playbook.interlocutor.name)
       ? `${t.setup.playbook.interlocutor.name}${t.setup.playbook.interlocutor.role ? ` · ${t.setup.playbook.interlocutor.role}` : ''}`
-      : (isMeeting ? 'Interlocutor PersonaPlex' : 'Entrevistador PersonaPlex');
-    if (trainingCounterpartLabel) trainingCounterpartLabel.textContent = `${whoLabel} · Full-Duplex`;
+      : (isHaru
+        ? (isMeeting ? 'Interlocutor Haru-4B' : 'Entrevistador Haru-4B')
+        : (isMeeting ? 'Interlocutor PersonaPlex' : 'Entrevistador PersonaPlex'));
+    if (trainingCounterpartLabel) {
+      trainingCounterpartLabel.textContent = `${whoLabel} · ${isHaru ? 'Haru 7.5 Hz + WSOLA' : 'Full-Duplex'}`;
+    }
 
     if (t.setup.voice !== 'none') {
+      // Tanto PersonaPlex (Mimi 24 kHz) como Haru-4B (VibeVoice 24 kHz) entregan audio PCM a 24 kHz,
+      // y `PcmStreamPlayer` aplica el jitter buffer con compresión temporal WSOLA sin cambio de tono.
       t.ppPlayer = new PcmStreamPlayer(PERSONAPLEX_SAMPLE_RATE);
       await t.ppPlayer.init('default', Math.max(0.15, Math.min(1, currentSpanishVolume)));
     }
 
     let liveTextBuffer = '';
     const totalTurns = (t.setup.playbook && t.setup.playbook.turns && t.setup.playbook.turns.length) || t.setup.questions;
+    const spokenLang = isHaru && sessionCfg.lang === 'es' ? 'es' : 'en';
 
     t.ppClient = new PersonaPlexClient({
       host: sessionCfg.host,
       port: sessionCfg.port,
       voicePrompt: sessionCfg.voicePrompt,
       textPrompt: sessionCfg.textPrompt,
+      rawPrompt: Boolean(sessionCfg.rawPrompt),
       audioFormat: 'pcm16',
       onReady: () => {
-        appendLog('PERSONAPLEX', `🟢 Sesión Full-Duplex conectada (${sessionCfg.voicePrompt}).`, 'gemini');
+        appendLog(engineTag, `🟢 Sesión Full-Duplex conectada (${isHaru ? `Haru-4B · ${spokenLang.toUpperCase()}` : sessionCfg.voicePrompt}).`, 'gemini');
         setTrainingState('Conectado en Full-Duplex: escuchando y hablando en tiempo real…');
       },
       onAudioFrame: (pcmBytes) => {
@@ -2179,22 +2199,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       onSentence: (sentence) => {
         if (training !== t || !t.active) return;
         liveTextBuffer = '';
-        const entry = { role: 'interviewer', text: sentence, translated: '' };
+        const entry = { role: 'interviewer', text: sentence, translated: spokenLang === 'es' ? sentence : '' };
         t.history.push(entry);
         t.asked++;
         trainingProgress.textContent = `${isMeeting ? 'Turno' : 'Pregunta'} ${Math.min(t.asked, totalTurns)} de ${totalTurns}`;
         trainingQuestionEn.textContent = sentence;
-        trainingQuestionEs.textContent = '…';
+        trainingQuestionEs.textContent = spokenLang === 'es' ? sentence : '…';
         updateLiveCoach(t);
-        appendLog('PERSONAPLEX', `${whoLabel}: ${sentence}`);
-        translateForTraining(sentence, 'en', 'es').then((es) => {
-          entry.translated = es;
-          if (training === t) trainingQuestionEs.textContent = es;
-        });
+        appendLog(engineTag, `${whoLabel}: ${sentence}`);
+        if (spokenLang !== 'es') {
+          translateForTraining(sentence, 'en', 'es').then((es) => {
+            entry.translated = es;
+            if (training === t) trainingQuestionEs.textContent = es;
+          });
+        }
         listenForAnswer(t);
       },
       onError: (err) => {
-        appendLog('PERSONAPLEX', `Aviso en stream Full-Duplex: ${err.message}`, 'warn');
+        appendLog(engineTag, `Aviso en stream Full-Duplex: ${err.message}`, 'warn');
       }
     });
 
@@ -2408,13 +2430,22 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
       appendLog('PERSONAPLEX', `Servidor PersonaPlex no detectado en ${status?.host || '127.0.0.1'}:${status?.port || 8998}; usando interlocutor en la nube.`, 'warn');
+    } else if (setup.engine === 'haru') {
+      const status = await ipcRenderer.invoke('HARU_STATUS').catch(() => ({ online: false }));
+      if (status && status.online) {
+        const sessionCfg = await ipcRenderer.invoke('HARU_BUILD_SESSION', { setup });
+        await startPersonaPlexTraining(t, sessionCfg);
+        return;
+      }
+      appendLog('HARU', `Servidor Haru-4B no detectado en ${status?.host || '127.0.0.1'}:${status?.port || 8999}; usando interlocutor en la nube.`, 'warn');
     }
     await interviewerTurn(t);
   }
 
-  if (trainingEngine && trainingPersonaplexVoiceGroup) {
+  if (trainingEngine) {
     trainingEngine.addEventListener('change', () => {
-      trainingPersonaplexVoiceGroup.hidden = trainingEngine.value !== 'personaplex';
+      if (trainingPersonaplexVoiceGroup) trainingPersonaplexVoiceGroup.hidden = trainingEngine.value !== 'personaplex';
+      if (trainingHaruGroup) trainingHaruGroup.hidden = trainingEngine.value !== 'haru';
     });
   }
 
@@ -2430,6 +2461,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         personaplexStatusHint.textContent = `🟢 PersonaPlex conectado en ${st.host}:${st.port} — ${modeTag}.`;
       } else {
         personaplexStatusHint.textContent = `⚠️ Servidor no iniciado en ${st?.host || '127.0.0.1'}:${st?.port || 8998}. Ejecuta personaplex_service/start_server.bat o usa Nube estándar.`;
+      }
+    });
+  }
+
+  if (btnCheckHaru && haruStatusHint) {
+    btnCheckHaru.addEventListener('click', async () => {
+      haruStatusHint.hidden = false;
+      haruStatusHint.textContent = 'Comprobando servidor Haru-4B en 127.0.0.1:8999…';
+      const st = await ipcRenderer.invoke('HARU_STATUS').catch((e) => ({ online: false, error: e.message }));
+      if (st && st.online) {
+        const modeTag = st.mode === 'haru_pytorch'
+          ? `CUDA activa (${st.gpu_name || st.device})`
+          : (st.mode === 'haru_mlx'
+            ? 'Apple Silicon MLX activo'
+            : 'Modo simulación 7.5 Hz + WSOLA activo');
+        haruStatusHint.textContent = `🟢 Haru-4B conectado en ${st.host}:${st.port} — ${modeTag}.`;
+      } else {
+        haruStatusHint.textContent = `⚠️ Servidor no iniciado en ${st?.host || '127.0.0.1'}:${st?.port || 8999}. Ejecuta haru_service/start_server.bat o usa Nube estándar.`;
       }
     });
   }

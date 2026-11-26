@@ -1,0 +1,8 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+numpy>=1.26.0
+websockets>=12.0
+# Para inferencia real Haru-4B en GPU NVIDIA (~12 GB VRAM):
+# git+https://github.com/higurashi-ai/haru.git#subdirectory=haru
+# Para inferencia nativa en Mac con Apple Silicon (Metal):
+# git+https://github.com/higurashi-ai/haru.git#subdirectory=haru_mlx

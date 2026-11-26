@@ -10,6 +10,7 @@
  */
 
 const { getLevelById } = require('./training-catalog');
+const { renderHaruCard, inferGenderFromName } = require('./haru-protocol');
 
 const GROQ_MODELS = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b'];
 const GEMINI_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.8-flash'];
@@ -161,6 +162,72 @@ function personaPlexPrompt(rawSetup) {
 
   const body = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
   return `<system> ${body} <system>`;
+}
+
+/**
+ * Construye una "Character Card" oficial para `higurashi-ai/Haru-4B`.
+ *
+ * ¿POR QUÉ USAMOS TARJETA DE PERSONAJE Y NO INSTRUCCIONES IMPERATIVAS?
+ * Haru-4B es un modelo base preentrenado de diálogo continuo (no un modelo instruct).
+ * Si recibe reglas tipo "Haz 5 preguntas y termina con [END]", tiende a ignorarlas;
+ * en cambio, cuando recibe una tarjeta descriptiva de identidad, relación y situación
+ * (`renderHaruCard`), sostiene una llamada telefónica ultrarrealista con asentimientos
+ * naturales (`backchannels`) en inglés o español, mientras la evaluación final sigue
+ * delegada al LLM instruccional de ViBeTranslate.
+ */
+function haruCardPrompt(rawSetup, options = {}) {
+  const s = normalizeSetup(rawSetup);
+  const levelInfo = getLevelById(s.level);
+  const isMeeting = s.mode === 'meeting';
+  const lang = String(options.lang || rawSetup?.haruLang || 'en').slice(0, 2).toLowerCase();
+  const backchannel = ['low', 'mid', 'high'].includes(options.backchannel || rawSetup?.haruBackchannel)
+    ? (options.backchannel || rawSetup.haruBackchannel)
+    : (s.level === 'collaborative' ? 'high' : 'mid');
+
+  const p = (s.playbook && s.playbook.interlocutor) || {};
+  const name = p.name || (isMeeting ? 'Alex Carter' : 'Sarah Jenkins');
+  const gender = options.gender || inferGenderFromName(name);
+  const title = p.role || (isMeeting ? 'International Engineering Lead' : 'Senior Hiring Manager');
+  const location = p.location || 'Seattle';
+  const candidateName = String(options.candidateName || 'Colleague').trim();
+
+  const firstTopics = (s.playbook && Array.isArray(s.playbook.turns) && s.playbook.turns.length > 0)
+    ? s.playbook.turns
+      .slice(0, 4)
+      .map((t) => String((t.question && (lang === 'es' ? t.question.es || t.question.en : t.question.en)) || '').trim())
+      .filter(Boolean)
+      .join(' ')
+    : '';
+
+  if (lang === 'es') {
+    return renderHaruCard({
+      persona: `${name} trabaja como ${title} en ${location}${s.sector ? ` dentro del sector ${s.sector}` : ''}. Su estilo al conversar es natural, claro y ${s.level === 'collaborative' ? 'cercano' : 'profesional y directo'}.`,
+      name,
+      gender,
+      backchannel,
+      other_name: candidateName,
+      relationship: isMeeting
+        ? `Compañeros de equipo internacional colaborando como ${title} y ${s.role}.`
+        : `Responsable de selección conversando con quien aspira al puesto de ${s.role}.`,
+      situation: isMeeting
+        ? `Llamada de trabajo en vivo sobre ${s.topic || s.role}.${firstTopics ? ` Temas en mente: ${firstTopics}` : ''}`
+        : `Llamada de entrevista conversacional sobre experiencia real en ${s.topic || s.role}.${firstTopics ? ` Preguntas clave en mente: ${firstTopics}` : ''}`
+    }, 'es');
+  }
+
+  return renderHaruCard({
+    persona: `${name} is a ${title} in ${location}${s.sector ? ` working in ${s.sector}` : ''}. Demeanor: ${levelInfo.enDesc}. Speaks naturally like on a real voice call.`,
+    name,
+    gender,
+    backchannel,
+    other_name: candidateName,
+    relationship: isMeeting
+      ? `International teammates working together (${title} and ${s.role}).`
+      : `Hiring manager speaking with a candidate for ${s.role}.`,
+    situation: isMeeting
+      ? `A live voice call to align on ${s.topic || s.role}.${firstTopics ? ` Key points to discuss: ${firstTopics}` : ''}`
+      : `A live voice interview discussing ${s.topic || s.role}.${firstTopics ? ` Key topics to explore: ${firstTopics}` : ''}`
+  }, lang);
 }
 
 function evaluationPrompt(rawSetup) {
@@ -520,6 +587,7 @@ module.exports = {
   parsePlaybook,
   interviewPrompt,
   personaPlexPrompt,
+  haruCardPrompt,
   evaluationPrompt,
   parseEvaluation,
   cleanSpoken
