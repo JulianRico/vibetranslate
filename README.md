@@ -63,7 +63,6 @@ vibetranslate/
 │   ├── training-session.js  # Answer collector, TTS chunking & report formatters
 │   ├── local-ai/            # Offline ONNX VAD/STT/diarization + Bergamot WASM MT
 │   └── test/                # 293 unit/integration tests + real Electron E2E suite
-├── website/                 # Astro + Tailwind landing page
 ├── interview-assistant/     # Companion web-based interview assistant
 ├── license-server/          # Node.js license validation microservice
 ├── voxcpm_service/          # Optional Python local TTS microservice

@@ -16,3 +16,6 @@ electron_app/test-sessions/
 # Build Outputs
 dist/
 electron_app/dist/
+
+# Local-only folders
+website/
