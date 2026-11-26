@@ -177,6 +177,12 @@ function createControlWindow() {
   });
 
   controlWindow.loadFile(path.join(__dirname, 'index.html'));
+  controlWindow.once('ready-to-show', () => {
+    if (controlWindow && !controlWindow.isDestroyed()) {
+      controlWindow.show();
+      controlWindow.focus();
+    }
+  });
 
   controlWindow.on('closed', () => {
     defaultLogger.info('UI', 'Panel de Control cerrado.');
